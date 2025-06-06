@@ -84,7 +84,7 @@ function validate_wallet() {
     local wallet="$1"
 
     if [ -z "$wallet" ]; then
-        error "No wallet address provided. Please provide your Monero wallet address as the first argument."
+        error "No wallet address provided. Please provide your Monero wallet address using -w or --wallet."
         return 1
     fi
 
@@ -109,7 +109,7 @@ function validate_directory() {
         fi
 
         if [ ! -d "$HOME" ]; then
-            error "Please make sure HOME directory $HOME exists or set it yourself using this command:"
+            error "Please make sure HOME directory $HOME exists or set it yourself using -d or --dir option."
             error '  export HOME=<dir>'
             return 1
         fi
@@ -151,17 +151,67 @@ function validate_email() {
 }
 
 function usage() {
-    echo "Usage: $0 WALLET_ADDRESS [BASE_DIR] [EMAIL]"
+    echo "Usage: $0 [OPTIONS]"
     echo
-    echo "Arguments:"
-    echo "  WALLET_ADDRESS  Your Monero wallet address (required)"
-    echo "  BASE_DIR        Base directory for installation (optional, defaults to HOME)"
-    echo "  EMAIL           Email address for notifications (optional)"
+    echo "Options:"
+    echo "  -w, --wallet WALLET   Your Monero wallet address (required)"
+    echo "  -d, --dir DIR         Base directory for installation (optional, defaults to HOME)"
+    echo "  -e, --email EMAIL     Email address for notifications (optional)"
+    echo "  -h, --help            Display this help message"
     echo
-    echo "Example:"
-    echo "  $0 4ABD..."
-    echo "  $0 4ABD... /opt/monero"
-    echo "  $0 4ABD... /opt/monero user@example.com"
+    echo "Examples:"
+    echo "  $0 -w 4ABD..."
+    echo "  $0 -w 4ABD... -d /opt/monero"
+    echo "  $0 --wallet 4ABD... --email user@example.com"
+    echo "  $0 -e user@example.com -w 4ABD... -d /opt/monero"
+    echo
+    echo "Note: Arguments can be provided in any order. Only the wallet address is required."
+}
+
+function parse_arguments() {
+    # Default values
+    WALLET=""
+    BASE_DIR=""
+    EMAIL=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -w|--wallet)
+                WALLET="$2"
+                shift 2
+                ;;
+            -d|--dir)
+                BASE_DIR="$2"
+                shift 2
+                ;;
+            -e|--email)
+                EMAIL="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                error "Unknown option: $1"
+                usage
+                exit 1
+                ;;
+        esac
+    done
+
+    # Check if required arguments are provided
+    if [ -z "$WALLET" ]; then
+        error "Wallet address is required"
+        usage
+        exit 1
+    fi
+
+    # Export variables
+    export WALLET
+    export BASE_DIR
+    export EMAIL
 }
 
 # ===== MoneroOcean Miner Setup Functions =====
@@ -288,13 +338,9 @@ function main() {
 
     check_if_running_as_root
 
-    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-        usage
-        exit 0
-    fi
+    parse_arguments "$@"
 
     if ! validate_wallet "$WALLET"; then
-        usage
         exit 1
     fi
 
@@ -321,8 +367,4 @@ function main() {
 }
 
 # ===== Script entry point =====
-WALLET=$1
-BASE_DIR=$2
-EMAIL=$3
-
 main "$@"
