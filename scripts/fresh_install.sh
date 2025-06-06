@@ -39,7 +39,10 @@ function load_toolbox() {
         function txt() { echo -e "${RESET}$1"; }
         function info() { txt "[${BLUE}  INFO   ${RESET}] ${BLUE}$1${RESET}"; }
         function warning() { txt "[${ORANGE} WARNING ${RESET}] ${ORANGE}$1${RESET}" >&2; }
-        function error() { txt "[${RED}  ERROR  ${RESET}] ${RED}$1${RESET}" >&2; return 1; }
+        function error() {
+            txt "[${RED}  ERROR  ${RESET}] ${RED}$1${RESET}" >&2
+            return 1
+        }
         function success() { txt "[${GREEN} SUCCESS ${RESET}] ${GREEN}$1${RESET}"; }
     fi
 }
@@ -67,6 +70,24 @@ function display_header() {
     txt "=========================================================================================="
     txt
     sleep $LOW_DELAY
+}
+
+function usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo
+    echo "Options:"
+    echo "  -w, --wallet WALLET   Your Monero wallet address (required)"
+    echo "  -d, --dir DIR         Base directory for installation (optional, defaults to HOME)"
+    echo "  -e, --email EMAIL     Email address for notifications (optional)"
+    echo "  -h, --help            Display this help message"
+    echo
+    echo "Examples:"
+    echo "  $0 -w 4ABD..."
+    echo "  $0 -w 4ABD... -d /opt/monero"
+    echo "  $0 --wallet 4ABD... --email user@example.com"
+    echo "  $0 -e user@example.com -w 4ABD... -d /opt/monero"
+    echo
+    echo "Note: Arguments can be provided in any order. Only the wallet address is required."
 }
 
 function check_if_running_as_root() {
@@ -150,22 +171,75 @@ function validate_email() {
     return 0
 }
 
-function usage() {
-    echo "Usage: $0 [OPTIONS]"
-    echo
-    echo "Options:"
-    echo "  -w, --wallet WALLET   Your Monero wallet address (required)"
-    echo "  -d, --dir DIR         Base directory for installation (optional, defaults to HOME)"
-    echo "  -e, --email EMAIL     Email address for notifications (optional)"
-    echo "  -h, --help            Display this help message"
-    echo
-    echo "Examples:"
-    echo "  $0 -w 4ABD..."
-    echo "  $0 -w 4ABD... -d /opt/monero"
-    echo "  $0 --wallet 4ABD... --email user@example.com"
-    echo "  $0 -e user@example.com -w 4ABD... -d /opt/monero"
-    echo
-    echo "Note: Arguments can be provided in any order. Only the wallet address is required."
+function detect_os() {
+    info "Detecting operating system..."
+
+    # Default values
+    OS_TYPE="unknown"
+    OS_NAME="unknown"
+    OS_VERSION="unknown"
+    IS_WSL=0
+
+    # Check for macOS
+    if command -v sw_vers &>/dev/null; then
+        OS_TYPE="macos"
+        OS_NAME=$(sw_vers -productName)
+        OS_VERSION=$(sw_vers -productVersion)
+        info "Detected macOS: $OS_NAME $OS_VERSION"
+
+    # Check for Linux
+    elif command -v lsb_release &>/dev/null; then
+        OS_TYPE="linux"
+        OS_NAME=$(lsb_release -is)
+        OS_VERSION=$(lsb_release -rs)
+
+        # Check if running in WSL
+        if grep -qi microsoft /proc/version 2>/dev/null; then
+            IS_WSL=1
+            info "Detected Linux (WSL): $OS_NAME $OS_VERSION"
+        else
+            info "Detected Linux: $OS_NAME $OS_VERSION"
+        fi
+
+    # Fallback Linux detection
+    elif [ -f /etc/os-release ]; then
+        OS_TYPE="linux"
+        OS_NAME=$(grep -oP '(?<=^NAME=").+(?=")' /etc/os-release)
+        OS_VERSION=$(grep -oP '(?<=^VERSION_ID=").+(?=")' /etc/os-release)
+
+        # Check if running in WSL
+        if grep -qi microsoft /proc/version 2>/dev/null; then
+            IS_WSL=1
+            info "Detected Linux (WSL): $OS_NAME $OS_VERSION"
+        else
+            info "Detected Linux: $OS_NAME $OS_VERSION"
+        fi
+
+    # Check for FreeBSD
+    elif command -v uname &>/dev/null && uname -s | grep -q "FreeBSD"; then
+        OS_TYPE="freebsd"
+        OS_NAME="FreeBSD"
+        OS_VERSION=$(uname -r)
+        info "Detected FreeBSD: $OS_VERSION"
+
+    # Generic UNIX-like OS detection
+    elif command -v uname &>/dev/null; then
+        OS_TYPE=$(uname -s | tr '[:upper:]' '[:lower:]')
+        OS_NAME=$(uname -s)
+        OS_VERSION=$(uname -r)
+        info "Detected UNIX-like system: $OS_NAME $OS_VERSION"
+
+    else
+        warning "Unable to determine operating system type"
+    fi
+
+    # Export variables for use in other functions
+    export OS_TYPE
+    export OS_NAME
+    export OS_VERSION
+    export IS_WSL
+
+    return 0
 }
 
 function parse_arguments() {
@@ -177,27 +251,27 @@ function parse_arguments() {
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            -w|--wallet)
-                WALLET="$2"
-                shift 2
-                ;;
-            -d|--dir)
-                BASE_DIR="$2"
-                shift 2
-                ;;
-            -e|--email)
-                EMAIL="$2"
-                shift 2
-                ;;
-            -h|--help)
-                usage
-                exit 0
-                ;;
-            *)
-                error "Unknown option: $1"
-                usage
-                exit 1
-                ;;
+        -w | --wallet)
+            WALLET="$2"
+            shift 2
+            ;;
+        -d | --dir)
+            BASE_DIR="$2"
+            shift 2
+            ;;
+        -e | --email)
+            EMAIL="$2"
+            shift 2
+            ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            error "Unknown option: $1"
+            usage
+            exit 1
+            ;;
         esac
     done
 
@@ -218,22 +292,22 @@ function parse_arguments() {
 
 function check_dependencies() {
     info "Checking required dependencies..."
-    
+
     if ! command -v curl &>/dev/null; then
         error "This script requires 'curl' utility to work correctly"
         return 1
     fi
-    
+
     if ! command -v lscpu &>/dev/null; then
         warning "This script works better with 'lscpu' utility"
     fi
-    
+
     return 0
 }
 
 function calculate_hashrate_and_port() {
     info "Calculating estimated hashrate and mining port..."
-    
+
     # Calculate threads and estimated hashrate
     if command -v nproc &>/dev/null; then
         CPU_THREADS=$(nproc)
@@ -242,18 +316,18 @@ function calculate_hashrate_and_port() {
     else
         CPU_THREADS=1
     fi
-    EXP_MONERO_HASHRATE=$(( CPU_THREADS * 700 / 1000))
-    
+    EXP_MONERO_HASHRATE=$((CPU_THREADS * 700 / 1000))
+
     if [ -z "$EXP_MONERO_HASHRATE" ]; then
         error "Can't compute projected Monero CN hashrate"
         return 1
     fi
-    
+
     # Power2 function to calculate appropriate port
     function power2() {
         local input="$1"
         if ! command -v bc &>/dev/null; then
-            if   [ "$input" -gt "8192" ]; then
+            if [ "$input" -gt "8192" ]; then
                 echo "8192"
             elif [ "$input" -gt "4096" ]; then
                 echo "4096"
@@ -282,51 +356,51 @@ function calculate_hashrate_and_port() {
             else
                 echo "1"
             fi
-        else 
+        else
             echo "x=l($input)/l(2); scale=0; 2^((x+0.5)/1)" | bc -l
         fi
     }
-    
+
     # Calculate PORT based on hashrate
-    PORT=$(( EXP_MONERO_HASHRATE * 30 ))
-    PORT=$(( PORT == 0 ? 1 : PORT ))
+    PORT=$((EXP_MONERO_HASHRATE * 30))
+    PORT=$((PORT == 0 ? 1 : PORT))
     PORT=$(power2 $PORT)
-    PORT=$(( 10000 + PORT ))
-    
+    PORT=$((10000 + PORT))
+
     if [ -z "$PORT" ]; then
         error "Can't compute port"
         return 1
     fi
-    
+
     if [ "$PORT" -lt "10001" -o "$PORT" -gt "18192" ]; then
         error "Wrong computed port value: $PORT"
         return 1
     fi
-    
+
     info "This host has $CPU_THREADS CPU threads, so projected Monero hashrate is around $EXP_MONERO_HASHRATE KH/s"
     info "Using port: $PORT"
-    
+
     # Export variables for use in other functions
     export CPU_THREADS
     export EXP_MONERO_HASHRATE
     export PORT
-    
+
     return 0
 }
 
 function show_resource_recommendations() {
     info "Resource usage recommendations:"
-    
+
     if [ "$CPU_THREADS" -lt "4" ]; then
         info "For your system with $CPU_THREADS CPU threads, consider limiting CPU usage to avoid overheating:"
         info "- Install cpulimit: sudo apt-get update && sudo apt-get install -y cpulimit"
-        info "- Limit XMRig: sudo cpulimit -e xmrig -l $((75*CPU_THREADS)) -b"
+        info "- Limit XMRig: sudo cpulimit -e xmrig -l $((75 * CPU_THREADS)) -b"
     else
         info "For your system with $CPU_THREADS CPU threads, consider setting max-threads-hint in config:"
         info "- Edit config.json: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config.json"
         info "- Edit background config: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config_background.json"
     fi
-    
+
     return 0
 }
 
@@ -355,6 +429,8 @@ function main() {
         exit 1
     fi
     sleep $LOW_DELAY
+
+    detect_os
 
     if ! check_dependencies; then
         exit 1
