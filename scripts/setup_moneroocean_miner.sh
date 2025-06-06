@@ -1,15 +1,15 @@
 #!/bin/bash
 
-VERSION=2.11
+source <(curl -s https://raw.githubusercontent.com/MorganKryze/bash-toolbox/main/src/prefix.sh)
+
+VERSION=0.1
 
 # printing greetings
 
-echo "MoneroOcean mining setup script v$VERSION."
-echo "(please report issues to support@moneroocean.stream email with full output of this script with extra \"-x\" \"bash\" option)"
-echo
+info "Custom MoneroOcean mining setup script v$VERSION not endorsed by MoneroOcean team, use at your own risk."
 
 if [ "$(id -u)" == "0" ]; then
-  echo "WARNING: Generally it is not adviced to run this script under root"
+  warning "Generally it is not adviced to run this script under root"
 fi
 
 # command line arguments
@@ -19,51 +19,44 @@ EMAIL=$2 # this one is optional
 # checking prerequisites
 
 if [ -z $WALLET ]; then
-  echo "Script usage:"
-  echo "> setup_moneroocean_miner.sh <wallet address> [<your email address>]"
-  echo "ERROR: Please specify your wallet address"
+  error "Script usage:"
+  error "> setup_moneroocean_miner.sh <wallet address> [<your email address>]"
+  error "Please specify your wallet address"
   exit 1
 fi
 
 WALLET_BASE=`echo $WALLET | cut -f1 -d"."`
 if [ ${#WALLET_BASE} != 106 -a ${#WALLET_BASE} != 95 ]; then
-  echo "ERROR: Wrong wallet base address length (should be 106 or 95): ${#WALLET_BASE}"
+  error "Wrong wallet base address length (should be 106 or 95): ${#WALLET_BASE}"
   exit 1
 fi
 
 if [ -z $HOME ]; then
-  echo "ERROR: Please define HOME environment variable to your home directory"
+  error "Please define HOME environment variable to your home directory"
   exit 1
 fi
 
 if [ ! -d $HOME ]; then
-  echo "ERROR: Please make sure HOME directory $HOME exists or set it yourself using this command:"
-  echo '  export HOME=<dir>'
+  error "Please make sure HOME directory $HOME exists or set it yourself using this command:"
+  error '  export HOME=<dir>'
   exit 1
 fi
 
 if ! type curl >/dev/null; then
-  echo "ERROR: This script requires \"curl\" utility to work correctly"
+  error "This script requires \"curl\" utility to work correctly"
   exit 1
 fi
 
 if ! type lscpu >/dev/null; then
-  echo "WARNING: This script requires \"lscpu\" utility to work correctly"
+  warning "This script requires \"lscpu\" utility to work correctly"
 fi
-
-#if ! sudo -n true 2>/dev/null; then
-#  if ! pidof systemd >/dev/null; then
-#    echo "ERROR: This script requires systemd to work correctly"
-#    exit 1
-#  fi
-#fi
 
 # calculating port
 
 CPU_THREADS=$(nproc)
 EXP_MONERO_HASHRATE=$(( CPU_THREADS * 700 / 1000))
 if [ -z $EXP_MONERO_HASHRATE ]; then
-  echo "ERROR: Can't compute projected Monero CN hashrate"
+  error "Can't compute projected Monero CN hashrate"
   exit 1
 fi
 
@@ -108,53 +101,53 @@ PORT=$(( $PORT == 0 ? 1 : $PORT ))
 PORT=`power2 $PORT`
 PORT=$(( 10000 + $PORT ))
 if [ -z $PORT ]; then
-  echo "ERROR: Can't compute port"
+  error "Can't compute port"
   exit 1
 fi
 
 if [ "$PORT" -lt "10001" -o "$PORT" -gt "18192" ]; then
-  echo "ERROR: Wrong computed port value: $PORT"
+  error "Wrong computed port value: $PORT"
   exit 1
 fi
 
 
 # printing intentions
 
-echo "I will download, setup and run in background Monero CPU miner."
-echo "If needed, miner in foreground can be started by $HOME/moneroocean/miner.sh script."
-echo "Mining will happen to $WALLET wallet."
+info "I will download, setup and run in background Monero CPU miner."
+info "If needed, miner in foreground can be started by $HOME/moneroocean/miner.sh script."
+info "Mining will happen to $WALLET wallet."
 if [ ! -z $EMAIL ]; then
-  echo "(and $EMAIL email as password to modify wallet options later at https://moneroocean.stream site)"
+  info "(and $EMAIL email as password to modify wallet options later at https://moneroocean.stream site)"
 fi
 echo
 
 if ! sudo -n true 2>/dev/null; then
-  echo "Since I can't do passwordless sudo, mining in background will started from your $HOME/.profile file first time you login this host after reboot."
+  info "Since I can't do passwordless sudo, mining in background will started from your $HOME/.profile file first time you login this host after reboot."
 else
-  echo "Mining in background will be performed using moneroocean_miner systemd service."
+  info "Mining in background will be performed using moneroocean_miner systemd service."
 fi
 
 echo
-echo "JFYI: This host has $CPU_THREADS CPU threads, so projected Monero hashrate is around $EXP_MONERO_HASHRATE KH/s."
+info "JFYI: This host has $CPU_THREADS CPU threads, so projected Monero hashrate is around $EXP_MONERO_HASHRATE KH/s."
 echo
 
-echo "Sleeping for 15 seconds before continuing (press Ctrl+C to cancel)"
-sleep 15
+info "Sleeping for 30 seconds before continuing (press Ctrl+C to cancel)"
+sleep 30
 echo
 echo
 
 # start doing stuff: preparing miner
 
-echo "[*] Removing previous moneroocean miner (if any)"
+info "[*] Removing previous moneroocean miner (if any)"
 if sudo -n true 2>/dev/null; then
   sudo systemctl stop moneroocean_miner.service
 fi
 killall -9 xmrig
 
-echo "[*] Removing $HOME/moneroocean directory"
+info "[*] Removing $HOME/moneroocean directory"
 rm -rf $HOME/moneroocean
 
-echo "[*] Downloading MoneroOcean advanced version of xmrig to /tmp/xmrig.tar.gz"
+info "[*] Downloading MoneroOcean advanced version of xmrig to /tmp/xmrig.tar.gz"
 if ! curl -L --progress-bar "https://raw.githubusercontent.com/MoneroOcean/xmrig_setup/master/xmrig.tar.gz" -o /tmp/xmrig.tar.gz; then
   echo "ERROR: Can't download https://raw.githubusercontent.com/MoneroOcean/xmrig_setup/master/xmrig.tar.gz file to /tmp/xmrig.tar.gz"
   exit 1
@@ -298,24 +291,24 @@ EOL
 fi
 
 echo ""
-echo "NOTE: If you are using shared VPS it is recommended to avoid 100% CPU usage produced by the miner or you will be banned"
+info "NOTE: If you are using shared VPS it is recommended to avoid 100% CPU usage produced by the miner or you will be banned"
 if [ "$CPU_THREADS" -lt "4" ]; then
-  echo "HINT: Please execute these or similair commands under root to limit miner to 75% percent CPU usage:"
-  echo "sudo apt-get update; sudo apt-get install -y cpulimit"
-  echo "sudo cpulimit -e xmrig -l $((75*$CPU_THREADS)) -b"
+  info "HINT: Please execute these or similair commands under root to limit miner to 75% percent CPU usage:"
+  info "sudo apt-get update; sudo apt-get install -y cpulimit"
+  info "sudo cpulimit -e xmrig -l $((75*$CPU_THREADS)) -b"
   if [ "`tail -n1 /etc/rc.local`" != "exit 0" ]; then
-    echo "sudo sed -i -e '\$acpulimit -e xmrig -l $((75*$CPU_THREADS)) -b\\n' /etc/rc.local"
+    info "sudo sed -i -e '\$acpulimit -e xmrig -l $((75*$CPU_THREADS)) -b\\n' /etc/rc.local"
   else
-    echo "sudo sed -i -e '\$i \\cpulimit -e xmrig -l $((75*$CPU_THREADS)) -b\\n' /etc/rc.local"
+    info "sudo sed -i -e '\$i \\cpulimit -e xmrig -l $((75*$CPU_THREADS)) -b\\n' /etc/rc.local"
   fi
 else
-  echo "HINT: Please execute these commands and reboot your VPS after that to limit miner to 75% percent CPU usage:"
-  echo "sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$HOME/moneroocean/config.json"
-  echo "sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$HOME/moneroocean/config_background.json"
+  info "HINT: Please execute these commands and reboot your VPS after that to limit miner to 75% percent CPU usage:"
+  info "sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$HOME/moneroocean/config.json"
+  info "sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$HOME/moneroocean/config_background.json"
 fi
 echo ""
 
-echo "[*] Setup complete"
+success "[*] Setup complete"
 
 
 
