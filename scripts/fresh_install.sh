@@ -343,23 +343,28 @@ function main() {
     if ! validate_wallet "$WALLET"; then
         exit 1
     fi
+    sleep $LOW_DELAY
 
     BASE_DIR=$(validate_directory "$BASE_DIR")
     if [ $? -ne 0 ]; then
         exit 1
     fi
+    sleep $LOW_DELAY
 
     if ! validate_email "$EMAIL"; then
         exit 1
     fi
+    sleep $LOW_DELAY
 
     if ! check_dependencies; then
         exit 1
     fi
+    sleep $LOW_DELAY
 
     if ! calculate_hashrate_and_port; then
         exit 1
     fi
+    sleep $LOW_DELAY
 
     show_resource_recommendations
 
