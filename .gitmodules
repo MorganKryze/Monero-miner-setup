@@ -1,0 +1,4 @@
+[submodule "xmrig"]
+	path = xmrig
+	url = https://github.com/MoneroOcean/xmrig.git
+	branch = master
