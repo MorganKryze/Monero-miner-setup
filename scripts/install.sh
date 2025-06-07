@@ -710,6 +710,24 @@ function setup_service() {
     return 0
 }
 
+function set_script_permissions() {
+    local target_dir="$BASE_DIR/$REPO_NAME"
+
+    info "Setting proper permissions for script files..."
+
+    # Navigate to the project directory
+    cd "$target_dir" || {
+        error "Failed to navigate to $target_dir."
+        return 1
+    }
+
+    # Set execution permissions for all scripts
+    chmod +x scripts/*.sh
+
+    success "Script permissions set successfully."
+    return 0
+}
+
 function install_project() {
     info "Checking project installation status..."
 
@@ -719,6 +737,7 @@ function install_project() {
             return 0
         else
             info "Project is cloned but not built. Proceeding with build..."
+            set_script_permissions
             if ! build_project; then
                 error "Failed to build project."
                 return 1
@@ -730,6 +749,8 @@ function install_project() {
             error "Failed to clone repository."
             return 1
         fi
+
+        set_script_permissions
 
         if ! generate_config_files; then
             error "Failed to generate configuration files."
