@@ -8,6 +8,12 @@ TOOLBOX_URL="https://raw.githubusercontent.com/MorganKryze/bash-toolbox/main/src
 PROJECT_URL="https://github.com/MorganKryze/Monero-miner-setup"
 REPO_NAME="Monero-miner-setup"
 REPO_URL="https://github.com/MorganKryze/Monero-miner-setup.git"
+DEFAULT_MAX_THREADS=75
+DEFAULT_DONATE_LEVEL=0
+DEFAULT_POOL_URL="gulf.moneroocean.stream"
+DEFAULT_PASS="x"
+DEFAULT_PAUSE_ON_ACTIVE=false
+DEFAULT_PAUSE_ON_BATTERY=false
 
 # ===== Error handling =====
 set -o errexit  # Exit on error
@@ -76,19 +82,28 @@ function display_header() {
 function usage() {
     echo "Usage: $0 [OPTIONS]"
     echo
-    echo "Options:"
-    echo "  -w, --wallet WALLET   Your Monero wallet address (required)"
-    echo "  -d, --dir DIR         Base directory for installation (optional, defaults to HOME)"
-    echo "  -e, --email EMAIL     Email address for notifications (optional)"
+    echo "Required Options:"
+    echo "  -w, --wallet WALLET   Your Monero wallet address"
+    echo
+    echo "Installation Options:"
+    echo "  -d, --dir DIR         Base directory for installation (defaults to HOME)"
+    echo "  -e, --email EMAIL     Email address for notifications"
+    echo
+    echo "Mining Configuration Options:"
+    echo "  -t, --threads PERCENT Max CPU threads hint (1-100, default: $DEFAULT_MAX_THREADS)"
+    echo "  --donate PERCENT      Donation level (0-5, default: $DEFAULT_DONATE_LEVEL)"
+    echo "  -p, --pool URL        Mining pool URL (default: $DEFAULT_POOL_URL)"
+    echo "  --pass STRING         Password for mining pool (default: hostname)"
+    echo "  --pause-active        Pause mining when computer is in active use (default: off)"
+    echo "  --pause-battery       Pause mining when computer is on battery (default: off)"
     echo "  -h, --help            Display this help message"
     echo
     echo "Examples:"
     echo "  $0 -w 4ABD..."
-    echo "  $0 -w 4ABD... -d /opt/monero"
-    echo "  $0 --wallet 4ABD... --email user@example.com"
-    echo "  $0 -e user@example.com -w 4ABD... -d /opt/monero"
+    echo "  $0 -w 4ABD... -d /opt/monero -t 50 --donate 1"
+    echo "  $0 -w 4ABD... -p rx.unmineable.com:3333"
     echo
-    echo "Note: Arguments can be provided in any order. Only the wallet address is required."
+    echo "Note: For MoneroOcean pool, the script will automatically calculate optimal port."
 }
 
 function check_if_running_as_root() {
@@ -250,6 +265,12 @@ function parse_arguments() {
     WALLET=""
     BASE_DIR=""
     EMAIL=""
+    MAX_THREADS=$DEFAULT_MAX_THREADS
+    DONATE_LEVEL=$DEFAULT_DONATE_LEVEL
+    POOL_URL=$DEFAULT_POOL_URL
+    PASS=$DEFAULT_PASS
+    PAUSE_ON_ACTIVE=$DEFAULT_PAUSE_ON_ACTIVE
+    PAUSE_ON_BATTERY=$DEFAULT_PAUSE_ON_BATTERY
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -265,6 +286,38 @@ function parse_arguments() {
         -e | --email)
             EMAIL="$2"
             shift 2
+            ;;
+        -t | --threads)
+            MAX_THREADS="$2"
+            if ! [[ "$MAX_THREADS" =~ ^[0-9]+$ ]] || [ "$MAX_THREADS" -lt 1 ] || [ "$MAX_THREADS" -gt 100 ]; then
+                error "Thread percentage must be between 1 and 100."
+                exit 1
+            fi
+            shift 2
+            ;;
+        --donate)
+            DONATE_LEVEL="$2"
+            if ! [[ "$DONATE_LEVEL" =~ ^[0-9]+$ ]] || [ "$DONATE_LEVEL" -lt 0 ] || [ "$DONATE_LEVEL" -gt 5 ]; then
+                error "Donation level must be between 0 and 5."
+                exit 1
+            fi
+            shift 2
+            ;;
+        -p | --pool)
+            POOL_URL="$2"
+            shift 2
+            ;;
+        --pass)
+            PASS="$2"
+            shift 2
+            ;;
+        --pause-active)
+            PAUSE_ON_ACTIVE=true
+            shift 1
+            ;;
+        --pause-battery)
+            PAUSE_ON_BATTERY=true
+            shift 1
             ;;
         -h | --help)
             usage
@@ -289,6 +342,12 @@ function parse_arguments() {
     export WALLET
     export BASE_DIR
     export EMAIL
+    export MAX_THREADS
+    export DONATE_LEVEL
+    export POOL_URL
+    export PASS
+    export PAUSE_ON_ACTIVE
+    export PAUSE_ON_BATTERY
 }
 
 # ===== MoneroOcean Miner Setup Functions =====
@@ -568,6 +627,17 @@ function show_resource_recommendations() {
     return 0
 }
 
+function display_next_steps() {
+    cd "$BASE_DIR/$REPO_NAME" || {
+        error "Failed to navigate to project directory."
+        exit 1
+    }
+    hint "You can now try the miner using: ${BLUE}make test${RESET}"
+    hint "Then start the service using: ${BLUE}make start${RESET}"
+    hint "To stop the service, use: ${BLUE}make stop${RESET}"
+    hint "For more information and commands, visit ${LINK}${UNDERLINE}${PROJECT_URL}${RESET}."
+}
+
 # ===== Main script execution =====
 function main() {
     load_toolbox
@@ -614,6 +684,8 @@ function main() {
     show_resource_recommendations
 
     success "MoneroOcean miner setup complete!"
+
+    display_next_steps
 }
 
 # ===== Script entry point =====

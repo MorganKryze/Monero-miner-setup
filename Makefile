@@ -30,7 +30,7 @@ define log-error
 	@echo "[$(RED)  ERROR  $(RESET)] $(RED)$(1)$(RESET)"
 endef
 
-start-foreground:
+test:
 	$(call log-info,"Starting XMRig in the foreground...")
 	@./xmrig --config $(CONFIG_DIR)/config.json || { $(call log-error,"Failed to start XMRig in the foreground"); exit 1; }
 
