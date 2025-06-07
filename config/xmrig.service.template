@@ -1,0 +1,15 @@
+[Unit]
+Description=XMRig Monero Miner
+After=network.target
+
+[Service]
+Type=simple
+User=%%USER%%
+WorkingDirectory=%%WORKING_DIR%%
+ExecStart=%%WORKING_DIR%%/xmrig --config=%%WORKING_DIR%%/config_background.json
+Restart=on-failure
+RestartSec=15
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

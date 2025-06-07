@@ -10,7 +10,8 @@ BUILD_DIR := build-xmrig
 
 .PHONY: install-debian install-fedora install-macos install-freebsd \
 		deps-debian deps-fedora deps-macos deps-freebsd \
-		build clean-build clean-configs wipe test update
+		build clean-build clean-configs wipe test update \
+		start stop restart status service-setup service-disable
 
 # Logging macros
 define log-info
@@ -28,6 +29,87 @@ endef
 define log-error
 	@echo "[$(RED)  ERROR  $(RESET)] $(RED)$(1)$(RESET)"
 endef
+
+start:
+	$(call log-info,"Starting XMRig service...")
+	@if [ -f /etc/systemd/system/xmrig.service ]; then \
+		sudo systemctl start xmrig || { $(call log-error,"Failed to start XMRig service"); exit 1; }; \
+		$(call log-success,"XMRig service started."); \
+	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
+		launchctl start com.moneroocean.xmrig || { $(call log-error,"Failed to start XMRig service"); exit 1; }; \
+		$(call log-success,"XMRig service started."); \
+	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
+		sudo service xmrig start || { $(call log-error,"Failed to start XMRig service"); exit 1; }; \
+		$(call log-success,"XMRig service started."); \
+	else \
+		$(call log-error,"No service configuration found. Run 'make service-setup' first"); exit 1; \
+	fi
+
+stop:
+	$(call log-info,"Stopping XMRig service...")
+	@if [ -f /etc/systemd/system/xmrig.service ]; then \
+		sudo systemctl stop xmrig || { $(call log-error,"Failed to stop XMRig service"); exit 1; }; \
+		$(call log-success,"XMRig service stopped."); \
+	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
+		launchctl stop com.moneroocean.xmrig || { $(call log-error,"Failed to stop XMRig service"); exit 1; }; \
+		$(call log-success,"XMRig service stopped."); \
+	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
+		sudo service xmrig stop || { $(call log-error,"Failed to stop XMRig service"); exit 1; }; \
+		$(call log-success,"XMRig service stopped."); \
+	else \
+		$(call log-error,"No service configuration found. Run 'make service-setup' first"); exit 1; \
+	fi
+
+restart: stop start
+	$(call log-success,"XMRig service restarted.")
+
+status:
+	$(call log-info,"Checking XMRig service status...")
+	@if [ -f /etc/systemd/system/xmrig.service ]; then \
+		sudo systemctl status xmrig; \
+	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
+		launchctl list | grep com.moneroocean.xmrig || echo "XMRig service is not running."; \
+	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
+		sudo service xmrig status; \
+	else \
+		$(call log-warning,"No service configuration found. Run 'make service-setup' first"); exit 1; \
+	fi
+
+service-setup:
+	$(call log-info,"Setting up XMRig service...")
+	@if [ -f /etc/debian_version ]; then \
+		./scripts/setup_service_debian.sh || { $(call log-error,"Failed to setup service on Debian"); exit 1; }; \
+	elif [ "$(shell uname)" = "Darwin" ]; then \
+		./scripts/setup_service_macos.sh || { $(call log-error,"Failed to setup service on macOS"); exit 1; }; \
+	elif [ -f /etc/fedora-release ] || [ -f /etc/redhat-release ]; then \
+		$(call log-warning,"Service setup not implemented for Fedora/RHEL yet"); exit 1; \
+	elif [ "$(shell uname)" = "FreeBSD" ]; then \
+		$(call log-warning,"Service setup not implemented for FreeBSD yet"); exit 1; \
+	else \
+		$(call log-warning,"Service setup not implemented for this OS"); exit 1; \
+	fi
+	$(call log-success,"XMRig service setup complete. Use 'make start' to start mining.")
+
+service-disable:
+	$(call log-info,"Disabling XMRig service...")
+	@if [ -f /etc/systemd/system/xmrig.service ]; then \
+		sudo systemctl stop xmrig; \
+		sudo systemctl disable xmrig || { $(call log-error,"Failed to disable XMRig service"); exit 1; }; \
+		sudo rm -f /etc/systemd/system/xmrig.service || { $(call log-error,"Failed to remove service file"); exit 1; }; \
+		sudo systemctl daemon-reload; \
+		$(call log-success,"XMRig service disabled and removed."); \
+	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
+		launchctl stop com.moneroocean.xmrig 2>/dev/null || true; \
+		launchctl unload $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist || { $(call log-error,"Failed to unload XMRig service"); exit 1; }; \
+		rm -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist || { $(call log-error,"Failed to remove service file"); exit 1; }; \
+		$(call log-success,"XMRig service disabled and removed."); \
+	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
+		sudo service xmrig stop; \
+		sudo rm -f /usr/local/etc/rc.d/xmrig || { $(call log-error,"Failed to remove service file"); exit 1; }; \
+		$(call log-success,"XMRig service disabled and removed."); \
+	else \
+		$(call log-warning,"No service configuration found."); exit 1; \
+	fi
 
 test:
 	$(call log-info,"Starting XMRig in the foreground...")

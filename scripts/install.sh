@@ -14,6 +14,7 @@ DEFAULT_POOL_URL="gulf.moneroocean.stream"
 DEFAULT_PASS="x"
 DEFAULT_PAUSE_ON_ACTIVE=false
 DEFAULT_PAUSE_ON_BATTERY=false
+DEFAULT_SERVICE_MODE="setup" # Options: "setup", "manual", "autostart"
 
 # ===== Error handling =====
 set -o errexit  # Exit on error
@@ -96,6 +97,10 @@ function usage() {
     echo "  --pause-active        Pause mining when computer is in active use (default: off)"
     echo "  --pause-battery       Pause mining when computer is on battery (default: off)"
     echo "  -h, --help            Display this help message"
+    echo
+    echo "Service Configuration Options:"
+    echo "  --only-manual        Do not set up any service, only manual operation"
+    echo "  --autostart          Start mining service immediately after installation"
     echo
     echo "Examples:"
     echo "  $0 -w 4ABD..."
@@ -254,6 +259,7 @@ function parse_arguments() {
     DISPLAY_NAME=$DEFAULT_PASS
     PAUSE_ON_ACTIVE=$DEFAULT_PAUSE_ON_ACTIVE
     PAUSE_ON_BATTERY=$DEFAULT_PAUSE_ON_BATTERY
+    SERVICE_MODE=$DEFAULT_SERVICE_MODE
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -298,6 +304,14 @@ function parse_arguments() {
             PAUSE_ON_BATTERY=true
             shift 1
             ;;
+        --only-manual)
+            SERVICE_MODE="manual"
+            shift 1
+            ;;
+        --autostart)
+            SERVICE_MODE="autostart"
+            shift 1
+            ;;
         -h | --help)
             usage
             exit 0
@@ -325,6 +339,7 @@ function parse_arguments() {
     export PASS=$DISPLAY_NAME
     export PAUSE_ON_ACTIVE
     export PAUSE_ON_BATTERY
+    export SERVICE_MODE
 }
 
 # ===== MoneroOcean Miner Setup Functions =====
@@ -625,6 +640,76 @@ function generate_config_files() {
     return 0
 }
 
+function setup_service() {
+    local target_dir="$BASE_DIR/$REPO_NAME"
+
+    # Skip service setup if --only-manual was specified
+    if [ "$SERVICE_MODE" == "manual" ]; then
+        info "Skipping service setup as requested (--only-manual)."
+        return 0
+    fi
+
+    cd "$target_dir" || {
+        error "Failed to navigate to $target_dir."
+        return 1
+    }
+
+    info "Setting up mining service..."
+
+    case "$OS_TYPE" in
+    linux)
+        if [ -f "/etc/debian_version" ] || [[ "$OS_NAME" =~ Debian|Ubuntu|Mint ]]; then
+            # Check if systemd is available
+            if ! command -v systemctl >/dev/null 2>&1; then
+                warning "systemd not found, skipping service setup."
+                return 0
+            fi
+
+            if ! ./scripts/setup_service_debian.sh; then
+                error "Failed to set up systemd service."
+                return 1
+            fi
+
+            if [ "$SERVICE_MODE" == "autostart" ]; then
+                info "Starting miner service immediately as requested (--autostart)."
+                if ! sudo systemctl start xmrig; then
+                    error "Failed to start mining service."
+                    return 1
+                fi
+                success "Mining service started successfully."
+            fi
+        else
+            warning "Service setup not implemented for this Linux distribution."
+        fi
+        ;;
+    macos)
+        if ! ./scripts/setup_service_macos.sh; then
+            error "Failed to set up macOS service."
+            return 1
+        fi
+
+        if [ "$SERVICE_MODE" == "autostart" ]; then
+            info "Starting miner service immediately as requested (--autostart)."
+            if ! launchctl start com.moneroocean.xmrig; then
+                error "Failed to start mining service."
+                return 1
+            fi
+            success "Mining service started successfully."
+        fi
+        ;;
+    *)
+        warning "Service setup not implemented for this OS: $OS_TYPE"
+        ;;
+    esac
+
+    if [ "$SERVICE_MODE" != "autostart" ]; then
+        info "Mining service has been set up but not started."
+        info "Use 'make start' to start mining."
+    fi
+
+    return 0
+}
+
 function install_project() {
     info "Checking project installation status..."
 
@@ -646,15 +731,21 @@ function install_project() {
             return 1
         fi
 
+        if ! generate_config_files; then
+            error "Failed to generate configuration files."
+            return 1
+        fi
+
         if ! build_project; then
             error "Failed to build project."
             return 1
         fi
 
-        if ! generate_config_files; then
-            error "Failed to generate configuration files."
-            return 1
+        if ! setup_service; then
+            warning "Service setup failed, but installation will continue."
+            # Don't return error here to allow installation to complete
         fi
+
     fi
 
     success "Project installed successfully."
@@ -704,9 +795,21 @@ function show_resource_recommendations() {
 function display_next_steps() {
     hint "Next steps:"
     hint "Move to the project directory: ${BLUE}cd $BASE_DIR/$REPO_NAME${RESET}"
-    hint "You can now try the miner using: ${BLUE}make test${RESET}"
-    hint "Then start the service using: ${BLUE}make start${RESET}"
-    hint "To stop the service, use: ${BLUE}make stop${RESET}"
+
+    if [ "$SERVICE_MODE" == "manual" ]; then
+        hint "You can try the miner using: ${BLUE}make test${RESET}"
+        hint "To set up a background service later: ${BLUE}make service-setup${RESET}"
+    elif [ "$SERVICE_MODE" == "autostart" ]; then
+        hint "Mining service is already running."
+        hint "To stop the service: ${BLUE}make stop${RESET}"
+        hint "To check service status: ${BLUE}make status${RESET}"
+    else # setup but not started
+        hint "You can try the miner using: ${BLUE}make test${RESET}"
+        hint "To start the mining service: ${BLUE}make start${RESET}"
+        hint "To stop the service: ${BLUE}make stop${RESET}"
+        hint "To check service status: ${BLUE}make status${RESET}"
+    fi
+
     hint "For more information and commands, visit ${LINK}${UNDERLINE}${PROJECT_URL}${RESET}."
 }
 

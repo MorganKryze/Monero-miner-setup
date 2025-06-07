@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.moneroocean.xmrig</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>%%WORKING_DIR%%/xmrig</string>
+        <string>--config=%%WORKING_DIR%%/config_background.json</string>
+    </array>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>WorkingDirectory</key>
+    <string>%%WORKING_DIR%%</string>
+    <key>StandardOutPath</key>
+    <string>%%WORKING_DIR%%/logs/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>%%WORKING_DIR%%/logs/stderr.log</string>
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
