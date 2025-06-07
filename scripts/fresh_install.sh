@@ -552,38 +552,6 @@ function clean_build() {
     return 0
 }
 
-function update_project() {
-    local target_dir="$BASE_DIR/$REPO_NAME"
-
-    info "Updating project at $target_dir..."
-
-    cd "$target_dir" || {
-        error "Failed to navigate to $target_dir."
-        return 1
-    }
-
-    info "Pulling latest changes from repository..."
-    if ! git pull; then
-        error "Failed to pull latest changes."
-        return 1
-    fi
-
-    info "Updating Git submodules..."
-    if ! git submodule update --init --recursive; then
-        error "Failed to update submodules."
-        return 1
-    fi
-
-    info "Removing old build and rebuilding..."
-    if ! make update; then
-        error "Failed to update build."
-        return 1
-    fi
-
-    success "Project updated successfully."
-    return 0
-}
-
 function show_resource_recommendations() {
     info "Resource usage recommendations:"
 
