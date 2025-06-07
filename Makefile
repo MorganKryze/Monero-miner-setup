@@ -54,19 +54,19 @@ build:
 
 # Update target - pulls latest repo changes, updates submodules, then cleans and rebuilds
 update:
-    $(call log-info,"Pulling latest changes from repository...")
-    @git pull || { $(call log-error,"Failed to pull latest changes"); exit 1; }
-    
-    $(call log-info,"Updating git submodules...")
-    @git submodule update --remote || { $(call log-error,"Failed to update submodules"); exit 1; }
-    
-    $(call log-info,"Cleaning old build...")
-    @$(MAKE) clean
-    
-    $(call log-info,"Building updated version...")
-    @$(MAKE) build
-    
-    $(call log-success,"Repository updated and rebuilt successfully.")
+	$(call log-info,"Pulling latest changes from repository...")
+	@git pull || { $(call log-error,"Failed to pull latest changes"); exit 1; }
+	
+	$(call log-info,"Updating git submodules...")
+	@git submodule update --remote || { $(call log-error,"Failed to update submodules"); exit 1; }
+	
+	$(call log-info,"Cleaning old build...")
+	@$(MAKE) clean
+	
+	$(call log-info,"Building updated version...")
+	@$(MAKE) build
+	
+	$(call log-success,"Repository updated and rebuilt successfully.")
 
 # Debian-specific dependencies
 deps-debian:
