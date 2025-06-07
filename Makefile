@@ -31,32 +31,39 @@ define log-error
 endef
 
 start:
-	@$(call log-info,"Starting XMRig service...")
-	@if [ -f /etc/systemd/system/xmrig.service ]; then \
-		sudo systemctl start xmrig; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to start XMRig service"); \
+	@echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Starting XMRig service...$(RESET)"
+	@bash -c ' \
+		if [ -f /etc/systemd/system/xmrig.service ]; then \
+			sudo systemctl start xmrig; \
+			if [ $$? -ne 0 ]; then \
+				echo "[$(RED)  ERROR  $(RESET)] $(RED)Failed to start XMRig service$(RESET)"; \
+				exit 1; \
+			fi; \
+			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service started.$(RESET)"; \
+		elif [ -f "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" ]; then \
+			launchctl load -w "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" 2>/dev/null || true; \
+			launchctl start com.moneroocean.xmrig; \
+			if [ $$? -ne 0 ]; then \
+				echo "[$(RED)  ERROR  $(RESET)] $(RED)Failed to start XMRig service$(RESET)"; \
+				if [ -f $(CURDIR)/logs/xmrig_stderr.log ]; then \
+					echo "Last 5 lines of error log:"; \
+					tail -n 5 $(CURDIR)/logs/xmrig_stderr.log; \
+				fi; \
+				exit 1; \
+			fi; \
+			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service started.$(RESET)"; \
+		elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
+			sudo service xmrig start; \
+			if [ $$? -ne 0 ]; then \
+				echo "[$(RED)  ERROR  $(RESET)] $(RED)Failed to start XMRig service$(RESET)"; \
+				exit 1; \
+			fi; \
+			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service started.$(RESET)"; \
+		else \
+			echo "[$(RED)  ERROR  $(RESET)] $(RED)No service configuration found. Run make service-setup first$(RESET)"; \
 			exit 1; \
-		fi; \
-		$(call log-success,"XMRig service started."); \
-	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
-		launchctl start com.moneroocean.xmrig; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to start XMRig service"); \
-			exit 1; \
-		fi; \
-		$(call log-success,"XMRig service started."); \
-	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
-		sudo service xmrig start; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to start XMRig service"); \
-			exit 1; \
-		fi; \
-		$(call log-success,"XMRig service started."); \
-	else \
-		$(call log-error,"No service configuration found. Run 'make service-setup' first"); \
-		exit 1; \
-	fi
+		fi \
+	'
 
 stop:
 	@echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Stopping XMRig service...$(RESET)"
@@ -206,7 +213,7 @@ clean-configs:
 	@$(call log-success,"Configuration cleanup complete.")
 
 wipe: clean-build clean-configs service-disable
-	@$(call log-success,"All build artifacts, configurations, and services have been cleaned.")
+	@echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)All build artifacts, configurations, and services have been cleaned.$(RESET)"
 
 # Build target - only compiles the project
 build:
