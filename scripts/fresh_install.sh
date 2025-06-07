@@ -6,7 +6,8 @@ LOW_DELAY=0.5
 HIGH_DELAY=1.5
 TOOLBOX_URL="https://raw.githubusercontent.com/MorganKryze/bash-toolbox/main/src/prefix.sh"
 PROJECT_URL="https://github.com/MorganKryze/Monero-miner-setup"
-XMRIG_ARCHIVE_URL="https://raw.githubusercontent.com/MoneroOcean/xmrig_setup/master/xmrig.tar.gz"
+REPO_NAME="Monero-miner-setup"
+REPO_URL="https://github.com/MorganKryze/Monero-miner-setup.git"
 
 # ===== Error handling =====
 set -o errexit  # Exit on error
@@ -17,7 +18,7 @@ trap cleanup EXIT
 function cleanup() {
     local exit_code=$?
     if [ $exit_code -ne 0 ]; then
-        echo "Script exited with error code $exit_code"
+        echo "Script exited with error code $exit_code."
     fi
     # Add any cleanup tasks here
     return $exit_code
@@ -58,7 +59,7 @@ function display_header() {
 
     sleep $LOW_DELAY
     txt
-    txt "Open-source Monero miner setup script v${VERSION}"
+    txt "Open-source Monero miner setup script v${VERSION}."
     sleep $LOW_DELAY
     txt "The Project is NEITHER endorsed by Monero NOR MoneroOcean team, use at your own risk."
     sleep $LOW_DELAY
@@ -92,10 +93,10 @@ function usage() {
 
 function check_if_running_as_root() {
     if [ "$(id -u)" == "0" ]; then
-        warning "Generally it is not advised to run this script under root"
+        warning "Generally it is not advised to run this script under root."
         read -p "Do you want to continue anyway? (y/N): " continue_as_root
         if [[ ! "$continue_as_root" =~ ^[Yy]$ ]]; then
-            info "Exiting as requested"
+            info "Exiting as requested."
             exit 0
         fi
     fi
@@ -111,12 +112,12 @@ function validate_wallet() {
 
     local wallet_base=$(echo "$wallet" | cut -f1 -d".")
     if [ ${#wallet_base} != 106 -a ${#wallet_base} != 95 ]; then
-        error "Wrong wallet base address length (should be 106 or 95): ${#wallet_base}"
+        error "Wrong wallet base address length (should be 106 or 95): ${#wallet_base}."
         return 1
     fi
 
-    info "Using wallet address: $wallet"
-    info "Wallet base address length is correct: ${#wallet_base}"
+    info "Using wallet address: $wallet."
+    info "Wallet base address length is correct: ${#wallet_base}."
     return 0
 }
 
@@ -125,7 +126,7 @@ function validate_directory() {
 
     if [ -z "$dir" ]; then
         if [ -z "$HOME" ]; then
-            error "Please define HOME environment variable to your home directory"
+            error "Please define HOME environment variable to your home directory."
             return 1
         fi
 
@@ -136,21 +137,24 @@ function validate_directory() {
         fi
 
         dir="$HOME"
-        info "No base directory provided, using default: $dir"
+        # Redirect info message to stderr so it doesn't get captured by $()
+        info "No base directory provided, using default: $dir." >&2
     else
         if [ ! -d "$dir" ]; then
-            error "Base directory does not exist: $dir"
+            error "Base directory does not exist: $dir."
             return 1
         fi
-        info "Using base directory: $dir"
+        # Redirect info message to stderr so it doesn't get captured by $()
+        info "Using base directory: $dir." >&2
     fi
 
     if [ ! -w "$dir" ]; then
-        error "No write permission to directory: $dir"
+        error "No write permission to directory: $dir."
         return 1
     fi
 
-    echo "$dir"
+    # Only the directory path will be captured now
+    printf "%s" "$dir"
     return 0
 }
 
@@ -159,10 +163,10 @@ function validate_email() {
 
     if [ -n "$email" ]; then
         if [[ ! "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
-            error "Invalid email address format: $email"
+            error "Invalid email address format: $email."
             return 1
         fi
-        info "Using email address: $email"
+        info "Using email address: $email."
     else
         info "No email address provided, proceeding without it."
     fi
@@ -184,7 +188,7 @@ function detect_os() {
         OS_TYPE="macos"
         OS_NAME=$(sw_vers -productName)
         OS_VERSION=$(sw_vers -productVersion)
-        info "Detected macOS: $OS_NAME $OS_VERSION"
+        info "Detected macOS: $OS_NAME $OS_VERSION."
 
     # Check for Linux
     elif command -v lsb_release &>/dev/null; then
@@ -195,9 +199,9 @@ function detect_os() {
         # Check if running in WSL
         if grep -qi microsoft /proc/version 2>/dev/null; then
             IS_WSL=1
-            info "Detected Linux (WSL): $OS_NAME $OS_VERSION"
+            info "Detected Linux (WSL): $OS_NAME $OS_VERSION."
         else
-            info "Detected Linux: $OS_NAME $OS_VERSION"
+            info "Detected Linux: $OS_NAME $OS_VERSION."
         fi
 
     # Fallback Linux detection
@@ -209,9 +213,9 @@ function detect_os() {
         # Check if running in WSL
         if grep -qi microsoft /proc/version 2>/dev/null; then
             IS_WSL=1
-            info "Detected Linux (WSL): $OS_NAME $OS_VERSION"
+            info "Detected Linux (WSL): $OS_NAME $OS_VERSION."
         else
-            info "Detected Linux: $OS_NAME $OS_VERSION"
+            info "Detected Linux: $OS_NAME $OS_VERSION."
         fi
 
     # Check for FreeBSD
@@ -219,17 +223,17 @@ function detect_os() {
         OS_TYPE="freebsd"
         OS_NAME="FreeBSD"
         OS_VERSION=$(uname -r)
-        info "Detected FreeBSD: $OS_VERSION"
+        info "Detected FreeBSD: $OS_VERSION."
 
     # Generic UNIX-like OS detection
     elif command -v uname &>/dev/null; then
         OS_TYPE=$(uname -s | tr '[:upper:]' '[:lower:]')
         OS_NAME=$(uname -s)
         OS_VERSION=$(uname -r)
-        info "Detected UNIX-like system: $OS_NAME $OS_VERSION"
+        info "Detected UNIX-like system: $OS_NAME $OS_VERSION."
 
     else
-        warning "Unable to determine operating system type"
+        warning "Unable to determine operating system type."
     fi
 
     # Export variables for use in other functions
@@ -267,7 +271,7 @@ function parse_arguments() {
             exit 0
             ;;
         *)
-            error "Unknown option: $1"
+            error "Unknown option: $1."
             usage
             exit 1
             ;;
@@ -276,7 +280,7 @@ function parse_arguments() {
 
     # Check if required arguments are provided
     if [ -z "$WALLET" ]; then
-        error "Wallet address is required"
+        error "Wallet address is required."
         usage
         exit 1
     fi
@@ -290,25 +294,23 @@ function parse_arguments() {
 # ===== MoneroOcean Miner Setup Functions =====
 
 function check_dependencies() {
-    info "Checking required dependencies..."
-
     if ! command -v curl &>/dev/null; then
-        error "This script requires 'curl' utility to work correctly"
+        error "This script requires 'curl' utility to work correctly."
         return 1
     fi
 
     if ! command -v git &>/dev/null; then
-        error "This script requires 'git' utility to work correctly"
+        error "This script requires 'git' utility to work correctly."
         return 1
     fi
 
     if ! command -v make &>/dev/null; then
-        error "This script requires 'make' utility to work correctly"
+        error "This script requires 'make' utility to work correctly."
         return 1
     fi
 
     if ! command -v lscpu &>/dev/null; then
-        warning "This script works better with 'lscpu' utility"
+        warning "This script works better with 'lscpu' utility."
     fi
 
     info "All required dependencies are installed (curl, git, make)."
@@ -316,8 +318,6 @@ function check_dependencies() {
 }
 
 function calculate_hashrate_and_port() {
-    info "Calculating estimated hashrate and mining port..."
-
     # Calculate threads and estimated hashrate
     if command -v nproc &>/dev/null; then
         CPU_THREADS=$(nproc)
@@ -329,7 +329,7 @@ function calculate_hashrate_and_port() {
     EXP_MONERO_HASHRATE=$((CPU_THREADS * 700 / 1000))
 
     if [ -z "$EXP_MONERO_HASHRATE" ]; then
-        error "Can't compute projected Monero CN hashrate"
+        error "Can't compute projected Monero CN hashrate."
         return 1
     fi
 
@@ -378,17 +378,17 @@ function calculate_hashrate_and_port() {
     PORT=$((10000 + PORT))
 
     if [ -z "$PORT" ]; then
-        error "Can't compute port"
+        error "Can't compute port."
         return 1
     fi
 
     if [ "$PORT" -lt "10001" -o "$PORT" -gt "18192" ]; then
-        error "Wrong computed port value: $PORT"
+        error "Wrong computed port value: $PORT."
         return 1
     fi
 
-    info "This host has $CPU_THREADS CPU threads, so projected Monero hashrate is around $EXP_MONERO_HASHRATE KH/s"
-    info "Using port: $PORT"
+    info "This host has $CPU_THREADS CPU threads, so projected Monero hashrate is around $EXP_MONERO_HASHRATE KH/s."
+    info "Using port: $PORT."
 
     # Export variables for use in other functions
     export CPU_THREADS
@@ -398,17 +398,152 @@ function calculate_hashrate_and_port() {
     return 0
 }
 
+function check_repo_exists() {
+    local target_dir="$BASE_DIR/$REPO_NAME"
+
+    if [ -d "$target_dir" ] && [ -d "$target_dir/.git" ]; then
+        info "Project repository found at $target_dir."
+        return 0
+    else
+        info "Project repository not found at $target_dir."
+        return 1
+    fi
+}
+
+function check_if_built() {
+    local target_dir="$BASE_DIR/$REPO_NAME"
+
+    # Check for evidence of a successful build
+    if [ -d "$target_dir/build" ] || [ -f "$target_dir/xmrig/build/xmrig" ]; then
+        success "Monero miner appears to be already built at $target_dir."
+        return 0
+    else
+        info "Monero miner not yet built."
+        return 1
+    fi
+}
+
+function clone_repository() {
+    local target_dir="$BASE_DIR/$REPO_NAME"
+
+    info "Cloning project repository to $target_dir..."
+
+    if ! git clone --recurse-submodules "$REPO_URL" "$target_dir"; then
+        error "Failed to clone repository (with submodules) from $REPO_URL."
+        return 1
+    fi
+
+    success "Repository and submodules successfully cloned to $target_dir."
+    return 0
+}
+
+function build_project() {
+    local target_dir="$BASE_DIR/$REPO_NAME"
+
+    info "Building project at $target_dir..."
+
+    cd "$target_dir" || {
+        error "Failed to navigate to $target_dir."
+        return 1
+    }
+
+    info "Updating Git submodules to ensure all dependencies are up-to-date..."
+    if ! git submodule update --remote; then
+        error "Failed to update submodules."
+        return 1
+    fi
+    success "Submodules are up-to-date."
+
+    # Select the appropriate build command based on OS
+    case "$OS_TYPE" in
+    linux)
+        if [ -f "/etc/debian_version" ] || [[ "$OS_NAME" =~ Debian|Ubuntu|Mint ]]; then
+            info "Detected Debian-based system, running 'make install-debian'..."
+            if ! make install-debian; then
+                error "Failed to build project using 'make install-debian'."
+                return 1
+            fi
+        elif [[ "$OS_NAME" =~ Fedora|CentOS|Red\ Hat ]]; then
+            info "Detected Red Hat-based system, running 'make install-fedora'..."
+            if ! make install-fedora; then
+                error "Failed to build project using 'make install-fedora'."
+                return 1
+            fi
+        else
+            info "Running generic Linux build 'make install-linux'..."
+            if ! make install-linux; then
+                error "Failed to build project using 'make install-linux'."
+                return 1
+            fi
+        fi
+        ;;
+    macos)
+        info "Detected macOS, running 'make install-macos'..."
+        if ! make install-macos; then
+            error "Failed to build project using 'make install-macos'."
+            return 1
+        fi
+        ;;
+    freebsd)
+        info "Detected FreeBSD, running 'make install-freebsd'..."
+        if ! make install-freebsd; then
+            error "Failed to build project using 'make install-freebsd'."
+            return 1
+        fi
+        ;;
+    *)
+        error "Unsupported operating system: $OS_TYPE."
+        error "Please build the project manually following instructions in the README."
+        return 1
+        ;;
+    esac
+
+    success "Project built successfully."
+    return 0
+}
+
+function install_project() {
+    info "Checking project installation status..."
+
+    if check_repo_exists; then
+        if check_if_built; then
+            success "Project is already installed. No further action required."
+            return 0
+        else
+            info "Project is cloned but not built. Proceeding with build..."
+            if ! build_project; then
+                error "Failed to build project."
+                return 1
+            fi
+        fi
+    else
+        info "Project not found. Cloning and building..."
+        if ! clone_repository; then
+            error "Failed to clone repository."
+            return 1
+        fi
+
+        if ! build_project; then
+            error "Failed to build project."
+            return 1
+        fi
+    fi
+
+    success "Project installed successfully."
+    return 0
+}
+
 function show_resource_recommendations() {
-    hint "Resource usage recommendations:"
+    info "Resource usage recommendations:"
 
     if [ "$CPU_THREADS" -lt "4" ]; then
-        hint "For your system with $CPU_THREADS CPU threads, consider limiting CPU usage to avoid overheating:"
-        hint "- Install cpulimit: sudo apt-get update && sudo apt-get install -y cpulimit"
-        hint "- Limit XMRig: sudo cpulimit -e xmrig -l $((75 * CPU_THREADS)) -b"
+        info "For your system with $CPU_THREADS CPU threads, consider limiting CPU usage to avoid overheating:"
+        info "- Install cpulimit: sudo apt-get update && sudo apt-get install -y cpulimit"
+        info "- Limit XMRig: sudo cpulimit -e xmrig -l $((75 * CPU_THREADS)) -b"
     else
-        hint "For your system with $CPU_THREADS CPU threads, consider setting max-threads-hint in config:"
-        hint "- Edit config.json: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config.json"
-        hint "- Edit background config: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config_background.json"
+        info "For your system with $CPU_THREADS CPU threads, consider setting max-threads-hint in config:"
+        info "- Edit config.json: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config.json"
+        info "- Edit background config: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config_background.json"
     fi
 
     return 0
@@ -451,6 +586,11 @@ function main() {
         exit 1
     fi
     sleep $LOW_DELAY
+
+    if ! install_project; then
+        error "Failed to install project."
+        exit 1
+    fi
 
     show_resource_recommendations
 
