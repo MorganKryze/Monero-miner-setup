@@ -6,22 +6,18 @@
     <string>com.moneroocean.xmrig</string>
     <key>ProgramArguments</key>
     <array>
-        <string>%%WORKING_DIR%%/xmrig</string>
-        <string>--config=%%WORKING_DIR%%/config_background.json</string>
+        <string>%%XMRIG_PATH%%</string>
+        <string>--config=%%CONFIG_PATH%%</string>
     </array>
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>StandardOutPath</key>
+    <string>%%LOG_PATH%%/xmrig_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>%%LOG_PATH%%/xmrig_stderr.log</string>
     <key>WorkingDirectory</key>
     <string>%%WORKING_DIR%%</string>
-    <key>StandardOutPath</key>
-    <string>%%WORKING_DIR%%/logs/stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>%%WORKING_DIR%%/logs/stderr.log</string>
-    <key>ThrottleInterval</key>
-    <integer>60</integer>
-    <key>Nice</key>
-    <integer>10</integer>
 </dict>
 </plist>
