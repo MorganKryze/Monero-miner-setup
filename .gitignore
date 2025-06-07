@@ -1,3 +1,5 @@
 # Ignore build directories and files
 build-xmrig/
 xmrig
+config.json
+config_background.json
