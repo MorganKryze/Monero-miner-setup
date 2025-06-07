@@ -369,7 +369,8 @@ function check_dependencies() {
     fi
 
     if ! command -v lscpu &>/dev/null; then
-        warning "This script works better with 'lscpu' utility."
+        warning "This script works better with 'lscpu' utility on linux systems."
+        warning "You can install it using: sudo apt-get install -y util-linux"
     fi
 
     info "All required dependencies are installed (curl, git, make)."
@@ -640,7 +641,7 @@ function display_next_steps() {
 function warning_before_install() {
     warning "This script will install MoneroOcean miner in $BASE_DIR/$REPO_NAME."
     warning "It will also create a systemd service for automatic startup."
-    warning "The Installation will start in $HIGH_DELAY seconds."
+    warning "The installation will start in $HIGH_DELAY seconds."
     warning "If you want to cancel the installation, press Ctrl+C now."
     sleep $HIGH_DELAY
     info "Continuing with installation..."
