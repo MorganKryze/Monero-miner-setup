@@ -178,7 +178,7 @@ update:
 	@git submodule update --remote || { @$(call log-error,"Failed to update submodules"); exit 1; }
 	
 	@$(call log-info,"Cleaning old build...")
-	@$(MAKE) clean
+	@$(MAKE) clean-build clean-service
 	
 	@$(call log-info,"Building updated version...")
 	@$(MAKE) build
