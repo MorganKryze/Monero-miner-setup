@@ -683,22 +683,26 @@ function clean_build() {
 }
 
 function show_resource_recommendations() {
-    info "Resource usage recommendations:"
+    if [ "$MAX_THREADS" -gt "75" ]; then
+        hint "Resource usage recommendations:"
+        hint "If you are using a shared VPS, it is recommended to avoid running the miner at 100% CPU usage, as this may result in your account being suspended or banned."
 
-    if [ "$CPU_THREADS" -lt "4" ]; then
-        info "For your system with $CPU_THREADS CPU threads, consider limiting CPU usage to avoid overheating:"
-        info "- Install cpulimit: sudo apt-get update && sudo apt-get install -y cpulimit"
-        info "- Limit XMRig: sudo cpulimit -e xmrig -l $((75 * CPU_THREADS)) -b"
-    else
-        info "For your system with $CPU_THREADS CPU threads, consider setting max-threads-hint in config to 75%."
-        info "This will help balance performance and system responsiveness."
+        if [ "$CPU_THREADS" -lt "4" ]; then
+            hint "For your system with $CPU_THREADS CPU threads, consider limiting CPU usage to avoid overheating:"
+            hint "- Install cpulimit: sudo apt-get update && sudo apt-get install -y cpulimit"
+            hint "- Limit XMRig: sudo cpulimit -e xmrig -l $((75 * CPU_THREADS)) -b"
+        else
+            hint "You've selected ${MAX_THREADS}% CPU usage which may cause system slowdowns."
+            hint "Consider reducing to 75% if you notice performance issues."
+            hint "This will help balance mining performance and system responsiveness."
+        fi
     fi
 
     return 0
 }
 
 function display_next_steps() {
-    info "Next steps:"
+    hint "Next steps:"
     hint "Move to the project directory: ${BLUE}cd $BASE_DIR/$REPO_NAME${RESET}"
     hint "You can now try the miner using: ${BLUE}make test${RESET}"
     hint "Then start the service using: ${BLUE}make start${RESET}"
@@ -737,6 +741,9 @@ function main() {
     fi
     sleep $LOW_DELAY
 
+    show_resource_recommendations
+    sleep $LOW_DELAY
+
     detect_os
 
     if ! check_dependencies; then
@@ -755,9 +762,6 @@ function main() {
         error "Failed to install project."
         exit 1
     fi
-    sleep $LOW_DELAY
-
-    show_resource_recommendations
     sleep $LOW_DELAY
 
     success "MoneroOcean miner setup complete!"
