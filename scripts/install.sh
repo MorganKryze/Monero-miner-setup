@@ -594,8 +594,8 @@ function generate_config_files() {
     fi
 
     # Copy template files to destination
-    cp "$source_config_dir/example.config.json" "$dest_config_dir/config.json"
-    cp "$source_config_dir/example.config_background.json" "$dest_config_dir/config_background.json"
+    cp "$source_config_dir/config.json.template" "$dest_config_dir/config.json"
+    cp "$source_config_dir/config_background.json.template" "$dest_config_dir/config_background.json"
 
     # Cross-platform sed function
     function sed_inplace() {
