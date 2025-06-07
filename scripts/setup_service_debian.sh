@@ -2,7 +2,7 @@
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 BASE_DIR=$(dirname "$SCRIPT_DIR")
-TEMPLATE_FILE="$BASE_DIR/config/xmrig.service.template"
+TEMPLATE_FILE="$BASE_DIR/templates/xmrig.service.template"
 TARGET_FILE="/tmp/xmrig.service"
 
 # Check if systemd is available

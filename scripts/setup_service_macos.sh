@@ -2,7 +2,7 @@
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0" || echo "$(echo "$0" | sed -e 's,\\,/,g')")")
 BASE_DIR=$(dirname "$SCRIPT_DIR")
-TEMPLATE_FILE="$BASE_DIR/config/com.moneroocean.xmrig.plist.template"
+TEMPLATE_FILE="$BASE_DIR/templates/com.moneroocean.xmrig.plist.template"
 TARGET_FILE="$HOME/Library/LaunchAgents/com.moneroocean.xmrig.plist"
 
 # Check if template exists
