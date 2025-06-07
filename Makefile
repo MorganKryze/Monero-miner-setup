@@ -34,30 +34,30 @@ start:
 	@$(call log-info,"Starting XMRig service...")
 	@if [ -f /etc/systemd/system/xmrig.service ]; then \
 		sudo systemctl start xmrig || { $(call log-error,"Failed to start XMRig service"); exit 1; }; \
-		@$(call log-success,"XMRig service started."); \
+		$(call log-success,"XMRig service started."); \
 	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
 		launchctl start com.moneroocean.xmrig || { $(call log-error,"Failed to start XMRig service"); exit 1; }; \
-		@$(call log-success,"XMRig service started."); \
+		$(call log-success,"XMRig service started."); \
 	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
 		sudo service xmrig start || { $(call log-error,"Failed to start XMRig service"); exit 1; }; \
-		@$(call log-success,"XMRig service started."); \
+		$(call log-success,"XMRig service started."); \
 	else \
-		@$(call log-error,"No service configuration found. Run 'make service-setup' first"); exit 1; \
+		$(call log-error,"No service configuration found. Run 'make service-setup' first"); exit 1; \
 	fi
 
 stop:
 	@$(call log-info,"Stopping XMRig service...")
 	@if [ -f /etc/systemd/system/xmrig.service ]; then \
 		sudo systemctl stop xmrig || { $(call log-error,"Failed to stop XMRig service"); exit 1; }; \
-		@$(call log-success,"XMRig service stopped."); \
+		$(call log-success,"XMRig service stopped."); \
 	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
 		launchctl stop com.moneroocean.xmrig || { $(call log-error,"Failed to stop XMRig service"); exit 1; }; \
-		@$(call log-success,"XMRig service stopped."); \
+		$(call log-success,"XMRig service stopped."); \
 	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
 		sudo service xmrig stop || { $(call log-error,"Failed to stop XMRig service"); exit 1; }; \
-		@$(call log-success,"XMRig service stopped."); \
+		$(call log-success,"XMRig service stopped."); \
 	else \
-		@$(call log-error,"No service configuration found. Run 'make service-setup' first"); exit 1; \
+		$(call log-error,"No service configuration found. Run 'make service-setup' first"); exit 1; \
 	fi
 
 restart: stop start
@@ -72,7 +72,7 @@ status:
 	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
 		sudo service xmrig status; \
 	else \
-		@$(call log-warning,"No service configuration found. Run 'make service-setup' first"); exit 1; \
+		$(call log-warning,"No service configuration found. Run 'make service-setup' first"); exit 1; \
 	fi
 
 service-setup:
@@ -82,11 +82,11 @@ service-setup:
 	elif [ "$(shell uname)" = "Darwin" ]; then \
 		./scripts/setup_service_macos.sh || { $(call log-error,"Failed to setup service on macOS"); exit 1; }; \
 	elif [ -f /etc/fedora-release ] || [ -f /etc/redhat-release ]; then \
-		@$(call log-warning,"Service setup not implemented for Fedora/RHEL yet"); exit 1; \
+		$(call log-warning,"Service setup not implemented for Fedora/RHEL yet"); exit 1; \
 	elif [ "$(shell uname)" = "FreeBSD" ]; then \
-		@$(call log-warning,"Service setup not implemented for FreeBSD yet"); exit 1; \
+		$(call log-warning,"Service setup not implemented for FreeBSD yet"); exit 1; \
 	else \
-		@$(call log-warning,"Service setup not implemented for this OS"); exit 1; \
+		$(call log-warning,"Service setup not implemented for this OS"); exit 1; \
 	fi
 	@$(call log-success,"XMRig service setup complete. Use 'make start' to start mining.")
 
@@ -97,18 +97,18 @@ service-disable:
 		sudo systemctl disable xmrig || { $(call log-error,"Failed to disable XMRig service"); exit 1; }; \
 		sudo rm -f /etc/systemd/system/xmrig.service || { $(call log-error,"Failed to remove service file"); exit 1; }; \
 		sudo systemctl daemon-reload; \
-		@$(call log-success,"XMRig service disabled and removed."); \
+		$(call log-success,"XMRig service disabled and removed."); \
 	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
 		launchctl stop com.moneroocean.xmrig 2>/dev/null || true; \
 		launchctl unload $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist || { $(call log-error,"Failed to unload XMRig service"); exit 1; }; \
 		rm -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist || { $(call log-error,"Failed to remove service file"); exit 1; }; \
-		@$(call log-success,"XMRig service disabled and removed."); \
+		$(call log-success,"XMRig service disabled and removed."); \
 	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
 		sudo service xmrig stop; \
 		sudo rm -f /usr/local/etc/rc.d/xmrig || { $(call log-error,"Failed to remove service file"); exit 1; }; \
-		@$(call log-success,"XMRig service disabled and removed."); \
+		$(call log-success,"XMRig service disabled and removed."); \
 	else \
-		@$(call log-warning,"No service configuration found."); exit 1; \
+		$(call log-warning,"No service configuration found."); exit 1; \
 	fi
 
 test:
@@ -136,18 +136,18 @@ clean-service:
 		sudo systemctl disable xmrig 2>/dev/null || true; \
 		sudo rm -f /etc/systemd/system/xmrig.service 2>/dev/null || true; \
 		sudo systemctl daemon-reload 2>/dev/null; \
-		@$(call log-success,"XMRig systemd service cleaned."); \
+		$(call log-success,"XMRig systemd service cleaned."); \
 	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
 		launchctl stop com.moneroocean.xmrig 2>/dev/null || true; \
 		launchctl unload $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist 2>/dev/null || true; \
 		rm -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist 2>/dev/null || true; \
-		@$(call log-success,"XMRig launchd service cleaned."); \
+		$(call log-success,"XMRig launchd service cleaned."); \
 	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
 		sudo service xmrig stop 2>/dev/null || true; \
 		sudo rm -f /usr/local/etc/rc.d/xmrig 2>/dev/null || true; \
-		@$(call log-success,"XMRig rc.d service cleaned."); \
+		$(call log-success,"XMRig rc.d service cleaned."); \
 	else \
-		@$(call log-info,"No XMRig service configuration found."); \
+		$(call log-info,"No XMRig service configuration found."); \
 	fi
 
 wipe: clean-build clean-configs clean-service
@@ -206,7 +206,7 @@ deps-macos:
 	@if command -v brew >/dev/null 2>&1; then \
 		brew install cmake libuv openssl hwloc || { $(call log-error,"Failed to install dependencies with Homebrew"); exit 1; }; \
 	else \
-		@$(call log-warning,"Homebrew not found. Installing Homebrew..."); \
+		$(call log-warning,"Homebrew not found. Installing Homebrew..."); \
 		/bin/bash -c "$$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || { $(call log-error,"Failed to install Homebrew"); exit 1; }; \
 		brew install cmake libuv openssl hwloc || { $(call log-error,"Failed to install dependencies with Homebrew"); exit 1; }; \
 	fi
