@@ -574,14 +574,8 @@ function generate_config_files() {
     # Create worker pass
     local worker_name="$PASS"
     if [ "$worker_name" = "$DEFAULT_PASS" ]; then
-        # Try using hostname first
-        worker_name=$(hostname | cut -f1 -d"." | sed -r 's/[^a-zA-Z0-9\-]+/_/g')
-
-        # If hostname is empty or just "localhost", generate a random name
-        if [ -z "$worker_name" ] || [ "$worker_name" = "localhost" ]; then
-            worker_name=$(generate_random_worker_name)
-            info "Generated random worker name: $worker_name"
-        fi
+        worker_name=$(generate_random_worker_name)
+        info "Generated random worker name: $worker_name"
     fi
 
     # Copy template files to destination
