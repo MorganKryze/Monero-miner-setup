@@ -619,9 +619,8 @@ function show_resource_recommendations() {
         info "- Install cpulimit: sudo apt-get update && sudo apt-get install -y cpulimit"
         info "- Limit XMRig: sudo cpulimit -e xmrig -l $((75 * CPU_THREADS)) -b"
     else
-        info "For your system with $CPU_THREADS CPU threads, consider setting max-threads-hint in config:"
-        info "- Edit config.json: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config.json"
-        info "- Edit background config: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config_background.json"
+        info "For your system with $CPU_THREADS CPU threads, consider setting max-threads-hint in config to 75%."
+        info "This will help balance performance and system responsiveness."
     fi
 
     return 0
@@ -641,9 +640,11 @@ function display_next_steps() {
 function warning_before_install() {
     warning "This script will install MoneroOcean miner in $BASE_DIR/$REPO_NAME."
     warning "It will also create a systemd service for automatic startup."
+    warning "The Installation will start in $HIGH_DELAY seconds."
     warning "If you want to cancel the installation, press Ctrl+C now."
     sleep $HIGH_DELAY
     info "Continuing with installation..."
+    sleep $LOW_DELAY
 }
 
 # ===== Main script execution =====
@@ -700,5 +701,4 @@ function main() {
     display_next_steps
 }
 
-# ===== Script entry point =====
 main "$@"
