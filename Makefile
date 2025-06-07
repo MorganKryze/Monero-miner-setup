@@ -8,9 +8,9 @@ RESET := $(shell tput sgr0)
 # Build directory outside the repo
 BUILD_DIR := build-xmrig
 
-.PHONY: install-debian install-fedora install-macos install-freebsd install-linux \
-		deps-debian deps-fedora deps-macos deps-freebsd deps-linux \
-		build clean update
+.PHONY: install-debian install-fedora install-macos install-freebsd \
+		deps-debian deps-fedora deps-macos deps-freebsd \
+		build clean-build clean-configs wipe test update
 
 # Logging macros
 define log-info
@@ -34,11 +34,21 @@ test:
 	@./xmrig --config config.json || { $(call log-error,"Failed to start XMRig in the foreground"); exit 1; }
 
 # Clean target - removes build directory
-clean:
+clean-build:
 	$(call log-info,"Cleaning build artifacts...")
 	@rm -rf $(BUILD_DIR) || { $(call log-error,"Failed to clean build directory"); exit 1; }
 	@rm -f xmrig || { $(call log-error,"Failed to remove symbolic link"); exit 1; }
 	$(call log-success,"Cleanup complete.")
+
+clean-configs:
+	$(call log-info,"Cleaning configuration files...")
+	@rm -f config.json || { $(call log-error,"Failed to remove config.json"); exit 1; }
+	@rm -f config_background.json || { $(call log-error,"Failed to remove config_background.json"); exit 1; }
+	@rm -f configs/*.json || { $(call log-error,"Failed to remove configs/*.json"); exit 1; }
+	$(call log-success,"Configuration cleanup complete.")
+
+wipe: clean-build clean-configs
+	$(call log-success,"All build artifacts and configurations have been cleaned.")
 
 # Build target - only compiles the project
 build:
