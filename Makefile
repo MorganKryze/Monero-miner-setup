@@ -42,8 +42,8 @@ start:
 			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service started.$(RESET)"; \
 		elif [ -f "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" ]; then \
 			launchctl load -w "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" 2>/dev/null || true; \
-			launchctl start com.moneroocean.xmrig; \
-			if [ $$? -ne 0 ]; then \
+			sleep 2; \
+			if ! pgrep -x xmrig >/dev/null; then \
 				echo "[$(RED)  ERROR  $(RESET)] $(RED)Failed to start XMRig service$(RESET)"; \
 				if [ -f $(CURDIR)/logs/xmrig_stderr.log ]; then \
 					echo "Last 5 lines of error log:"; \
@@ -73,7 +73,7 @@ stop:
 			sudo systemctl stop xmrig 2>/dev/null || true; \
 			STOPPED=true; \
 		elif [ -f "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" ]; then \
-			launchctl stop com.moneroocean.xmrig 2>/dev/null || true; \
+			launchctl unload "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" 2>/dev/null || true; \
 			STOPPED=true; \
 		elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
 			sudo service xmrig stop 2>/dev/null || true; \
