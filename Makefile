@@ -84,22 +84,26 @@ deps-macos:
 # Fedora-specific dependencies
 deps-fedora:
 	$(call log-info,"Installing dependencies for Fedora/RHEL-based systems...")
-	@sudo dnf install -y \
-		gcc-c++ \
-		cmake \
-		libuv-devel \
-		openssl-devel \
-		hwloc-devel || { $(call log-error,"Failed to install packages"); exit 1; }
+	# @sudo dnf install -y \
+	# 	gcc-c++ \
+	# 	cmake \
+	# 	libuv-devel \
+	# 	openssl-devel \
+	# 	hwloc-devel || { $(call log-error,"Failed to install packages"); exit 1; }
+	${call log-warning,"Fedora dependencies are not implemented yet. Please install manually."}
+	@exit 1
 
 # FreeBSD-specific dependencies
 deps-freebsd:
 	$(call log-info,"Installing dependencies for FreeBSD...")
-	@pkg install -y \
-		cmake \
-		git \
-		hwloc2 \
-		libuv \
-		openssl || { $(call log-error,"Failed to install packages"); exit 1; }
+	# @pkg install -y \
+	# 	cmake \
+	# 	git \
+	# 	hwloc2 \
+	# 	libuv \
+	# 	openssl || { $(call log-error,"Failed to install packages"); exit 1; }
+	${call log-warning,"FreeBSD dependencies are not implemented yet. Please install manually."}
+	@exit 1
 
 # Combined targets (for backward compatibility)
 install-debian: deps-debian build
