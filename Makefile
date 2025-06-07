@@ -68,25 +68,32 @@ start:
 stop:
 	@echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Stopping XMRig service...$(RESET)"
 	@bash -c ' \
+		STOPPED=false; \
 		if [ -f /etc/systemd/system/xmrig.service ]; then \
 			sudo systemctl stop xmrig 2>/dev/null || true; \
-			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service stopped.$(RESET)"; \
+			STOPPED=true; \
 		elif [ -f "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" ]; then \
 			launchctl stop com.moneroocean.xmrig 2>/dev/null || true; \
-			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service stopped.$(RESET)"; \
+			STOPPED=true; \
 		elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
 			sudo service xmrig stop 2>/dev/null || true; \
-			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service stopped.$(RESET)"; \
-		elif pgrep -x xmrig >/dev/null; then \
-			echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Found running XMRig process, stopping it...$(RESET)"; \
+			STOPPED=true; \
+		fi; \
+		\
+		if pgrep -x xmrig >/dev/null; then \
+			echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Terminating running XMRig processes...$(RESET)"; \
 			pkill -15 xmrig 2>/dev/null || true; \
 			sleep 1; \
 			pkill -9 xmrig 2>/dev/null || true; \
 			if pgrep -x xmrig >/dev/null; then \
-				echo "[$(RED)  ERROR  $(RESET)] $(RED)Failed to stop XMRig processes$(RESET)"; \
+				echo "[$(RED)  ERROR  $(RESET)] $(RED)Failed to stop all XMRig processes$(RESET)"; \
 				exit 1; \
 			fi; \
-			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig processes stopped.$(RESET)"; \
+			STOPPED=true; \
+		fi; \
+		\
+		if [ "$$STOPPED" = "true" ]; then \
+			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service and processes stopped.$(RESET)"; \
 		else \
 			echo "[$(ORANGE) WARNING $(RESET)] $(ORANGE)No XMRig service or running processes found.$(RESET)"; \
 		fi \
