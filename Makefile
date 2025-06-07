@@ -7,6 +7,7 @@ RESET := $(shell tput sgr0)
 
 # Build directory outside the repo
 BUILD_DIR := build-xmrig
+CONFIG_DIR := configs
 
 .PHONY: install-debian install-fedora install-macos install-freebsd install-linux \
 		deps-debian deps-fedora deps-macos deps-freebsd deps-linux \
@@ -28,6 +29,10 @@ endef
 define log-error
 	@echo "[$(RED)  ERROR  $(RESET)] $(RED)$(1)$(RESET)"
 endef
+
+start-foreground:
+	$(call log-info,"Starting XMRig in the foreground...")
+	@./xmrig --config $(CONFIG_DIR)/config.json || { $(call log-error,"Failed to start XMRig in the foreground"); exit 1; }
 
 # Clean target - removes build directory
 clean:
