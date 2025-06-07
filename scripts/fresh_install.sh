@@ -297,6 +297,16 @@ function check_dependencies() {
         return 1
     fi
 
+    if ! command -v git &>/dev/null; then
+        error "This script requires 'git' utility to work correctly"
+        return 1
+    fi
+
+    if ! command -v make &>/dev/null; then
+        error "This script requires 'make' utility to work correctly"
+        return 1
+    fi
+
     if ! command -v lscpu &>/dev/null; then
         warning "This script works better with 'lscpu' utility"
     fi
