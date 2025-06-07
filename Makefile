@@ -57,7 +57,19 @@ stop:
 		sudo service xmrig stop || { $(call log-error,"Failed to stop XMRig service"); exit 1; }; \
 		$(call log-success,"XMRig service stopped."); \
 	else \
-		$(call log-error,"No service configuration found. Run 'make service-setup' first"); exit 1; \
+		$(call log-info,"Service configuration not found, checking for running processes..."); \
+		if pgrep -x xmrig >/dev/null; then \
+			$(call log-info,"Found running XMRig process, attempting to stop it..."); \
+			if [ "$(shell uname)" = "Darwin" ]; then \
+				launchctl list | grep -q com.moneroocean.xmrig && launchctl stop com.moneroocean.xmrig; \
+				pkill -15 xmrig || { $(call log-error,"Failed to stop XMRig process"); exit 1; }; \
+			else \
+				pkill -15 xmrig || { $(call log-error,"Failed to stop XMRig process"); exit 1; }; \
+			fi; \
+			$(call log-success,"XMRig process stopped."); \
+		else \
+			$(call log-error,"No running XMRig service found."); exit 1; \
+		fi \
 	fi
 
 restart: stop start
@@ -71,8 +83,18 @@ status:
 		launchctl list | grep com.moneroocean.xmrig || echo "XMRig service is not running."; \
 	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
 		sudo service xmrig status; \
+	elif pgrep -x xmrig >/dev/null; then \
+		echo "XMRig is running with the following PIDs:"; \
+		pgrep -x xmrig | tr '\n' ' '; \
+		echo ""; \
+		if [ "$(shell uname)" = "Darwin" ]; then \
+			ps -p `pgrep -x xmrig | tr '\n' ','` -c; \
+		else \
+			ps -p `pgrep -x xmrig | tr '\n' ','` -o pid,%cpu,%mem,cmd; \
+		fi; \
 	else \
-		$(call log-warning,"No service configuration found. Run 'make service-setup' first"); exit 1; \
+		$(call log-warning,"No XMRig service or process found."); \
+		exit 1; \
 	fi
 
 service-setup:
