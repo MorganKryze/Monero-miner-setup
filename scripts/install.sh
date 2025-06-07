@@ -764,6 +764,7 @@ function main() {
     sleep $LOW_DELAY
 
     show_resource_recommendations
+    sleep $LOW_DELAY
 
     success "MoneroOcean miner setup complete!"
     sleep $LOW_DELAY
