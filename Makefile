@@ -8,7 +8,9 @@ RESET := $(shell tput sgr0)
 # Build directory outside the repo
 BUILD_DIR := build-xmrig
 
-.PHONY: install-debian install-fedora install-macos install-freebsd install-linux
+.PHONY: install-debian install-fedora install-macos install-freebsd install-linux \
+		deps-debian deps-fedora deps-macos deps-freebsd deps-linux \
+		build clean update
 
 # Logging macros
 define log-info
@@ -27,7 +29,34 @@ define log-error
 	@echo "[$(RED)  ERROR  $(RESET)] $(RED)$(1)$(RESET)"
 endef
 
-install-debian:
+# Clean target - removes build directory
+clean:
+	$(call log-info,"Cleaning build artifacts...")
+	@rm -rf $(BUILD_DIR) || { $(call log-error,"Failed to clean build directory"); exit 1; }
+	@rm -f xmrig || { $(call log-error,"Failed to remove symbolic link"); exit 1; }
+	$(call log-success,"Cleanup complete.")
+
+# Update target - cleans and rebuilds
+update: clean build
+
+# Build target - only compiles the project
+build:
+	$(call log-info,"Creating build directory...")
+	@mkdir -p $(BUILD_DIR) || { $(call log-error,"Failed to create build directory"); exit 1; }
+	
+	$(call log-info,"Configuring CMake...")
+	@cd $(BUILD_DIR) && cmake $(CURDIR)/dependencies/xmrig || { $(call log-error,"CMake configuration failed"); exit 1; }
+	
+	$(call log-info,"Building XMRig...")
+	@cd $(BUILD_DIR) && make || { $(call log-error,"Build failed"); exit 1; }
+	
+	$(call log-info,"Creating symbolic link to the built executable...")
+	@ln -sf $(BUILD_DIR)/xmrig $(CURDIR)/xmrig || { $(call log-error,"Failed to create symbolic link"); exit 1; }
+	
+	$(call log-success,"XMRig built successfully.")
+
+# Debian-specific dependencies
+deps-debian:
 	$(call log-info,"Updating package lists and upgrading system...")
 	@sudo apt update && sudo apt upgrade -y || { $(call log-error,"Failed to update packages"); exit 1; }
 
@@ -39,22 +68,9 @@ install-debian:
 		libssl-dev \
 		libhwloc-dev || { $(call log-error,"Failed to install packages"); exit 1; }
 
-	$(call log-info,"Creating build directory outside the repository...")
-	@mkdir -p $(BUILD_DIR) || { $(call log-error,"Failed to create build directory"); exit 1; }
-
-	$(call log-info,"Running CMake configuration from external build directory...")
-	@cd $(BUILD_DIR) && cmake $(CURDIR)/dependencies/xmrig || { $(call log-error,"CMake configuration failed"); exit 1; }
-
-	$(call log-info,"Building the project...")
-	@cd $(BUILD_DIR) && make || { $(call log-error,"Build failed"); exit 1; }
-
-	$(call log-info,"Creating symbolic link to the built executable...")
-	@ln -sf $(BUILD_DIR)/xmrig $(CURDIR)/xmrig || { $(call log-error,"Failed to create symbolic link"); exit 1; }
-
-	$(call log-success,"Installation complete.")
-
-install-macos:
-	$(call log-info,"Installing on macOS...")
+# macOS-specific dependencies
+deps-macos:
+	$(call log-info,"Installing dependencies for macOS...")
 	
 	$(call log-info,"Installing dependencies using Homebrew...")
 	@if command -v brew >/dev/null 2>&1; then \
@@ -64,35 +80,36 @@ install-macos:
 		/bin/bash -c "$$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || { $(call log-error,"Failed to install Homebrew"); exit 1; }; \
 		brew install cmake libuv openssl hwloc || { $(call log-error,"Failed to install dependencies with Homebrew"); exit 1; }; \
 	fi
-	
-	$(call log-info,"Creating build directory outside the repository...")
-	@mkdir -p $(BUILD_DIR) || { $(call log-error,"Failed to create build directory"); exit 1; }
-	
-	$(call log-info,"Configuring CMake for macOS...")
-	@cd $(BUILD_DIR) && cmake $(CURDIR)/dependencies/xmrig \
-		-DOPENSSL_ROOT_DIR=$(shell brew --prefix openssl) \
-		-DOPENSSL_LIBRARIES=$(shell brew --prefix openssl)/lib \
-		|| { $(call log-error,"CMake configuration failed"); exit 1; }
-	
-	$(call log-info,"Building XMRig...")
-	@cd $(BUILD_DIR) && make || { $(call log-error,"Build failed"); exit 1; }
-	
-	$(call log-info,"Creating symbolic link to the built executable...")
-	@ln -sf $(BUILD_DIR)/xmrig $(CURDIR)/xmrig || { $(call log-error,"Failed to create symbolic link"); exit 1; }
-	
+
+# Fedora-specific dependencies
+deps-fedora:
+	$(call log-info,"Installing dependencies for Fedora/RHEL-based systems...")
+	@sudo dnf install -y \
+		gcc-c++ \
+		cmake \
+		libuv-devel \
+		openssl-devel \
+		hwloc-devel || { $(call log-error,"Failed to install packages"); exit 1; }
+
+# FreeBSD-specific dependencies
+deps-freebsd:
+	$(call log-info,"Installing dependencies for FreeBSD...")
+	@pkg install -y \
+		cmake \
+		git \
+		hwloc2 \
+		libuv \
+		openssl || { $(call log-error,"Failed to install packages"); exit 1; }
+
+# Combined targets (for backward compatibility)
+install-debian: deps-debian build
+	$(call log-success,"Installation complete.")
+
+install-macos: deps-macos build
 	$(call log-success,"XMRig built successfully for macOS.")
 
-install-fedora:
-	$(call log-info,"Installing on Fedora/RHEL-based system...")
-	$(call log-warning,"This target is not yet implemented.")
+install-fedora: deps-fedora build
 	$(call log-success,"Installation complete.")
 
-install-freebsd:
-	$(call log-info,"Installing on FreeBSD...")
-	$(call log-warning,"This target is not yet implemented.")
-	$(call log-success,"Installation complete.")
-
-install-linux:
-	$(call log-info,"Installing on generic Linux...")
-	$(call log-warning,"This target is not yet implemented.")
+install-freebsd: deps-freebsd build
 	$(call log-success,"Installation complete.")

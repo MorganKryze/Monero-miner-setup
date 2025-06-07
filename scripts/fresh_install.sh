@@ -470,11 +470,9 @@ function build_project() {
                 return 1
             fi
         else
-            info "Running generic Linux build 'make install-linux'..."
-            if ! make install-linux; then
-                error "Failed to build project using 'make install-linux'."
-                return 1
-            fi
+            error "Unsupported Linux distribution: $OS_NAME."
+            error "Please build the project manually following instructions in the README."
+            return 1
         fi
         ;;
     macos)
@@ -530,6 +528,59 @@ function install_project() {
     fi
 
     success "Project installed successfully."
+    return 0
+}
+
+function clean_build() {
+    local target_dir="$BASE_DIR/$REPO_NAME"
+
+    info "Cleaning build artifacts..."
+
+    # Navigate to the project directory
+    cd "$target_dir" || {
+        error "Failed to navigate to $target_dir."
+        return 1
+    }
+
+    # Remove build directory and symbolic link
+    if ! make clean; then
+        error "Failed to clean build artifacts."
+        return 1
+    fi
+
+    success "Build artifacts cleaned successfully."
+    return 0
+}
+
+function update_project() {
+    local target_dir="$BASE_DIR/$REPO_NAME"
+
+    info "Updating project at $target_dir..."
+
+    cd "$target_dir" || {
+        error "Failed to navigate to $target_dir."
+        return 1
+    }
+
+    info "Pulling latest changes from repository..."
+    if ! git pull; then
+        error "Failed to pull latest changes."
+        return 1
+    fi
+
+    info "Updating Git submodules..."
+    if ! git submodule update --init --recursive; then
+        error "Failed to update submodules."
+        return 1
+    fi
+
+    info "Removing old build and rebuilding..."
+    if ! make update; then
+        error "Failed to update build."
+        return 1
+    fi
+
+    success "Project updated successfully."
     return 0
 }
 
