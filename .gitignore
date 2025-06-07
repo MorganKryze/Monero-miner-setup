@@ -1,1 +1,3 @@
+# Ignore build directories and files
 build-xmrig/
+xmrig
