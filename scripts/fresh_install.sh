@@ -311,6 +311,7 @@ function check_dependencies() {
         warning "This script works better with 'lscpu' utility"
     fi
 
+    info "All required dependencies are installed (curl, git, make)."
     return 0
 }
 
