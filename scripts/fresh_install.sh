@@ -680,10 +680,12 @@ function main() {
         error "Failed to install project."
         exit 1
     fi
+    sleep $LOW_DELAY
 
     show_resource_recommendations
 
     success "MoneroOcean miner setup complete!"
+    sleep $LOW_DELAY
 
     display_next_steps
 }
