@@ -3,7 +3,7 @@
 # ===== Constants =====
 VERSION="0.0.1"
 LOW_DELAY=0.5
-HIGH_DELAY=1.5
+HIGH_DELAY=25
 TOOLBOX_URL="https://raw.githubusercontent.com/MorganKryze/bash-toolbox/main/src/prefix.sh"
 PROJECT_URL="https://github.com/MorganKryze/Monero-miner-setup"
 REPO_NAME="Monero-miner-setup"
@@ -638,6 +638,14 @@ function display_next_steps() {
     hint "For more information and commands, visit ${LINK}${UNDERLINE}${PROJECT_URL}${RESET}."
 }
 
+function warning_before_install() {
+    warning "This script will install MoneroOcean miner in $BASE_DIR/$REPO_NAME."
+    warning "It will also create a systemd service for automatic startup."
+    warning "If you want to cancel the installation, press Ctrl+C now."
+    sleep $HIGH_DELAY
+    info "Continuing with installation..."
+}
+
 # ===== Main script execution =====
 function main() {
     load_toolbox
@@ -675,6 +683,8 @@ function main() {
         exit 1
     fi
     sleep $LOW_DELAY
+
+    warning_before_install
 
     if ! install_project; then
         error "Failed to install project."
