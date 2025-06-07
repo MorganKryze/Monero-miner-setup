@@ -3,7 +3,7 @@
 # ===== Constants =====
 VERSION="0.0.1"
 LOW_DELAY=0.5
-HIGH_DELAY=25
+HIGH_DELAY=15
 TOOLBOX_URL="https://raw.githubusercontent.com/MorganKryze/bash-toolbox/main/src/prefix.sh"
 PROJECT_URL="https://github.com/MorganKryze/Monero-miner-setup"
 REPO_NAME="Monero-miner-setup"
