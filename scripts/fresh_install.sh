@@ -145,7 +145,6 @@ function validate_directory() {
         info "Using base directory: $dir"
     fi
 
-    # Check write permissions
     if [ ! -w "$dir" ]; then
         error "No write permission to directory: $dir"
         return 1
@@ -389,16 +388,16 @@ function calculate_hashrate_and_port() {
 }
 
 function show_resource_recommendations() {
-    info "Resource usage recommendations:"
+    hint "Resource usage recommendations:"
 
     if [ "$CPU_THREADS" -lt "4" ]; then
-        info "For your system with $CPU_THREADS CPU threads, consider limiting CPU usage to avoid overheating:"
-        info "- Install cpulimit: sudo apt-get update && sudo apt-get install -y cpulimit"
-        info "- Limit XMRig: sudo cpulimit -e xmrig -l $((75 * CPU_THREADS)) -b"
+        hint "For your system with $CPU_THREADS CPU threads, consider limiting CPU usage to avoid overheating:"
+        hint "- Install cpulimit: sudo apt-get update && sudo apt-get install -y cpulimit"
+        hint "- Limit XMRig: sudo cpulimit -e xmrig -l $((75 * CPU_THREADS)) -b"
     else
-        info "For your system with $CPU_THREADS CPU threads, consider setting max-threads-hint in config:"
-        info "- Edit config.json: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config.json"
-        info "- Edit background config: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config_background.json"
+        hint "For your system with $CPU_THREADS CPU threads, consider setting max-threads-hint in config:"
+        hint "- Edit config.json: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config.json"
+        hint "- Edit background config: sed -i 's/\"max-threads-hint\": *[^,]*,/\"max-threads-hint\": 75,/' \$BASE_DIR/moneroocean/config_background.json"
     fi
 
     return 0
