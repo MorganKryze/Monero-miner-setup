@@ -553,7 +553,7 @@ function build_project() {
 }
 function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
-    local source_config_dir="$target_dir/config"
+    local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
 
     info "Generating miner configuration files..."

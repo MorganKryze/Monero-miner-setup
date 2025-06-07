@@ -126,7 +126,7 @@ clean-configs:
 	$(call log-info,"Cleaning configuration files...")
 	@rm -f config.json || { $(call log-error,"Failed to remove config.json"); exit 1; }
 	@rm -f config_background.json || { $(call log-error,"Failed to remove config_background.json"); exit 1; }
-	@rm -f configs/*.json || { $(call log-error,"Failed to remove configs/*.json"); exit 1; }
+	@rm -f configs/ || { $(call log-error,"Failed to remove configs/ directory."); exit 1; }
 	$(call log-success,"Configuration cleanup complete.")
 
 wipe: clean-build clean-configs
