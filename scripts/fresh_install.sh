@@ -708,10 +708,8 @@ function show_resource_recommendations() {
 }
 
 function display_next_steps() {
-    cd "$BASE_DIR/$REPO_NAME" || {
-        error "Failed to navigate to project directory."
-        exit 1
-    }
+    info "Next steps:"
+    hint "Move to the project directory: ${BLUE}cd $BASE_DIR/$REPO_NAME${RESET}"
     hint "You can now try the miner using: ${BLUE}make test${RESET}"
     hint "Then start the service using: ${BLUE}make start${RESET}"
     hint "To stop the service, use: ${BLUE}make stop${RESET}"
