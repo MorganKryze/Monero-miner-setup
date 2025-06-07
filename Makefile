@@ -61,41 +61,26 @@ start:
 stop:
 	@$(call log-info,"Stopping XMRig service...")
 	@if [ -f /etc/systemd/system/xmrig.service ]; then \
-		sudo systemctl stop xmrig; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to stop XMRig service"); \
-			exit 1; \
-		fi; \
+		sudo systemctl stop xmrig 2>/dev/null || true; \
 		$(call log-success,"XMRig service stopped."); \
 	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
 		launchctl stop com.moneroocean.xmrig 2>/dev/null || true; \
 		$(call log-success,"XMRig service stopped."); \
 	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
-		sudo service xmrig stop; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to stop XMRig service"); \
-			exit 1; \
-		fi; \
+		sudo service xmrig stop 2>/dev/null || true; \
 		$(call log-success,"XMRig service stopped."); \
-	else \
-		$(call log-info,"Service configuration not found, checking for running processes..."); \
+	elif pgrep -x xmrig >/dev/null; then \
+		$(call log-info,"Found running XMRig process, stopping it..."); \
+		pkill -15 xmrig 2>/dev/null || true; \
+		sleep 1; \
+		pkill -9 xmrig 2>/dev/null || true; \
 		if pgrep -x xmrig >/dev/null; then \
-			$(call log-info,"Found running XMRig process, attempting to stop it..."); \
-			pkill -15 xmrig; \
-			sleep 1; \
-			if pgrep -x xmrig >/dev/null; then \
-				pkill -9 xmrig; \
-				sleep 1; \
-				if pgrep -x xmrig >/dev/null; then \
-					$(call log-error,"Failed to stop XMRig process"); \
-					exit 1; \
-				fi; \
-			fi; \
-			$(call log-success,"XMRig process stopped."); \
-		else \
-			$(call log-error,"No running XMRig service found."); \
+			$(call log-error,"Failed to stop XMRig processes"); \
 			exit 1; \
 		fi; \
+		$(call log-success,"XMRig processes stopped."); \
+	else \
+		$(call log-warning,"No XMRig service or running processes found."); \
 	fi
 
 restart: stop start
@@ -120,7 +105,6 @@ status:
 		fi; \
 	else \
 		$(call log-warning,"No XMRig service or process found."); \
-		exit 1; \
 	fi
 
 service-setup:
