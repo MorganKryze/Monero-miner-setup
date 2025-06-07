@@ -68,11 +68,7 @@ stop:
 		fi; \
 		$(call log-success,"XMRig service stopped."); \
 	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
-		launchctl stop com.moneroocean.xmrig; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to stop XMRig service"); \
-			exit 1; \
-		fi; \
+		launchctl stop com.moneroocean.xmrig 2>/dev/null || true; \
 		$(call log-success,"XMRig service stopped."); \
 	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
 		sudo service xmrig stop; \
@@ -85,16 +81,12 @@ stop:
 		$(call log-info,"Service configuration not found, checking for running processes..."); \
 		if pgrep -x xmrig >/dev/null; then \
 			$(call log-info,"Found running XMRig process, attempting to stop it..."); \
-			if [ "$(shell uname)" = "Darwin" ]; then \
-				launchctl list | grep -q com.moneroocean.xmrig && launchctl stop com.moneroocean.xmrig; \
-				pkill -15 xmrig; \
-				if [ $$? -ne 0 ]; then \
-					$(call log-error,"Failed to stop XMRig process"); \
-					exit 1; \
-				fi; \
-			else \
-				pkill -15 xmrig; \
-				if [ $$? -ne 0 ]; then \
+			pkill -15 xmrig; \
+			sleep 1; \
+			if pgrep -x xmrig >/dev/null; then \
+				pkill -9 xmrig; \
+				sleep 1; \
+				if pgrep -x xmrig >/dev/null; then \
 					$(call log-error,"Failed to stop XMRig process"); \
 					exit 1; \
 				fi; \
@@ -158,45 +150,31 @@ service-setup:
 	@$(call log-success,"XMRig service setup complete. Use 'make start' to start mining.")
 
 service-disable:
-	@$(call log-info,"Disabling XMRig service...")
+	@$(call log-info,"Disabling and removing XMRig service...")
 	@if [ -f /etc/systemd/system/xmrig.service ]; then \
-		sudo systemctl stop xmrig; \
-		sudo systemctl disable xmrig; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to disable XMRig service"); \
-			exit 1; \
-		fi; \
+		sudo systemctl stop xmrig 2>/dev/null || true; \
+		sudo systemctl disable xmrig 2>/dev/null || true; \
 		sudo rm -f /etc/systemd/system/xmrig.service; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to remove service file"); \
-			exit 1; \
-		fi; \
 		sudo systemctl daemon-reload; \
-		$(call log-success,"XMRig service disabled and removed."); \
+		$(call log-success,"XMRig systemd service disabled and removed."); \
 	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
 		launchctl stop com.moneroocean.xmrig 2>/dev/null || true; \
-		launchctl unload $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to unload XMRig service"); \
-			exit 1; \
-		fi; \
+		launchctl unload -w $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist 2>/dev/null || true; \
 		rm -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to remove service file"); \
-			exit 1; \
-		fi; \
-		$(call log-success,"XMRig service disabled and removed."); \
+		$(call log-success,"XMRig launchd service disabled and removed."); \
 	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
-		sudo service xmrig stop; \
+		sudo service xmrig stop 2>/dev/null || true; \
 		sudo rm -f /usr/local/etc/rc.d/xmrig; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to remove service file"); \
-			exit 1; \
-		fi; \
-		$(call log-success,"XMRig service disabled and removed."); \
+		$(call log-success,"XMRig rc.d service disabled and removed."); \
 	else \
-		$(call log-warning,"No service configuration found."); \
-		exit 1; \
+		if pgrep -x xmrig >/dev/null; then \
+			pkill -15 xmrig; \
+			sleep 1; \
+			pkill -9 xmrig 2>/dev/null || true; \
+			$(call log-success,"Running XMRig processes terminated."); \
+		else \
+			$(call log-info,"No XMRig service configuration or running processes found."); \
+		fi; \
 	fi
 
 test:
@@ -241,28 +219,7 @@ clean-configs:
 	fi
 	@$(call log-success,"Configuration cleanup complete.")
 
-clean-service:
-	@$(call log-info,"Cleaning XMRig service configuration...")
-	@if [ -f /etc/systemd/system/xmrig.service ]; then \
-		sudo systemctl stop xmrig 2>/dev/null || true; \
-		sudo systemctl disable xmrig 2>/dev/null || true; \
-		sudo rm -f /etc/systemd/system/xmrig.service 2>/dev/null || true; \
-		sudo systemctl daemon-reload 2>/dev/null; \
-		$(call log-success,"XMRig systemd service cleaned."); \
-	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
-		launchctl stop com.moneroocean.xmrig 2>/dev/null || true; \
-		launchctl unload $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist 2>/dev/null || true; \
-		rm -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist 2>/dev/null || true; \
-		$(call log-success,"XMRig launchd service cleaned."); \
-	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
-		sudo service xmrig stop 2>/dev/null || true; \
-		sudo rm -f /usr/local/etc/rc.d/xmrig 2>/dev/null || true; \
-		$(call log-success,"XMRig rc.d service cleaned."); \
-	else \
-		$(call log-info,"No XMRig service configuration found."); \
-	fi
-
-wipe: clean-build clean-configs clean-service
+wipe: clean-build clean-configs service-disable
 	@$(call log-success,"All build artifacts, configurations, and services have been cleaned.")
 
 # Build target - only compiles the project
