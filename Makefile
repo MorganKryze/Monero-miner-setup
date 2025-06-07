@@ -103,25 +103,48 @@ restart: stop start
 	@$(call log-success,"XMRig service restarted.")
 
 status:
-	@$(call log-info,"Checking XMRig service status...")
-	@if [ -f /etc/systemd/system/xmrig.service ]; then \
-		sudo systemctl status xmrig; \
-	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
-		launchctl list | grep com.moneroocean.xmrig || echo "XMRig service is not running."; \
-	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
-		sudo service xmrig status; \
-	elif pgrep -x xmrig >/dev/null; then \
-		echo "XMRig is running with the following PIDs:"; \
-		pgrep -x xmrig | tr '\n' ' '; \
-		echo ""; \
-		if [ "$(shell uname)" = "Darwin" ]; then \
-			ps -p `pgrep -x xmrig | tr '\n' ','` -c; \
+	@echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Checking XMRig service status...$(RESET)"
+	@bash -c ' \
+		if [ -f /etc/systemd/system/xmrig.service ]; then \
+			sudo systemctl status xmrig; \
+		elif [ -f "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" ]; then \
+			echo "LaunchAgent status:"; \
+			launchctl list | grep com.moneroocean.xmrig || echo "XMRig service is not registered."; \
+			\
+			if pgrep -x xmrig >/dev/null; then \
+				echo -e "\nXMRig process is running with the following PIDs:"; \
+				pgrep -x xmrig | tr "\n" " "; \
+				echo -e "\n"; \
+				ps -o pid,command,cpu,rss -p `pgrep -x xmrig | tr "\n" ","` | head -1; \
+				ps -o pid,command,cpu,rss -p `pgrep -x xmrig | tr "\n" ","` | grep -v PID; \
+			else \
+				echo -e "\nXMRig process is not currently running"; \
+			fi; \
+			\
+			if [ -f "$(CURDIR)/logs/xmrig_stderr.log" ]; then \
+				echo -e "\nLast 5 lines of error log:"; \
+				tail -n 5 "$(CURDIR)/logs/xmrig_stderr.log"; \
+			fi; \
+			\
+			if [ -f "$(CURDIR)/logs/xmrig_stdout.log" ]; then \
+				echo -e "\nLast 5 lines of output log:"; \
+				tail -n 5 "$(CURDIR)/logs/xmrig_stdout.log"; \
+			fi; \
+		elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
+			sudo service xmrig status; \
+		elif pgrep -x xmrig >/dev/null; then \
+			echo "XMRig is running with the following PIDs:"; \
+			pgrep -x xmrig | tr "\n" " "; \
+			echo ""; \
+			if [ "$(shell uname)" = "Darwin" ]; then \
+				ps -o pid,command,cpu,rss -p `pgrep -x xmrig | tr "\n" ","`; \
+			else \
+				ps -p `pgrep -x xmrig | tr "\n" ","` -o pid,%cpu,%mem,cmd; \
+			fi; \
 		else \
-			ps -p `pgrep -x xmrig | tr '\n' ','` -o pid,%cpu,%mem,cmd; \
-		fi; \
-	else \
-		$(call log-warning,"No XMRig service or process found."); \
-	fi
+			echo "[$(ORANGE) WARNING $(RESET)] $(ORANGE)No XMRig service or process found.$(RESET)"; \
+		fi \
+	'
 
 service-setup:
 	@$(call log-info,"Setting up XMRig service...")
