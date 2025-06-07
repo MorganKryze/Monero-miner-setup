@@ -559,6 +559,81 @@ function build_project() {
     success "Project built successfully."
     return 0
 }
+function generate_config_files() {
+    local target_dir="$BASE_DIR/$REPO_NAME"
+    local source_config_dir="$target_dir/config"
+    local dest_config_dir="$target_dir/configs"
+
+    info "Generating miner configuration files..."
+
+    # Create destination config directory if it doesn't exist
+    mkdir -p "$dest_config_dir"
+
+    # Define full pool URL with port if needed
+    local full_pool_url="$POOL_URL"
+    if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "$POOL_URL" != *":"* ]]; then
+        full_pool_url="${POOL_URL}:${PORT}"
+        info "Using MoneroOcean with optimized port: $full_pool_url"
+    fi
+
+    # Set log file path
+    local log_file="$target_dir/logs/xmrig.log"
+    mkdir -p "$target_dir/logs"
+
+    # Create worker pass
+    local worker_pass="$PASS"
+    if [ "$worker_pass" = "$DEFAULT_PASS" ]; then
+        worker_pass=$(hostname | cut -f1 -d"." | sed -r 's/[^a-zA-Z0-9\-]+/_/g')
+        [ -z "$worker_pass" ] && worker_pass="worker"
+        [ -n "$EMAIL" ] && worker_pass="${worker_pass}:${EMAIL}"
+    fi
+
+    # Copy template files to destination
+    cp "$source_config_dir/example.config.json" "$dest_config_dir/config.json"
+    cp "$source_config_dir/example.config_background.json" "$dest_config_dir/config_background.json"
+
+    # Cross-platform sed function
+    function sed_inplace() {
+        local pattern="$1"
+        local file="$2"
+        
+        if [[ "$OS_TYPE" == "macos" ]]; then
+            sed -i '' "$pattern" "$file"
+        else
+            sed -i "$pattern" "$file"
+        fi
+    }
+    
+    # Update foreground config file
+    sed_inplace 's/"max-threads-hint": [0-9]*,/"max-threads-hint": '$MAX_THREADS',/' "$dest_config_dir/config.json"
+    sed_inplace 's/"donate-level": [0-9]*,/"donate-level": '$DONATE_LEVEL',/' "$dest_config_dir/config.json"
+    sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/config.json"
+    sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/config.json"
+    sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/config.json"
+    sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_pass'",#' "$dest_config_dir/config.json"
+    sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/config.json"
+    sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/config.json"
+
+    # Update background config file (same changes)
+    sed_inplace 's/"max-threads-hint": [0-9]*,/"max-threads-hint": '$MAX_THREADS',/' "$dest_config_dir/config_background.json"
+    sed_inplace 's/"donate-level": [0-9]*,/"donate-level": '$DONATE_LEVEL',/' "$dest_config_dir/config_background.json"
+    sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/config_background.json"
+    sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/config_background.json"
+    sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/config_background.json"
+    sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_pass'",#' "$dest_config_dir/config_background.json"
+    sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/config_background.json"
+    sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/config_background.json"
+
+    # Create symbolic links for easy access
+    ln -sf "$dest_config_dir/config.json" "$target_dir/config.json"
+    ln -sf "$dest_config_dir/config_background.json" "$target_dir/config_background.json"
+
+    success "Configuration files generated successfully."
+    info "Main config: $dest_config_dir/config.json"
+    info "Background config: $dest_config_dir/config_background.json"
+    info "Log file: $log_file"
+    return 0
+}
 
 function install_project() {
     info "Checking project installation status..."
@@ -583,6 +658,11 @@ function install_project() {
 
         if ! build_project; then
             error "Failed to build project."
+            return 1
+        fi
+
+        if ! generate_config_files; then
+            error "Failed to generate configuration files."
             return 1
         fi
     fi
