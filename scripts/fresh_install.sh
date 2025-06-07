@@ -87,13 +87,12 @@ function usage() {
     echo
     echo "Installation Options:"
     echo "  -d, --dir DIR         Base directory for installation (defaults to HOME)"
-    echo "  -e, --email EMAIL     Email address for notifications"
     echo
     echo "Mining Configuration Options:"
     echo "  -t, --threads PERCENT Max CPU threads hint (1-100, default: $DEFAULT_MAX_THREADS)"
     echo "  --donate PERCENT      Donation level (0-5, default: $DEFAULT_DONATE_LEVEL)"
     echo "  -p, --pool URL        Mining pool URL (default: $DEFAULT_POOL_URL)"
-    echo "  --pass STRING         Password for mining pool (default: hostname)"
+    echo "  --name STRING         Display name for the mining worker (default: hostname)"
     echo "  --pause-active        Pause mining when computer is in active use (default: off)"
     echo "  --pause-battery       Pause mining when computer is on battery (default: off)"
     echo "  -h, --help            Display this help message"
@@ -102,6 +101,7 @@ function usage() {
     echo "  $0 -w 4ABD..."
     echo "  $0 -w 4ABD... -d /opt/monero -t 50 --donate 1"
     echo "  $0 -w 4ABD... -p rx.unmineable.com:3333"
+    echo "  $0 -w 4ABD... --name my_worker_name"
     echo
     echo "Note: For MoneroOcean pool, the script will automatically calculate optimal port."
 }
@@ -170,22 +170,6 @@ function validate_directory() {
 
     # Only the directory path will be captured now
     printf "%s" "$dir"
-    return 0
-}
-
-function validate_email() {
-    local email="$1"
-
-    if [ -n "$email" ]; then
-        if [[ ! "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
-            error "Invalid email address format: $email."
-            return 1
-        fi
-        info "Using email address: $email."
-    else
-        info "No email address provided, proceeding without it."
-    fi
-
     return 0
 }
 
@@ -264,11 +248,10 @@ function parse_arguments() {
     # Default values
     WALLET=""
     BASE_DIR=""
-    EMAIL=""
     MAX_THREADS=$DEFAULT_MAX_THREADS
     DONATE_LEVEL=$DEFAULT_DONATE_LEVEL
     POOL_URL=$DEFAULT_POOL_URL
-    PASS=$DEFAULT_PASS
+    DISPLAY_NAME=$DEFAULT_PASS
     PAUSE_ON_ACTIVE=$DEFAULT_PAUSE_ON_ACTIVE
     PAUSE_ON_BATTERY=$DEFAULT_PAUSE_ON_BATTERY
 
@@ -281,10 +264,6 @@ function parse_arguments() {
             ;;
         -d | --dir)
             BASE_DIR="$2"
-            shift 2
-            ;;
-        -e | --email)
-            EMAIL="$2"
             shift 2
             ;;
         -t | --threads)
@@ -307,8 +286,8 @@ function parse_arguments() {
             POOL_URL="$2"
             shift 2
             ;;
-        --pass)
-            PASS="$2"
+        --pass | --name) # Accept both for backward compatibility
+            DISPLAY_NAME="$2"
             shift 2
             ;;
         --pause-active)
@@ -338,14 +317,12 @@ function parse_arguments() {
         exit 1
     fi
 
-    # Export variables
     export WALLET
     export BASE_DIR
-    export EMAIL
     export MAX_THREADS
     export DONATE_LEVEL
     export POOL_URL
-    export PASS
+    export PASS=$DISPLAY_NAME
     export PAUSE_ON_ACTIVE
     export PAUSE_ON_BATTERY
 }
@@ -580,12 +557,31 @@ function generate_config_files() {
     local log_file="$target_dir/logs/xmrig.log"
     mkdir -p "$target_dir/logs"
 
+    function generate_random_worker_name() {
+        local adjectives=("swift" "rapid" "blazing" "cosmic" "digital" "quantum" "stellar" "epic" "crypto" "atomic" "shadow" "hyper" "mega" "ultra" "power" "turbo")
+        local nouns=("miner" "rig" "node" "worker" "machine" "server" "core" "unit" "beast" "hawk" "titan" "phoenix" "dragon" "ninja" "master" "runner")
+
+        # Get random elements from arrays
+        local rand_adj=${adjectives[$((RANDOM % ${#adjectives[@]}))]}
+        local rand_noun=${nouns[$((RANDOM % ${#nouns[@]}))]}
+
+        # Add a random number (1-999) at the end
+        local rand_num=$((RANDOM % 999 + 1))
+
+        # Combine elements to form the worker name
+        echo "${rand_adj}_${rand_noun}_${rand_num}"
+    }
     # Create worker pass
-    local worker_pass="$PASS"
-    if [ "$worker_pass" = "$DEFAULT_PASS" ]; then
-        worker_pass=$(hostname | cut -f1 -d"." | sed -r 's/[^a-zA-Z0-9\-]+/_/g')
-        [ -z "$worker_pass" ] && worker_pass="worker"
-        [ -n "$EMAIL" ] && worker_pass="${worker_pass}:${EMAIL}"
+    local worker_name="$PASS"
+    if [ "$worker_name" = "$DEFAULT_PASS" ]; then
+        # Try using hostname first
+        worker_name=$(hostname | cut -f1 -d"." | sed -r 's/[^a-zA-Z0-9\-]+/_/g')
+
+        # If hostname is empty or just "localhost", generate a random name
+        if [ -z "$worker_name" ] || [ "$worker_name" = "localhost" ]; then
+            worker_name=$(generate_random_worker_name)
+            info "Generated random worker name: $worker_name"
+        fi
     fi
 
     # Copy template files to destination
@@ -596,21 +592,21 @@ function generate_config_files() {
     function sed_inplace() {
         local pattern="$1"
         local file="$2"
-        
+
         if [[ "$OS_TYPE" == "macos" ]]; then
             sed -i '' "$pattern" "$file"
         else
             sed -i "$pattern" "$file"
         fi
     }
-    
+
     # Update foreground config file
     sed_inplace 's/"max-threads-hint": [0-9]*,/"max-threads-hint": '$MAX_THREADS',/' "$dest_config_dir/config.json"
     sed_inplace 's/"donate-level": [0-9]*,/"donate-level": '$DONATE_LEVEL',/' "$dest_config_dir/config.json"
     sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/config.json"
     sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/config.json"
     sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/config.json"
-    sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_pass'",#' "$dest_config_dir/config.json"
+    sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_name'",#' "$dest_config_dir/config.json"
     sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/config.json"
     sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/config.json"
 
@@ -620,7 +616,7 @@ function generate_config_files() {
     sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/config_background.json"
     sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/config_background.json"
     sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/config_background.json"
-    sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_pass'",#' "$dest_config_dir/config_background.json"
+    sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_name'",#' "$dest_config_dir/config_background.json"
     sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/config_background.json"
     sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/config_background.json"
 
@@ -743,11 +739,6 @@ function main() {
 
     BASE_DIR=$(validate_directory "$BASE_DIR")
     if [ $? -ne 0 ]; then
-        exit 1
-    fi
-    sleep $LOW_DELAY
-
-    if ! validate_email "$EMAIL"; then
         exit 1
     fi
     sleep $LOW_DELAY
