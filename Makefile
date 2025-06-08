@@ -297,7 +297,7 @@ update:
 	@$(MAKE) clean-build clean-service
 	
 	@$(call log-info,"Building updated version...")
-	@$(MAKE) build
+	@$(MAKE) build service-setup
 	
 	@$(call log-success,"Repository updated and rebuilt successfully.")
 
