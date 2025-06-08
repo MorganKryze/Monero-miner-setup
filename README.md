@@ -197,7 +197,7 @@ make clean-configs
 
 make wipe
 
-# Update XMRig to the latest version
+# Update XMRig and the repository, but does not remove your config
 
 make update
 ```
