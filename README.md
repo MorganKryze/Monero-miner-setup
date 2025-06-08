@@ -152,53 +152,67 @@ make service-setup
 
 Once installed, you can manage the mining service using the following commands:
 
-### Starting and Stopping
+### Service Management Commands
+
+Start the mining service
 
 ```bash
-
-# Start the mining service
-
 make start
+```
 
-# Stop the mining service
+Stop the mining service
 
+```bash
 make stop
+```
 
-# Restart the mining service
+Restart the mining service
 
+```bash
 make restart
+```
 
-# Check the status
+Check the service status
 
+```bash
 make status
 ```
 
-### Testing and Configuration
+### Testing and Maintenance Commands
+
+Run XMRig in the foreground (for testing)
 
 ```bash
-
-# Run XMRig in the foreground (for testing)
-
 make test
+```
 
-# Disable and remove the mining service
+Disable and remove the mining service
 
+```bash
 make service-disable
+```
 
-# Clean build files
+Clean build files
 
+```bash
 make clean-build
+```
 
-# Clean configuration files
+Clean configuration files
 
+```bash
 make clean-configs
+```
 
-# Complete wipe (build, configs, and service)
+Complete wipe (build, configs, and service)
 
+```bash
 make wipe
+```
 
-# Update XMRig and the repository, but does not remove your config
+Update XMRig and the repository (keeps your config)
 
+```bash
 make update
 ```
 
