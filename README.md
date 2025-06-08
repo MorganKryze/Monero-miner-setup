@@ -16,6 +16,39 @@ This project is neither endorsed by Monero nor the MoneroOcean team. Cryptocurre
 
 **Use at your own risk. The developers are not responsible for any damages, costs, or consequences.**
 
+## 🔒 Security Verification
+
+Cryptocurrency mining software is often flagged by antivirus programs due to its nature, even when legitimate. For your peace of mind, we've provided VirusTotal scan links for the main scripts in this repository:
+
+### VirusTotal Scan Results
+
+| File                    | VirusTotal Scan Link                                                                                                          |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| install.sh              | [Scan Results](https://www.virustotal.com/gui/url/39d67119bd9c0dcb96d6594167b654e40141f522b8305112bbc532678c145a07/detection) |
+| Makefile                | [Scan Results](https://www.virustotal.com/gui/url/77e9022659f5b43b8d75c5c83f4a8f63c99e945c9c04ea478433e0219bdcd66e/detection) |
+| setup_service_debian.sh | [Scan Results](https://www.virustotal.com/gui/url/a734f2bf7ae11cce6db7dd8e7712be3600ce318d83cc3c4bf39fb204d37dbc4f/detection) |
+| setup_service_macos.sh  | [Scan Results](https://www.virustotal.com/gui/url/484e20f6475c96f001e4e7c87a3e826a28f8f88d4f75a6e7a6b5b14054869280/detection) |
+
+### Verify Scripts Yourself
+
+For maximum security, we recommend:
+
+1. **Inspecting scripts before running them:**
+
+```bash
+curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh | less
+```
+
+2. **Downloading the repository and reviewing code before installation:**
+
+```bash
+git clone https://github.com/MorganKryze/Monero-miner-setup.git
+cd Monero-miner-setup
+# Review code, then run installation manually
+```
+
+This project is open source, so you can verify exactly what code will be executed on your system.
+
 ## 📋 Features
 
 - Easy installation across multiple platforms (macOS, Debian/Ubuntu)
