@@ -113,10 +113,10 @@ bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/
 
 1. Clone the repository:
 
-   ```bash
-   git clone https://github.com/MorganKryze/Monero-miner-setup.git
-   cd Monero-miner-setup
-   ```
+```bash
+git clone https://github.com/MorganKryze/Monero-miner-setup.git
+cd Monero-miner-setup
+```
 
 2. Install dependencies (platform-specific):
 
@@ -134,17 +134,19 @@ make deps-debian
 
 3. Build XMRig:
 
-   ```bash
-   make build
-   ```
+```bash
+make build
+```
 
 4. Create configuration:
-   Edit `templates/config.json.template` with your wallet address and mining preferences.
+
+Edit `templates/config.json.template` with your wallet address and mining preferences.
 
 5. Set up as a service:
-   ```bash
-   make service-setup
-   ```
+
+```bash
+make service-setup
+```
 
 ## 🚀 Usage
 
