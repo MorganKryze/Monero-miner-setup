@@ -98,10 +98,10 @@ The easiest way to get started is using Docker, which provides a clean, isolated
 
 1. **Clone the repository:**
 
-   ```bash
-   git clone https://github.com/MorganKryze/Monero-miner-setup.git
-   cd Monero-miner-setup
-   ```
+```bash
+git clone https://github.com/MorganKryze/Monero-miner-setup.git
+cd Monero-miner-setup
+```
 
 2. **Create your environment configuration:**
 
@@ -259,23 +259,14 @@ make service-setup
 If you installed using Docker, use these commands:
 
 ```bash
-
 # Start mining
-
 cd docker && docker-compose up -d
-
 # Stop mining
-
 docker-compose down
-
 # Check status and logs
-
 docker-compose logs -f
-
 # Update configuration
-
 # Edit docker/.env, then restart:
-
 docker-compose restart
 ```
 

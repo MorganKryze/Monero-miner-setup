@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   xmrig:
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile
     container_name: "xmrig-${RANDOM_SUFFIX:-$(shell head /dev/urandom | tr -dc a-z0-9 | head -c 8)}"
     restart: unless-stopped
