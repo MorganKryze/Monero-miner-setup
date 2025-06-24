@@ -60,6 +60,15 @@ This project is open source, so you can verify exactly what code will be execute
 
 ## 🔧 Requirements
 
+### Docker Installation
+
+- **Docker**: Docker Engine 20.10+ and Docker Compose 2.0+
+- **Operating Systems**: Any system that supports Docker (Linux, macOS, Windows)
+- **Hardware**: Any x86/x64/ARM64/ARMv7/ARMv8 compatible CPU
+- **Resources**: Minimum 1GB RAM, 500MB disk space
+
+### Native Installation
+
 - **Operating Systems**:
 
   - macOS 10.13+ (fully supported)
@@ -76,7 +85,102 @@ This project is open source, so you can verify exactly what code will be execute
 
 ## ⬇️ Installation
 
-### Quick Installation (recommended)
+### Docker Installation (recommended)
+
+The easiest way to get started is using Docker, which provides a clean, isolated environment with all dependencies included.
+
+#### Prerequisites
+
+- Docker and Docker Compose installed on your system
+- Your Monero wallet address
+
+#### Quick Docker Setup
+
+1. **Clone the repository:**
+
+   ```bash
+   git clone https://github.com/MorganKryze/Monero-miner-setup.git
+   cd Monero-miner-setup
+   ```
+
+2. **Create your environment configuration:**
+
+```bash
+cp docker/.env.example docker/.env
+```
+
+3. **Edit the configuration file:**
+
+```bash
+# Edit docker/.env with your wallet address and preferences
+nano docker/.env
+```
+
+4. **Start mining:**
+
+```bash
+cd docker
+docker-compose up -d
+```
+
+5. **Monitor your miner:**
+
+```bash
+docker-compose logs -f
+```
+
+#### Docker Environment Configuration
+
+Edit `docker/.env` with your settings:
+
+```plaintext
+# Required: Your Monero wallet address
+
+WALLET_ADDRESS=your_wallet_address_here
+
+# Optional: CPU and resource limits
+
+CPU_COUNT=2
+CPU_PERCENT=75
+MAX_THREADS_PERCENT=75
+MEMORY_LIMIT=1g
+
+# Optional: Mining pool and worker settings
+
+POOL_URL=gulf.moneroocean.stream
+WORKER_NAME=my_docker_miner
+DONATE_LEVEL=0
+
+# Optional: Mining behavior
+
+PAUSE_ON_BATTERY=false
+PAUSE_ON_ACTIVE=false
+```
+
+#### Docker Management Commands
+
+```bash
+# Start the miner
+docker-compose up -d
+# Stop the miner
+docker-compose down
+# View logs
+docker-compose logs -f
+# Check status
+docker-compose ps
+# Restart the miner
+docker-compose restart
+# Update and rebuild
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+### Native Installation (Advanced)
+
+For users who prefer native installation or need custom system integration:
+
+#### Quick Installation
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) -w YOUR_MONERO_WALLET_ADDRESS
@@ -84,7 +188,7 @@ bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/
 
 Replace `YOUR_MONERO_WALLET_ADDRESS` with your actual Monero wallet address.
 
-### Advanced Installation Options
+#### Advanced Installation Options
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
@@ -109,7 +213,7 @@ bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/
 - `--only-manual` - Do not set up any service, only manual operation
 - `--autostart` - Start mining service immediately after installation
 
-### Manual Installation
+#### Manual Installation
 
 1. Clone the repository:
 
@@ -150,9 +254,36 @@ make service-setup
 
 ## 🚀 Usage
 
-Once installed, you can manage the mining service using the following commands:
+### Docker Usage
 
-### Service Management Commands
+If you installed using Docker, use these commands:
+
+```bash
+
+# Start mining
+
+cd docker && docker-compose up -d
+
+# Stop mining
+
+docker-compose down
+
+# Check status and logs
+
+docker-compose logs -f
+
+# Update configuration
+
+# Edit docker/.env, then restart:
+
+docker-compose restart
+```
+
+### Native Installation Usage
+
+If you used native installation, manage the mining service using these commands:
+
+#### Service Management Commands
 
 Start the mining service
 
@@ -178,7 +309,7 @@ Check the service status
 make status
 ```
 
-### Testing and Maintenance Commands
+#### Testing and Maintenance Commands
 
 Run XMRig in the foreground (for testing)
 
@@ -345,5 +476,5 @@ Contributions are welcome! Please feel free to submit a pull request.
 
 ---
 
-**Project by Yann M. Vidamment © 2025**  
+**Project by Yann M. Vidamment © 2025**
 _Neither endorsed by Monero nor MoneroOcean team_
