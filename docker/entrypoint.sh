@@ -167,7 +167,7 @@ cat >/app/configs/config.json <<EOF
         "priority": null,
         "memory-pool": false,
         "yield": true,
-        "max-threads-hint": 100,
+        "max-threads-hint": ${MAX_THREADS_PERCENT},
         "asm": true,
         "argon2-impl": null,
         "astrobwt-max-size": 550,
@@ -262,4 +262,4 @@ fi
 
 # Start XMRig with verbose logging
 log_info "Starting XMRig miner with verbose logging..."
-exec /app/xmrig --config=/app/configs/config.json --verbose=2
+exec /app/xmrig --config=/app/configs/config.json --verbose
