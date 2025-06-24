@@ -8,22 +8,28 @@ services:
     
     environment:
       - WALLET_ADDRESS=${WALLET_ADDRESS}
-      - WORKER_NAME=${WORKER_NAME:-miner_docker_$(shell head /dev/urandom | tr -dc a-z0-9 | head -c 6)}
+      - WORKER_NAME=${WORKER_NAME:-miner_docker}
       - POOL_URL=${POOL_URL:-gulf.moneroocean.stream}
       - DONATE_LEVEL=${DONATE_LEVEL:-0}
-      - MAX_THREADS_PERCENT=${MAX_THREADS_PERCENT:-75}
+      - MAX_THREADS_PERCENT=${MAX_THREADS_PERCENT:-25}
       - PAUSE_ON_BATTERY=${PAUSE_ON_BATTERY:-false}
       - PAUSE_ON_ACTIVE=${PAUSE_ON_ACTIVE:-false}
+      - FORCE_THREAD_COUNT=${FORCE_THREAD_COUNT:-2}
     
-    # CPU configuration
-    cpus: ${CPU_COUNT:-2}
-    cpu_percent: ${CPU_PERCENT:-75}
-    mem_limit: ${MEMORY_LIMIT:-1g}
+    # CPU configuration (Docker level - for container isolation)
+    deploy:
+      resources:
+        limits:
+          cpus: '${CPU_COUNT:-2.0}'
+          memory: ${MEMORY_LIMIT:-1g}
+        reservations:
+          cpus: '0.5'
+          memory: 256m
     
     # Mount logs for persistence
     volumes:
-      - ./docker/logs:/app/logs
-      - ./docker/docker-configs:/app/configs
+      - ./logs:/app/logs
+      - ./docker-configs:/app/configs
     
     # Security options
     security_opt:
@@ -42,15 +48,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
-# Optional: Use secrets for wallet address (more secure)
-# Uncomment the sections below to use Docker secrets instead of environment variables
-
-# secrets:
-#   wallet_address:
-#     file: ./secrets/wallet_address.txt
-
-# Then in the service definition, replace the WALLET_ADDRESS environment variable with:
-# secrets:
-#   - wallet_address
-# And modify entrypoint.sh to read from /run/secrets/wallet_address

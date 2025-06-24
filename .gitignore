@@ -5,6 +5,7 @@ xmrig
 configs/
 config.json
 config_background.json
+docker-configs
 
 logs/
 

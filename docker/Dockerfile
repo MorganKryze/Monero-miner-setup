@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y \
     libhwloc-dev \
     git \
     curl \
+    jq \
+    netcat \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
@@ -24,7 +26,7 @@ COPY . .
 RUN mkdir -p build-xmrig && \
     cd build-xmrig && \
     cmake ../dependencies/xmrig && \
-    make && \
+    make -j$(nproc) && \
     ln -sf /app/build-xmrig/xmrig /app/xmrig
 
 # Create logs directory

@@ -27,7 +27,6 @@ function log_error() {
 
 # Check if wallet address is provided
 if [ -z "$WALLET_ADDRESS" ]; then
-    # Check if using secrets
     if [ -f "/run/secrets/wallet_address" ]; then
         WALLET_ADDRESS=$(cat /run/secrets/wallet_address)
     else
@@ -52,58 +51,87 @@ DONATE_LEVEL=${DONATE_LEVEL:-0}
 MAX_THREADS_PERCENT=${MAX_THREADS_PERCENT:-75}
 PAUSE_ON_BATTERY=${PAUSE_ON_BATTERY:-false}
 PAUSE_ON_ACTIVE=${PAUSE_ON_ACTIVE:-false}
+FORCE_THREAD_COUNT=${FORCE_THREAD_COUNT:-}
 
-# Calculate optimal port for MoneroOcean
-if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "$POOL_URL" != *":"* ]]; then
-    CPU_THREADS=$(nproc)
-    EXP_MONERO_HASHRATE=$((CPU_THREADS * 700 / 1000))
-    PORT=$((EXP_MONERO_HASHRATE * 30))
-    PORT=$((PORT == 0 ? 1 : PORT))
-    
-    # Calculate power of 2
-    if [ "$PORT" -gt "8192" ]; then
-        PORT="8192"
-    elif [ "$PORT" -gt "4096" ]; then
-        PORT="4096"
-    elif [ "$PORT" -gt "2048" ]; then
-        PORT="2048"
-    elif [ "$PORT" -gt "1024" ]; then
-        PORT="1024"
-    elif [ "$PORT" -gt "512" ]; then
-        PORT="512"
-    elif [ "$PORT" -gt "256" ]; then
-        PORT="256"
-    elif [ "$PORT" -gt "128" ]; then
-        PORT="128"
-    elif [ "$PORT" -gt "64" ]; then
-        PORT="64"
-    elif [ "$PORT" -gt "32" ]; then
-        PORT="32"
-    elif [ "$PORT" -gt "16" ]; then
-        PORT="16"
-    elif [ "$PORT" -gt "8" ]; then
-        PORT="8"
-    elif [ "$PORT" -gt "4" ]; then
-        PORT="4"
-    elif [ "$PORT" -gt "2" ]; then
-        PORT="2"
-    else
-        PORT="1"
+# Calculate thread count
+AVAILABLE_CPUS=$(nproc)
+log_info "Available CPU cores: $AVAILABLE_CPUS"
+
+if [ -n "$FORCE_THREAD_COUNT" ]; then
+    THREAD_COUNT=$FORCE_THREAD_COUNT
+    log_info "Using forced thread count: $THREAD_COUNT"
+else
+    THREAD_COUNT=$((AVAILABLE_CPUS * MAX_THREADS_PERCENT / 100))
+    if [ "$THREAD_COUNT" -lt 1 ]; then
+        THREAD_COUNT=1
     fi
-    
-    PORT=$((10000 + PORT))
-    FULL_POOL_URL="${POOL_URL}:${PORT}"
-    log_info "Using MoneroOcean with optimized port: $FULL_POOL_URL"
+    log_info "Calculated thread count: $THREAD_COUNT (${MAX_THREADS_PERCENT}% of $AVAILABLE_CPUS cores)"
+fi
+
+# Handle pool URL and port
+if [[ "$POOL_URL" != *":"* ]]; then
+    # No port specified, calculate optimal port for MoneroOcean
+    if [[ "$POOL_URL" == *"moneroocean"* ]]; then
+        EXP_MONERO_HASHRATE=$((THREAD_COUNT * 700 / 1000))
+        PORT=$((EXP_MONERO_HASHRATE * 30))
+        PORT=$((PORT == 0 ? 1 : PORT))
+
+        # Calculate power of 2
+        if [ "$PORT" -gt "8192" ]; then
+            PORT="8192"
+        elif [ "$PORT" -gt "4096" ]; then
+            PORT="4096"
+        elif [ "$PORT" -gt "2048" ]; then
+            PORT="2048"
+        elif [ "$PORT" -gt "1024" ]; then
+            PORT="1024"
+        elif [ "$PORT" -gt "512" ]; then
+            PORT="512"
+        elif [ "$PORT" -gt "256" ]; then
+            PORT="256"
+        elif [ "$PORT" -gt "128" ]; then
+            PORT="128"
+        elif [ "$PORT" -gt "64" ]; then
+            PORT="64"
+        elif [ "$PORT" -gt "32" ]; then
+            PORT="32"
+        elif [ "$PORT" -gt "16" ]; then
+            PORT="16"
+        elif [ "$PORT" -gt "8" ]; then
+            PORT="8"
+        elif [ "$PORT" -gt "4" ]; then
+            PORT="4"
+        elif [ "$PORT" -gt "2" ]; then
+            PORT="2"
+        else
+            PORT="1"
+        fi
+
+        PORT=$((10000 + PORT))
+        FULL_POOL_URL="${POOL_URL}:${PORT}"
+    else
+        # Default port for other pools
+        FULL_POOL_URL="${POOL_URL}:3333"
+    fi
 else
     FULL_POOL_URL="$POOL_URL"
-    log_info "Using pool: $FULL_POOL_URL"
+fi
+
+log_info "Using pool: $FULL_POOL_URL"
+
+# Test pool connectivity
+log_info "Testing pool connectivity..."
+if timeout 10 nc -z $(echo $FULL_POOL_URL | cut -d: -f1) $(echo $FULL_POOL_URL | cut -d: -f2) 2>/dev/null; then
+    log_success "Pool is reachable"
+else
+    log_warning "Pool connectivity test failed, but continuing anyway..."
 fi
 
 # Create configuration directory if it doesn't exist
 mkdir -p /app/configs
 
 # Generate XMRig configuration
-cat > /app/configs/config.json << EOF
+cat >/app/configs/config.json <<EOF
 {
     "api": {
         "id": null,
@@ -122,7 +150,7 @@ cat > /app/configs/config.json << EOF
     "title": true,
     "randomx": {
         "init": -1,
-        "init-avx2": 0,
+        "init-avx2": -1,
         "mode": "auto",
         "1gb-pages": false,
         "rdmsr": true,
@@ -137,13 +165,16 @@ cat > /app/configs/config.json << EOF
         "huge-pages-jit": false,
         "hw-aes": null,
         "priority": null,
-        "memory-pool": true,
+        "memory-pool": false,
         "yield": true,
-        "max-threads-hint": ${MAX_THREADS_PERCENT},
+        "max-threads-hint": 100,
         "asm": true,
         "argon2-impl": null,
+        "astrobwt-max-size": 550,
+        "astrobwt-avx2": false,
         "cn/0": false,
-        "cn-lite/0": false
+        "cn-lite/0": false,
+        "kawpow": false
     },
     "opencl": {
         "enabled": false,
@@ -162,10 +193,12 @@ cat > /app/configs/config.json << EOF
         "cn/0": false,
         "cn-lite/0": false,
         "panthera": false,
-        "astrobwt": false
+        "astrobwt": false,
+        "bfactor-hint": 6,
+        "bsleep-hint": 25
     },
     "donate-level": ${DONATE_LEVEL},
-    "donate-over-proxy": 0,
+    "donate-over-proxy": 1,
     "log-file": "/app/logs/xmrig.log",
     "pools": [
         {
@@ -176,7 +209,7 @@ cat > /app/configs/config.json << EOF
             "pass": "${WORKER_NAME}",
             "rig-id": null,
             "nicehash": false,
-            "keepalive": false,
+            "keepalive": true,
             "enabled": true,
             "tls": false,
             "tls-fingerprint": null,
@@ -206,7 +239,7 @@ cat > /app/configs/config.json << EOF
         "ttl": 30
     },
     "user-agent": null,
-    "verbose": 0,
+    "verbose": 1,
     "watch": true,
     "pause-on-battery": ${PAUSE_ON_BATTERY},
     "pause-on-active": ${PAUSE_ON_ACTIVE}
@@ -215,9 +248,18 @@ EOF
 
 log_success "Configuration generated successfully"
 log_info "Worker name: $WORKER_NAME"
-log_info "Max threads: ${MAX_THREADS_PERCENT}%"
+log_info "Thread count: $THREAD_COUNT"
+log_info "Pool URL: $FULL_POOL_URL"
 log_info "Donate level: ${DONATE_LEVEL}%"
 
-# Start XMRig
-log_info "Starting XMRig miner..."
-exec /app/xmrig --config=/app/configs/config.json
+# Add thread configuration if forced count is specified
+if [ -n "$FORCE_THREAD_COUNT" ]; then
+    log_info "Adding explicit thread configuration..."
+    # Create a temporary config with thread specification
+    jq --argjson threads "$THREAD_COUNT" '.cpu["*"] = {"threads": $threads, "affinity": -1}' /app/configs/config.json >/tmp/config_with_threads.json
+    mv /tmp/config_with_threads.json /app/configs/config.json
+fi
+
+# Start XMRig with verbose logging
+log_info "Starting XMRig miner with verbose logging..."
+exec /app/xmrig --config=/app/configs/config.json --verbose=2
