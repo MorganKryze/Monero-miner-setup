@@ -49,7 +49,7 @@ RUN chown -R xmrig:xmrig /app
 USER xmrig
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD /usr/local/bin/healthcheck.sh
 
 # Set entrypoint

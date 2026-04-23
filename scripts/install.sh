@@ -52,6 +52,7 @@ function load_toolbox() {
             return 1
         }
         function success() { txt "[${GREEN} SUCCESS ${RESET}] ${GREEN}$1${RESET}"; }
+        function hint() { txt "[${ORANGE}  HINT   ${RESET}] ${ORANGE}$1${RESET}"; }
     fi
 }
 
@@ -465,8 +466,9 @@ function check_repo_exists() {
 function check_if_built() {
     local target_dir="$BASE_DIR/$REPO_NAME"
 
-    # Check for evidence of a successful build
-    if [ -d "$target_dir/build" ] || [ -f "$target_dir/xmrig/build/xmrig" ]; then
+    # Check for evidence of a successful build: the Makefile produces
+    # $target_dir/build-xmrig/xmrig and a symlink at $target_dir/xmrig.
+    if [ -d "$target_dir/build-xmrig" ] && [ -e "$target_dir/xmrig" ]; then
         success "Monero miner appears to be already built at $target_dir."
         return 0
     else

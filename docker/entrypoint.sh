@@ -165,7 +165,7 @@ cat >/app/configs/config.json <<EOF
         "huge-pages-jit": false,
         "hw-aes": null,
         "priority": null,
-        "memory-pool": false,
+        "memory-pool": true,
         "yield": true,
         "max-threads-hint": ${MAX_THREADS_PERCENT},
         "asm": true,

@@ -8,9 +8,9 @@ RESET := $(shell tput sgr0)
 # Build directory outside the repo
 BUILD_DIR := build-xmrig
 
-.PHONY: install-debian install-fedora install-macos install-freebsd \
+.PHONY: help install-debian install-fedora install-macos install-freebsd \
 		deps-debian deps-fedora deps-macos deps-freebsd \
-		build clean-build clean-configs clean-service wipe test update \
+		build clean-build clean-configs wipe test update \
 		start stop restart status service-setup service-disable
 
 # Logging macros
@@ -29,6 +29,28 @@ endef
 define log-error
 	echo "[$(RED)  ERROR  $(RESET)] $(RED)$(1)$(RESET)"
 endef
+
+help:
+	@echo "Monero-miner-setup — common targets:"
+	@echo ""
+	@echo "  Setup:"
+	@echo "    deps-debian / deps-macos   Install build dependencies"
+	@echo "    build                      Build XMRig from the vendored submodule"
+	@echo "    service-setup              Install systemd/launchd service"
+	@echo "    install-debian / install-macos  deps + build (one-shot)"
+	@echo ""
+	@echo "  Runtime:"
+	@echo "    start / stop / restart     Control the mining service"
+	@echo "    status                     Show service + process status"
+	@echo "    test                       Run XMRig in the foreground"
+	@echo ""
+	@echo "  Maintenance:"
+	@echo "    update                     git pull + rebuild + re-setup service"
+	@echo "    clean-build                Remove build artifacts"
+	@echo "    clean-configs              Remove generated configs"
+	@echo "    service-disable            Stop and remove the service"
+	@echo "    wipe                       clean-build + clean-configs + service-disable"
+	@echo ""
 
 start:
 	@echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Starting XMRig service...$(RESET)"
@@ -294,8 +316,8 @@ update:
 	fi
 	
 	@$(call log-info,"Cleaning old build...")
-	@$(MAKE) clean-build clean-service
-	
+	@$(MAKE) clean-build
+
 	@$(call log-info,"Building updated version...")
 	@$(MAKE) build service-setup
 	

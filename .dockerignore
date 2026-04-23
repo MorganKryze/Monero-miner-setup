@@ -1,0 +1,34 @@
+# Version control
+.git
+.gitignore
+.gitmodules
+
+# Build artifacts (regenerated inside the image)
+build-xmrig/
+xmrig
+
+# Local runtime state
+logs/
+configs/
+docker-configs/
+docker/.env
+
+# Docs / assets not needed at runtime
+assets/
+README.md
+LICENSE
+REVIEW.md
+
+# Editor / tooling
+.claude/
+.vscode/
+.idea/
+.DS_Store
+
+# Unused vendored deps (only xmrig source is needed for the build)
+dependencies/bash-toolbox/
+
+# Xmrig source tree pruning (keep source + cmake, drop non-build material)
+dependencies/xmrig/.git
+dependencies/xmrig/.github/
+dependencies/xmrig/doc/

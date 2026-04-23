@@ -16,7 +16,7 @@
   "title": true,
   "randomx": {
     "init": -1,
-    "init-avx2": 0,
+    "init-avx2": -1,
     "mode": "auto",
     "1gb-pages": false,
     "rdmsr": true,
@@ -85,7 +85,7 @@
   "dmi": true,
   "retries": 5,
   "retry-pause": 5,
-  "syslog": true,
+  "syslog": false,
   "tls": {
     "enabled": false,
     "protocols": null,
