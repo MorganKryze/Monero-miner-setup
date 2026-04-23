@@ -6,468 +6,189 @@
 [![License: MIT](https://img.shields.io/github/license/MorganKryze/Monero-miner-setup)](./LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Debian%2FUbuntu%20%7C%20Docker-blue)
 
-A simplified, cross-platform setup solution for Monero mining with XMRig. This project aims to make cryptocurrency mining accessible by providing straightforward installation and service management.
+Sets up [XMRig](https://xmrig.com) as a background service that mines Monero to a [MoneroOcean](https://moneroocean.stream) pool. Two install paths: a Docker container (works on anything) or a native install that gets a `systemd` or `launchd` service on Debian/Ubuntu or macOS.
 
-## ⚠️ Disclaimer
+> **⚠️ Before you run this.** Mining consumes power, heats hardware, and can violate your cloud provider's ToS. Expect antivirus tools to flag XMRig. This project is not endorsed by Monero or MoneroOcean. You run it at your own risk.
 
-This project is neither endorsed by Monero nor the MoneroOcean team. Cryptocurrency mining:
+## Quick start (Docker)
 
-- May void your cloud provider's terms of service
-- Consumes significant electrical power and system resources
-- May cause hardware wear
-- May reduce system performance for other tasks
-- Could potentially trigger security software alerts
-
-**Use at your own risk. The developers are not responsible for any damages, costs, or consequences.**
-
-## 🔒 Security Verification
-
-Cryptocurrency mining software is often flagged by antivirus programs due to its nature, even when legitimate. For your peace of mind, we've provided VirusTotal scan links for the main scripts in this repository:
-
-### VirusTotal Scan Results
-
-| File                    | VirusTotal Scan Link                                                                                                          |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| install.sh              | [Scan Results](https://www.virustotal.com/gui/url/39d67119bd9c0dcb96d6594167b654e40141f522b8305112bbc532678c145a07/detection) |
-| Makefile                | [Scan Results](https://www.virustotal.com/gui/url/77e9022659f5b43b8d75c5c83f4a8f63c99e945c9c04ea478433e0219bdcd66e/detection) |
-| setup_service_debian.sh | [Scan Results](https://www.virustotal.com/gui/url/a734f2bf7ae11cce6db7dd8e7712be3600ce318d83cc3c4bf39fb204d37dbc4f/detection) |
-| setup_service_macos.sh  | [Scan Results](https://www.virustotal.com/gui/url/484e20f6475c96f001e4e7c87a3e826a28f8f88d4f75a6e7a6b5b14054869280/detection) |
-
-### Verify Scripts Yourself
-
-For maximum security, we recommend:
-
-1. **Inspecting scripts before running them:**
-
-```bash
-curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh | less
-```
-
-2. **Downloading the repository and reviewing code before installation:**
+Everything runs in a non-root container. Only `./logs/` gets written to your host.
 
 ```bash
 git clone https://github.com/MorganKryze/Monero-miner-setup.git
-cd Monero-miner-setup
-# Review code, then run installation manually
+cd Monero-miner-setup/docker
+cp .env.example .env
+# Open .env and set WALLET_ADDRESS to your Monero wallet (95 or 106 chars).
+docker compose up -d
+docker compose logs -f
 ```
 
-This project is open source, so you can verify exactly what code will be executed on your system.
+To stop it: `docker compose down`.
 
-## 📋 Features
+First build takes 3–8 min (compiles XMRig from source in a builder stage). The runtime image is ~128 MB.
 
-- Easy installation across multiple platforms (macOS, Debian/Ubuntu)
-- Automatic system-specific configuration
-- Systemd/launchd service management for background operation
-- CPU thread management and power optimization
-- Configurable mining pools
-- Low maintenance configuration
+### `.env` reference
 
-## 🔧 Requirements
+| Variable              | Default                   | Purpose                                                                  |
+| --------------------- | ------------------------- | ------------------------------------------------------------------------ |
+| `WALLET_ADDRESS`      | _(required)_              | Your Monero wallet. 95 or 106 chars, starts with `4` or `8`, base58 only |
+| `WORKER_NAME`         | `docker_miner`            | Label the pool uses to identify this worker                              |
+| `POOL_URL`            | `gulf.moneroocean.stream` | Pool hostname. Port is auto-computed for MoneroOcean                     |
+| `DONATE_LEVEL`        | `0`                       | 0–5% donation to XMRig devs                                              |
+| `CPU_COUNT`           | `2.0`                     | Container-level CPU quota                                                |
+| `MAX_THREADS_PERCENT` | `25`                      | Share of cores for `max-threads-hint` in the XMRig config                |
+| `FORCE_THREAD_COUNT`  | `2`                       | Hard thread count. Leave empty to derive from `MAX_THREADS_PERCENT`      |
+| `MEMORY_LIMIT`        | `1g`                      | Container memory cap                                                     |
+| `PAUSE_ON_BATTERY`    | `false`                   | Pause mining when the host is on battery                                 |
+| `PAUSE_ON_ACTIVE`     | `false`                   | Pause mining when the host has active user input                         |
 
-### Docker Installation
+## Native install (Debian/Ubuntu or macOS)
 
-- **Docker**: Docker Engine 20.10+ and Docker Compose 2.0+
-- **Operating Systems**: Any system that supports Docker (Linux, macOS, Windows)
-- **Hardware**: Any x86/x64/ARM64/ARMv7/ARMv8 compatible CPU
-- **Resources**: Minimum 1GB RAM, 500MB disk space
+Pick this path if you want huge pages, MSR tuning, or the miner registered as a proper system service. Other OSes (Fedora, Arch, FreeBSD, Windows) don't have a native install path: use Docker.
 
-### Native Installation
-
-- **Operating Systems**:
-
-  - macOS 10.13+
-  - Debian / Ubuntu
-
-  Other OSes (Fedora / RHEL, FreeBSD, Arch, etc.) are **not** covered by the native installer. Use the Docker install instead — it works anywhere Docker runs.
-
-- **Hardware**: Any x86/x64/ARM64/ARMv7/ARMv8 compatible CPU
-- **Software Dependencies**:
-  - git
-  - curl
-  - make
-  - For specific dependencies, see platform sections below
-
-## ⬇️ Installation
-
-### Docker Installation (recommended)
-
-The easiest way to get started is using Docker, which provides a clean, isolated environment with all dependencies included.
-
-#### Prerequisites
-
-- Docker and Docker Compose installed on your system
-- Your Monero wallet address
-
-#### Quick Docker Setup
-
-1. **Clone the repository:**
-
-```bash
-git clone https://github.com/MorganKryze/Monero-miner-setup.git
-cd Monero-miner-setup
-```
-
-2. **Create your environment configuration:**
-
-```bash
-cp docker/.env.example docker/.env
-```
-
-3. **Edit the configuration file:**
-
-```bash
-# Edit docker/.env with your wallet address and preferences
-nano docker/.env
-```
-
-4. **Start mining:**
-
-```bash
-cd docker
-docker-compose up -d
-```
-
-5. **Monitor your miner:**
-
-```bash
-docker-compose logs -f
-```
-
-#### Docker Environment Configuration
-
-Edit `docker/.env` with your settings:
-
-```plaintext
-# Required: Your Monero wallet address
-
-WALLET_ADDRESS=your_wallet_address_here
-
-# Optional: CPU and resource limits
-
-CPU_COUNT=2
-CPU_PERCENT=75
-MAX_THREADS_PERCENT=75
-MEMORY_LIMIT=1g
-
-# Optional: Mining pool and worker settings
-
-POOL_URL=gulf.moneroocean.stream
-WORKER_NAME=my_docker_miner
-DONATE_LEVEL=0
-
-# Optional: Mining behavior
-
-PAUSE_ON_BATTERY=false
-PAUSE_ON_ACTIVE=false
-```
-
-#### Docker Management Commands
-
-```bash
-# Start the miner
-docker-compose up -d
-# Stop the miner
-docker-compose down
-# View logs
-docker-compose logs -f
-# Check status
-docker-compose ps
-# Restart the miner
-docker-compose restart
-# Update and rebuild
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-### Native Installation (Advanced)
-
-For users who prefer native installation or need custom system integration:
-
-#### Quick Installation
-
-```bash
-bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) -w YOUR_MONERO_WALLET_ADDRESS
-```
-
-Replace `YOUR_MONERO_WALLET_ADDRESS` with your actual Monero wallet address.
-
-#### Advanced Installation Options
+### One-liner
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
- -w YOUR_MONERO_WALLET_ADDRESS \
- -t 75 \
- -p gulf.moneroocean.stream:10128 \
- --name my_mining_rig \
- --pause-battery \
- --pause-active
+  -w YOUR_MONERO_WALLET_ADDRESS
 ```
 
-#### Available parameters
+The installer clones the repo into `$HOME/Monero-miner-setup`, builds XMRig from source, writes `config.json` + `config_background.json`, and registers the service (systemd on Linux, launchd on macOS). Inspect the script before running: see [Security](#security).
 
-- `-w, --wallet WALLET` - Your Monero wallet address **(required)**
-- `-d, --dir DIR` - Base directory for installation (defaults to HOME)
-- `-t, --threads PERCENT` - Max CPU threads hint (1-100, default: 75)
-- `--donate PERCENT` - Donation level (0-5, default: 0)
-- `-p, --pool URL` - Mining pool URL (default: gulf.moneroocean.stream)
-- `--name STRING` - Display name for the mining worker
-- `--pause-active` - Pause mining when computer is in active use
-- `--pause-battery` - Pause mining when computer is on battery
-- `--only-manual` - Do not set up any service, only manual operation
-- `--autostart` - Start mining service immediately after installation
+### Flags
 
-#### Manual Installation
+| Flag                           | Default                   | Purpose                                                    |
+| ------------------------------ | ------------------------- | ---------------------------------------------------------- |
+| `-w, --wallet WALLET`          | _(required)_              | Your Monero wallet                                         |
+| `-t, --threads PERCENT`        | `75`                      | `max-threads-hint` (1–100)                                 |
+| `-p, --pool URL`               | `gulf.moneroocean.stream` | Pool URL                                                   |
+| `--name STRING`                | random                    | Worker name shown on the pool                              |
+| `--donate PERCENT`             | `0`                       | 0–5                                                        |
+| `-d, --dir DIR`                | `$HOME`                   | Install dir (repo clones to `$DIR/Monero-miner-setup`)     |
+| `--pause-active`               | off                       | Pause on user input                                        |
+| `--pause-battery`              | off                       | Pause on battery                                           |
+| `--only-manual`                | off                       | Skip service setup (install binary only)                   |
+| `--autostart`                  | off                       | Start the service after install                            |
+| `-y, --yes, --non-interactive` | off                       | Skip the root-user prompt and the 15 s pre-install delay   |
 
-1. Clone the repository:
+### Manual install
+
+If you'd rather drive the build yourself:
 
 ```bash
-git clone https://github.com/MorganKryze/Monero-miner-setup.git
+git clone --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
 cd Monero-miner-setup
+make deps-debian           # or: make deps-macos
+make build                 # compiles XMRig via CMake
+# Edit templates/config.json.template with your wallet and pool,
+# then run: make service-setup && make start
 ```
 
-2. Install dependencies (platform-specific):
+## Operating the miner
 
-**macOS**:
+Run from the repo root. Targets work on both Linux (systemd) and macOS (launchd).
 
-```bash
-make deps-macos
-```
+| Command                | What it does                                                        |
+| ---------------------- | ------------------------------------------------------------------- |
+| `make help`            | Print all targets. This is also the default when you just type `make` |
+| `make start`           | Start the mining service                                            |
+| `make stop`            | Stop the service and kill any stray `xmrig` processes               |
+| `make restart`         | `stop` + `start`                                                    |
+| `make status`          | Service state, PIDs, and the last 5 log lines                       |
+| `make test`            | Run XMRig in the foreground. Ctrl-C to exit                         |
+| `make doctor`          | Check host tuning (huge pages, MSR, AES-NI) and print recommendations |
+| `make update`          | `git pull`, update submodules, rebuild, re-install the service unit |
+| `make service-disable` | Stop the service and remove the system unit                         |
+| `make clean-build`     | Remove the build directory and the `xmrig` symlink                  |
+| `make clean-configs`   | Remove generated configs                                            |
+| `make wipe`            | `clean-build` + `clean-configs` + `service-disable`                 |
 
-**Debian/Ubuntu**:
+Docker equivalents: `docker compose up -d`, `down`, `logs -f`, `restart`, `ps`.
 
-```bash
-make deps-debian
-```
+## Tuning for performance
 
-3. Build XMRig:
+Run `make doctor` first. It inspects your host and prints a numbered list of concrete commands to run. Common wins on Linux:
 
-```bash
-make build
-```
+- **Reserve 2 MB huge pages**: `sudo sysctl -w vm.nr_hugepages=1280`. Persist it in `/etc/sysctl.d/99-xmrig.conf`.
+- **Load the `msr` module**: `sudo modprobe msr`. Persist via `echo msr | sudo tee /etc/modules-load.d/msr.conf`. Worth 5–15% on Ryzen and EPYC.
+- **Enable 1 GB pages** (if the CPU supports `pdpe1gb`): add `hugepagesz=1G hugepages=3 default_hugepagesz=2M` to `GRUB_CMDLINE_LINUX`, regenerate GRUB, reboot. Worth 1–5%.
 
-4. Create configuration:
+macOS has no userspace equivalent for any of these. Expect 10–30% less hashrate than a tuned Linux host on the same silicon.
 
-Edit `templates/config.json.template` with your wallet address and mining preferences.
+## Configuration
 
-5. Set up as a service:
+Configs live under `configs/` after install:
 
-```bash
-make service-setup
-```
+- `config.json`: used by `make test`
+- `config_background.json`: used by the service
 
-## 🚀 Usage
+Both are generated from `templates/*.json.template` via `sed` substitution. Edit the templates if you want different defaults for future installs. For the full XMRig schema, see the [XMRig docs](https://xmrig.com/docs).
 
-### Docker Usage
+## Logs
 
-If you installed using Docker, use these commands:
+| Install    | Location                                           | Rotation                                                                      |
+| ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Linux      | `$REPO/logs/xmrig.log`                             | `/etc/logrotate.d/xmrig` (daily, 7 rotations, compressed) if `logrotate` is installed |
+| macOS      | `$REPO/logs/xmrig_stdout.log` + `xmrig_stderr.log` | None. Truncate them yourself if they grow                                     |
+| Docker     | `./logs/xmrig.log` + container stdout              | Container stdout rotates via compose (`max-size: 10m`, `max-file: 3`). File log grows until truncated |
 
-```bash
-# Start mining
-cd docker && docker-compose up -d
-# Stop mining
-docker-compose down
-# Check status and logs
-docker-compose logs -f
-# Update configuration
-# Edit docker/.env, then restart:
-docker-compose restart
-```
+## Security
 
-### Native Installation Usage
+XMRig is legitimate open-source software. AV tools flag it because malware installs miners without the user's consent. Your AV will flag this project too.
 
-If you used native installation, manage the mining service using these commands:
+To verify before running:
 
-#### Service Management Commands
+1. **Read the install script**:
 
-Start the mining service
+   ```bash
+   curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh | less
+   ```
 
-```bash
-make start
-```
+2. **Check VirusTotal URL scans** for the key files:
 
-Stop the mining service
+   | File                      | Scan                                                                                                                          |
+   | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+   | `install.sh`              | [VirusTotal](https://www.virustotal.com/gui/url/39d67119bd9c0dcb96d6594167b654e40141f522b8305112bbc532678c145a07/detection) |
+   | `Makefile`                | [VirusTotal](https://www.virustotal.com/gui/url/77e9022659f5b43b8d75c5c83f4a8f63c99e945c9c04ea478433e0219bdcd66e/detection) |
+   | `setup_service_debian.sh` | [VirusTotal](https://www.virustotal.com/gui/url/a734f2bf7ae11cce6db7dd8e7712be3600ce318d83cc3c4bf39fb204d37dbc4f/detection) |
+   | `setup_service_macos.sh`  | [VirusTotal](https://www.virustotal.com/gui/url/484e20f6475c96f001e4e7c87a3e826a28f8f88d4f75a6e7a6b5b14054869280/detection) |
 
-```bash
-make stop
-```
+3. **Clone and read the source**:
 
-Restart the mining service
+   ```bash
+   git clone https://github.com/MorganKryze/Monero-miner-setup.git
+   cd Monero-miner-setup && less scripts/install.sh Makefile docker/Dockerfile
+   ```
 
-```bash
-make restart
-```
+The Docker image runs as a non-root `xmrig` user with `no-new-privileges`. The installer rejects wallet addresses that fail length, leading-character, or base58 checks, and warns before running as root.
 
-Check the service status
+## Troubleshooting
 
-```bash
-make status
-```
+**Service won't start.** Run `make status`. It prints the tail of the error log. Common causes: wallet rejected by the validator (wrong length, wrong leading char, non-base58 character), missing executable bit on `./xmrig`, or XMRig exiting on a missing CPU feature.
 
-#### Testing and Maintenance Commands
+**Hashrate lower than you expected.** Run `make doctor` and apply its recommendations. On Ryzen/EPYC, the `msr` kernel module is the single biggest lever.
 
-Run XMRig in the foreground (for testing)
+**Service keeps coming back after `make stop`.** Use `make service-disable`. `systemd` and `launchd` re-spawn stopped units; `stop` alone won't keep them down.
 
-```bash
-make test
-```
+**Docker container reports unhealthy on startup.** The first 30–60 s of RandomX dataset allocation predates the healthcheck. `start_period` is set to 60 s, so Docker won't mark it unhealthy during that window. If it lasts longer, check `docker compose logs` for an OOM.
 
-Disable and remove the mining service
+**Build fails on macOS.** `make deps-macos` installs `cmake`, `libuv`, `openssl`, `hwloc` via Homebrew. The target installs Homebrew first if it isn't on your `PATH`.
 
-```bash
-make service-disable
-```
+## Development
 
-Clean build files
+- CI (`.github/workflows/ci.yml`) runs `shellcheck`, `hadolint`, a `make -n` dry-run, and a full Docker build smoke test on every push and PR. First-time contributor PRs require maintainer approval before workflows run.
+- Dependabot opens weekly PRs for the vendored `xmrig` and `bash-toolbox` submodules, and for the GitHub Actions in the workflow. A companion workflow auto-merges Dependabot PRs once CI is green.
+- Pull requests welcome. Fork, branch, open a PR. The CI will tell you if anything's broken before a human looks at it.
 
-```bash
-make clean-build
-```
+## License
 
-Clean configuration files
+MIT. See [LICENSE](./LICENSE).
 
-```bash
-make clean-configs
-```
+Banner artwork, scripts, and templates © Yann M. Vidamment 2025. This project is not endorsed by Monero or MoneroOcean.
 
-Complete wipe (build, configs, and service)
+## Resources
 
-```bash
-make wipe
-```
-
-Update XMRig and the repository (keeps your config)
-
-```bash
-make update
-```
-
-## ⚙️ Configuration
-
-The miner configuration is stored in two main files:
-
-- `config.json` - Used for foreground testing
-- `config_background.json` - Used by the service for background mining
-
-### Key Configuration Options
-
-- **CPU Threads**: Control how many CPU cores/threads to use (max-threads-hint)
-- **Donation Level**: Set donation percentage to XMRig developers
-- **Mining Pool**: Configure which pool to mine with
-- **Worker Name**: Set custom name for your mining rig
-- **Pause Settings**: Configure when mining should pause
-
-To adjust these settings after installation, edit the files in the `configs/` directory.
-
-## 🔄 Service Management
-
-### Status Checking
-
-The `make status` command shows:
-
-- If the service is running
-- Process IDs and resource usage
-- Last lines of log files
-
-### Service Persistence
-
-The miner is configured as a system service:
-
-- On macOS: Uses launchd
-- On Linux: Uses systemd
-- Service automatically starts after system reboots
-- Service can recover from crashes
-
-### Disabling the Service
-
-To completely remove the service:
-
-```bash
-make service-disable
-```
-
-## ⚠️ Limitations & Considerations
-
-### Resource Usage
-
-- Mining uses significant CPU resources by default (75% of cores)
-- May cause system slowdowns during intensive operations
-- Consider reducing thread usage (`-t` parameter) for better system responsiveness
-- Monitor system temperatures to prevent overheating
-
-### Platform Support
-
-- macOS: Full support (tested on 14.7+)
-- Debian/Ubuntu: Full support
-- Other OSes (Fedora, Arch, FreeBSD, Windows, etc.): Not covered by the native installer — use the Docker install, which works on any OS that runs Docker.
-
-### Security Considerations
-
-- Some antivirus software may flag mining tools
-- Running with minimum privileges is recommended
-- Verify downloaded scripts before execution
-- Do not run as root unless necessary
-
-### Mining Performance
-
-- Performance varies greatly by hardware
-- Older CPUs may have poor mining efficiency
-- Consider power costs versus potential earnings
-- MoneroOcean pool auto-switches to most profitable algorithm
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-1. **Service won't start**:
-
-   - Check logs with `make status`
-   - Ensure wallet address is valid
-   - Verify permissions on executable: `chmod +x xmrig`
-
-2. **Low hashrate**:
-
-   - Enable MSR modifications if supported
-   - Use huge pages if available
-   - Adjust thread count to match your CPU
-
-3. **Service restarts after stopping**:
-
-   - Use `make service-disable` instead of just `make stop`
-   - On macOS, unload the service: `launchctl unload -w ~/Library/LaunchAgents/com.moneroocean.xmrig.plist`
-
-4. **Build failures**:
-   - Install missing dependencies
-   - Ensure your system meets minimum requirements
-   - Try manual build steps from XMRig documentation
-
-### Default Log Locations
-
-- macOS: `/Users/your_user/Monero-miner-setup/main/logs/`
-- Linux: `/home/your_user/Monero-miner-setup/main/logs/`
-
-## 📄 License
-
-This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a pull request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📚 Resources
-
-- [XMRig Official Documentation](https://xmrig.com/docs)
-- [XMRig configuration wizard](https://xmrig.com/wizard#start)
-- [Monero Project Website](https://www.getmonero.org/)
-- [MoneroOcean Pool](https://moneroocean.stream/)
-
----
-
-**Project by Yann M. Vidamment © 2025**
-_Neither endorsed by Monero nor MoneroOcean team_
+- [XMRig documentation](https://xmrig.com/docs)
+- [XMRig config wizard](https://xmrig.com/wizard#start)
+- [Monero project](https://www.getmonero.org/)
+- [MoneroOcean pool](https://moneroocean.stream/)
