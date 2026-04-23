@@ -19,7 +19,7 @@ Both paths go through the same installer script. Pass `--docker` for the contain
 | **Docker** | You want isolation, no system changes, easy teardown             |
 | **Native** | Debian/Ubuntu or macOS. Unlocks huge pages + MSR tuning for max hashrate |
 
-### Docker
+### Docker (build from source)
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
@@ -35,6 +35,30 @@ Common flags (run `install.sh --docker --help` for the complete list):
 - `--threads PCT` / `--force-threads N`: XMRig thread tuning (defaults: `75`, `2`)
 - `--pause-battery` / `--pause-active`: pause mining when on battery or when the user is active
 - `--vpn PROVIDER`: route mining through a VPN, see [VPN config](#vpn-config-docker)
+
+### Docker (prebuilt image)
+
+Prebuilt multi-arch images (amd64 + arm64) are published to GHCR on tagged releases. Skips the 3–8 min compile.
+
+```bash
+docker run -d \
+  --name monero_xmrig_miner \
+  --restart unless-stopped \
+  --cpus 2.0 --memory 1g \
+  -e WALLET_ADDRESS=YOUR_MONERO_WALLET \
+  -v "$PWD/logs:/app/logs" \
+  ghcr.io/morgankryze/monero-miner-setup:latest
+```
+
+Tail logs: `docker logs -f monero_xmrig_miner`. Stop: `docker stop monero_xmrig_miner && docker rm monero_xmrig_miner`.
+
+Available tags:
+
+- `:latest`: tracks the `main` branch. Auto-updates whenever `main` changes (Dependabot bumps, etc.).
+- `:main-abc1234`: commit-pinned build off `main`. Use for reproducibility without committing to a version tag.
+- `:vX.Y.Z`, `:vX.Y`: release pins. Match git tags on the repo.
+
+For VPN routing, healthcheck, `.env`-based config, and log rotation, use the [build-from-source](#docker-build-from-source) path instead.
 
 ### Native (Debian/Ubuntu, macOS)
 
