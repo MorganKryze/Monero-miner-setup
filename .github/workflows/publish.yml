@@ -30,7 +30,9 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # IMAGE_NAME is set per job from ${GITHUB_REPOSITORY,,} because OCI
+  # references must be lowercase and github.repository preserves the repo's
+  # canonical case (e.g. MorganKryze/Monero-miner-setup).
 
 concurrency:
   group: publish-${{ github.ref }}
@@ -58,6 +60,9 @@ jobs:
             arch: arm64
 
     steps:
+      - name: Set lowercase IMAGE_NAME
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v6
         with:
           submodules: recursive
@@ -109,6 +114,9 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - name: Set lowercase IMAGE_NAME
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
