@@ -16,16 +16,12 @@ services:
       - PAUSE_ON_ACTIVE=${PAUSE_ON_ACTIVE:-false}
       - FORCE_THREAD_COUNT=${FORCE_THREAD_COUNT:-2}
     
-    # CPU configuration (Docker level - for container isolation)
-    deploy:
-      resources:
-        limits:
-          cpus: '${CPU_COUNT:-2.0}'
-          memory: ${MEMORY_LIMIT:-1g}
-        reservations:
-          cpus: '0.5'
-          memory: 256m
-    
+    # Resource caps. Top-level keys rather than deploy.resources.limits so
+    # they apply under plain `docker compose up` without requiring Swarm mode.
+    cpus: '${CPU_COUNT:-2.0}'
+    mem_limit: '${MEMORY_LIMIT:-1g}'
+
+
     # Mount logs for persistence
     volumes:
       - ./logs:/app/logs
