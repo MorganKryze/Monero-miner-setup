@@ -15,6 +15,7 @@ DEFAULT_PASS="x"
 DEFAULT_PAUSE_ON_ACTIVE=false
 DEFAULT_PAUSE_ON_BATTERY=false
 DEFAULT_SERVICE_MODE="setup" # Options: "setup", "manual", "autostart"
+DEFAULT_NON_INTERACTIVE=false
 
 # ===== Error handling =====
 set -o errexit  # Exit on error
@@ -103,6 +104,10 @@ function usage() {
     echo "  --only-manual        Do not set up any service, only manual operation"
     echo "  --autostart          Start mining service immediately after installation"
     echo
+    echo "Automation Options:"
+    echo "  -y, --yes, --non-interactive"
+    echo "                        Skip confirmations and pre-install delay (for CI / scripts)"
+    echo
     echo "Examples:"
     echo "  $0 -w 4ABD..."
     echo "  $0 -w 4ABD... -d /opt/monero -t 50 --donate 1"
@@ -115,6 +120,10 @@ function usage() {
 function check_if_running_as_root() {
     if [ "$(id -u)" == "0" ]; then
         warning "Generally it is not advised to run this script under root."
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            info "Continuing as root (non-interactive mode)."
+            return 0
+        fi
         read -p "Do you want to continue anyway? (y/N): " continue_as_root
         if [[ ! "$continue_as_root" =~ ^[Yy]$ ]]; then
             info "Exiting as requested."
@@ -261,6 +270,7 @@ function parse_arguments() {
     PAUSE_ON_ACTIVE=$DEFAULT_PAUSE_ON_ACTIVE
     PAUSE_ON_BATTERY=$DEFAULT_PAUSE_ON_BATTERY
     SERVICE_MODE=$DEFAULT_SERVICE_MODE
+    NON_INTERACTIVE=$DEFAULT_NON_INTERACTIVE
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -313,6 +323,10 @@ function parse_arguments() {
             SERVICE_MODE="autostart"
             shift 1
             ;;
+        -y | --yes | --non-interactive)
+            NON_INTERACTIVE=true
+            shift 1
+            ;;
         -h | --help)
             usage
             exit 0
@@ -341,6 +355,7 @@ function parse_arguments() {
     export PAUSE_ON_ACTIVE
     export PAUSE_ON_BATTERY
     export SERVICE_MODE
+    export NON_INTERACTIVE
 }
 
 # ===== MoneroOcean Miner Setup Functions =====
@@ -839,6 +854,10 @@ function display_next_steps() {
 function warning_before_install() {
     warning "This script will install MoneroOcean miner in $BASE_DIR/$REPO_NAME."
     warning "It will also create a systemd service for automatic startup."
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        info "Skipping pre-install delay (non-interactive mode)."
+        return 0
+    fi
     warning "The installation will start in $HIGH_DELAY seconds."
     warning "If you want to cancel the installation, press Ctrl+C now."
     sleep $HIGH_DELAY
@@ -852,9 +871,9 @@ function main() {
 
     display_header
 
-    check_if_running_as_root
-
     parse_arguments "$@"
+
+    check_if_running_as_root
 
     if ! validate_wallet "$WALLET"; then
         exit 1
@@ -867,9 +886,6 @@ function main() {
     fi
     sleep $LOW_DELAY
 
-    show_resource_recommendations
-    sleep $LOW_DELAY
-
     detect_os
 
     if ! check_dependencies; then
@@ -880,6 +896,9 @@ function main() {
     if ! calculate_hashrate_and_port; then
         exit 1
     fi
+    sleep $LOW_DELAY
+
+    show_resource_recommendations
     sleep $LOW_DELAY
 
     warning_before_install
