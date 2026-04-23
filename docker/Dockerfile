@@ -1,56 +1,60 @@
-FROM ubuntu:22.04
+# syntax=docker/dockerfile:1.6
 
-# Set non-interactive mode for apt
+# -------- Stage 1: builder --------
+FROM ubuntu:22.04 AS builder
+
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    libuv1-dev \
-    libssl-dev \
-    libhwloc-dev \
-    git \
-    curl \
-    jq \
-    netcat \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        libuv1-dev \
+        libssl-dev \
+        libhwloc-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app directory
+WORKDIR /src
+
+COPY dependencies/xmrig ./xmrig
+
+RUN mkdir -p build \
+    && cd build \
+    && cmake ../xmrig \
+    && make -j"$(nproc)" \
+    && strip xmrig
+
+# -------- Stage 2: runtime --------
+FROM ubuntu:22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libuv1 \
+        libssl3 \
+        libhwloc15 \
+        procps \
+        jq \
+        netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy project files
-COPY . .
-
-# Build XMRig
-RUN mkdir -p build-xmrig && \
-    cd build-xmrig && \
-    cmake ../dependencies/xmrig && \
-    make -j$(nproc) && \
-    ln -sf /app/build-xmrig/xmrig /app/xmrig
-
-# Create logs directory
-RUN mkdir -p /app/logs
-
-# Copy entrypoint and healthcheck scripts
+COPY --from=builder /src/build/xmrig /app/xmrig
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/healthcheck.sh /usr/local/bin/healthcheck.sh
 
-# Make scripts executable
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh /app/xmrig
+RUN mkdir -p /app/logs /app/configs \
+    && chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh /app/xmrig \
+    && useradd -r -s /bin/false xmrig \
+    && chown -R xmrig:xmrig /app
 
-# Create non-root user for security
-RUN useradd -r -s /bin/false xmrig
-
-# Set ownership
-RUN chown -R xmrig:xmrig /app
-
-# Switch to non-root user
 USER xmrig
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD /usr/local/bin/healthcheck.sh
 
-# Set entrypoint
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
