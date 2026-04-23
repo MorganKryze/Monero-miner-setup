@@ -56,8 +56,18 @@ jobs:
         run: make -n update
 
   docker-build:
-    name: Docker build smoke test
-    runs-on: ubuntu-latest
+    name: Docker build smoke test (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,11 +80,12 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
           push: false
           load: true
           tags: monero-miner-setup:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
       - name: xmrig --version
         run: docker run --rm --entrypoint /app/xmrig monero-miner-setup:ci --version

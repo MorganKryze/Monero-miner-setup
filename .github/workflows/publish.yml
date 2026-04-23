@@ -1,0 +1,171 @@
+name: Publish images
+
+# Builds the Docker image for linux/amd64 + linux/arm64 on native GitHub
+# runners in parallel, then merges them into a single multi-arch manifest
+# pushed to GHCR.
+#
+# Triggers:
+#   - push to main           -> :latest, :main-<shortsha>
+#   - git tag matching v*    -> :vX.Y.Z, :vX.Y, :latest
+#   - workflow_dispatch      -> :<input.tag> (default: dev)
+#
+# Dependabot auto-merges show up as pushes to main, so new xmrig / base-image
+# bumps get published without maintainer action.
+#
+# First-time setup: after the first run, go to GitHub -> your profile ->
+# Packages -> monero-miner-setup -> Package settings -> Change visibility
+# to Public. Otherwise docker pull requires a GHCR token.
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag name to publish (e.g. dev, nightly). Only alphanumerics, dot, dash, underscore.
+        required: false
+        default: dev
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+concurrency:
+  group: publish-${{ github.ref }}
+  # Safe to cancel: same ref getting a newer push means the older build is
+  # stale and its output would be overwritten anyway.
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract OCI labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Build and push per-arch digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=publish-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=publish-${{ matrix.arch }}
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge multi-arch manifest
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate dispatch input (alphanumerics, dot, dash, underscore)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if ! printf '%s' "$INPUT_TAG" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+            echo "::error::Invalid tag input: $INPUT_TAG"
+            exit 1
+          fi
+
+      - name: Compute tags
+        id: meta
+        uses: docker/metadata-action@v5
+        env:
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Main branch pushes: always-current :latest + a SHA-pinned :main-<sha>.
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=main-,enable={{is_default_branch}}
+            # Version tag pushes: :vX.Y.Z, :vX.Y, and update :latest.
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            # Manual dispatch: user-supplied tag.
+            type=raw,value=${{ env.DISPATCH_TAG }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Create multi-arch manifest
+        working-directory: /tmp/digests
+        env:
+          DOCKER_METADATA_OUTPUT_JSON: ${{ steps.meta.outputs.json }}
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE_REF}@sha256:%s " *)
+
+      - name: Inspect published image
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          IMAGE_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          docker buildx imagetools inspect "${IMAGE_REF}:${IMAGE_VERSION}"
