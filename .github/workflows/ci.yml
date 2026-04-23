@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Lint Dockerfile
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: docker/Dockerfile
           # DL3008: pinning apt versions is a known tradeoff for this project.
