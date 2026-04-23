@@ -48,3 +48,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+    # Container stdout/stderr rotation (the /app/logs/xmrig.log file inside
+    # the container is separate; mount it read-only or truncate it externally
+    # if disk growth is a concern).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

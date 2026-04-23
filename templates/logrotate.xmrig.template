@@ -1,0 +1,10 @@
+%%LOG_DIR%%/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0644 %%USER%% %%USER%%
+}
