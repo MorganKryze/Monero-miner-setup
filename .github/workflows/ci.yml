@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Minimum perms — this workflow only reads code and runs linters/builds.
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run shellcheck on project scripts
+        uses: ludeeus/action-shellcheck@master
+        env:
+          # SC1091: sourced file not found (bash-toolbox is fetched at runtime).
+          SHELLCHECK_OPTS: -e SC1091
+        with:
+          severity: error
+          ignore_paths: dependencies
+
+  hadolint:
+    name: Hadolint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: docker/Dockerfile
+          # DL3008: pinning apt versions is a known tradeoff for this project.
+          ignore: DL3008
+
+  makefile:
+    name: Makefile dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: make help (default target)
+        run: make help
+
+      - name: make -n build (dry-run)
+        run: make -n build
+
+      - name: make -n update (dry-run)
+        run: make -n update
+
+  docker-build:
+    name: Docker build smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          load: true
+          tags: monero-miner-setup:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: xmrig --version
+        run: docker run --rm --entrypoint /app/xmrig monero-miner-setup:ci --version
+
+      - name: Entrypoint rejects missing wallet
+        run: |
+          set +e
+          output=$(docker run --rm monero-miner-setup:ci 2>&1)
+          status=$?
+          echo "$output"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Entrypoint should have failed with missing WALLET_ADDRESS"
+            exit 1
+          fi
+          echo "$output" | grep -q "WALLET_ADDRESS environment variable is required"

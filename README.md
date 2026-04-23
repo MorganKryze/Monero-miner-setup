@@ -2,6 +2,10 @@
 
 ![Monero Miner Setup Banner](https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/assets/banner.png)
 
+[![CI](https://github.com/MorganKryze/Monero-miner-setup/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MorganKryze/Monero-miner-setup/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/MorganKryze/Monero-miner-setup)](./LICENSE)
+![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Debian%2FUbuntu%20%7C%20Docker-blue)
+
 A simplified, cross-platform setup solution for Monero mining with XMRig. This project aims to make cryptocurrency mining accessible by providing straightforward installation and service management.
 
 ## ⚠️ Disclaimer

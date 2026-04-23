@@ -19,11 +19,9 @@ WORKDIR /src
 
 COPY dependencies/xmrig ./xmrig
 
-RUN mkdir -p build \
-    && cd build \
-    && cmake ../xmrig \
-    && make -j"$(nproc)" \
-    && strip xmrig
+RUN cmake -S xmrig -B build \
+    && cmake --build build -j"$(nproc)" \
+    && strip build/xmrig
 
 # -------- Stage 2: runtime --------
 FROM ubuntu:22.04 AS runtime
