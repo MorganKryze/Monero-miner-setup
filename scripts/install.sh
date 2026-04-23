@@ -140,14 +140,26 @@ function validate_wallet() {
         return 1
     fi
 
-    local wallet_base=$(echo "$wallet" | cut -f1 -d".")
-    if [ ${#wallet_base} != 106 -a ${#wallet_base} != 95 ]; then
-        error "Wrong wallet base address length (should be 106 or 95): ${#wallet_base}."
+    # Strip optional ".paymentid" suffix before validating the base address.
+    local wallet_base
+    wallet_base=$(echo "$wallet" | cut -f1 -d".")
+    local len=${#wallet_base}
+
+    # Length check: 95 = standard/subaddress, 106 = integrated (w/ payment id).
+    if [ "$len" != 95 ] && [ "$len" != 106 ]; then
+        error "Invalid wallet length (expected 95 or 106, got $len)."
+        return 1
+    fi
+
+    # Format check: Monero addresses start with '4' (standard/integrated)
+    # or '8' (subaddress) and use the base58 alphabet (no 0, O, I, l).
+    if ! [[ "$wallet_base" =~ ^[48][1-9A-HJ-NP-Za-km-z]+$ ]]; then
+        error "Invalid wallet format: must start with '4' or '8' and use base58 characters only (no 0, O, I, l)."
         return 1
     fi
 
     info "Using wallet address: $wallet."
-    info "Wallet base address length is correct: ${#wallet_base}."
+    info "Wallet format looks valid (length $len, leading char '${wallet_base:0:1}')."
     return 0
 }
 

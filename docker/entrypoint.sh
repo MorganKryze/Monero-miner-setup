@@ -35,14 +35,25 @@ if [ -z "$WALLET_ADDRESS" ]; then
     fi
 fi
 
-# Validate wallet address
+# Validate wallet address: length + leading char + base58 alphabet.
+# Strips optional ".paymentid" suffix before validating the base address.
 wallet_base=$(echo "$WALLET_ADDRESS" | cut -f1 -d".")
-if [ ${#wallet_base} != 106 ] && [ ${#wallet_base} != 95 ]; then
-    log_error "Invalid wallet address length: ${#wallet_base} (should be 106 or 95)"
+wallet_len=${#wallet_base}
+
+if [ "$wallet_len" != 95 ] && [ "$wallet_len" != 106 ]; then
+    log_error "Invalid wallet length: $wallet_len (expected 95 or 106)"
+    exit 1
+fi
+
+# Monero addresses start with '4' (standard/integrated) or '8' (subaddress)
+# and use the base58 alphabet (no 0, O, I, l).
+if ! [[ "$wallet_base" =~ ^[48][1-9A-HJ-NP-Za-km-z]+$ ]]; then
+    log_error "Invalid wallet format: must start with '4' or '8' and use base58 characters only (no 0, O, I, l)"
     exit 1
 fi
 
 log_info "Using wallet address: $WALLET_ADDRESS"
+log_info "Wallet format looks valid (length $wallet_len, leading char '${wallet_base:0:1}')"
 
 # Set default values
 WORKER_NAME=${WORKER_NAME:-"docker_miner_$(head /dev/urandom | tr -dc a-z0-9 | head -c 6)"}

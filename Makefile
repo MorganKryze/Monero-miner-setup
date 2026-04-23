@@ -10,7 +10,7 @@ BUILD_DIR := build-xmrig
 
 .PHONY: help install-debian install-macos \
 		deps-debian deps-macos \
-		build clean-build clean-configs wipe test update \
+		build clean-build clean-configs wipe test update doctor \
 		start stop restart status service-setup service-disable
 
 # Logging macros
@@ -43,6 +43,7 @@ help:
 	@echo "    start / stop / restart     Control the mining service"
 	@echo "    status                     Show service + process status"
 	@echo "    test                       Run XMRig in the foreground"
+	@echo "    doctor                     Check host tuning (huge pages, MSR, AES-NI, ...)"
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    update                     git pull + rebuild + re-setup service"
@@ -223,6 +224,9 @@ test:
 		$(call log-error,"Failed to start XMRig in the foreground"); \
 		exit 1; \
 	fi
+
+doctor:
+	@bash ./scripts/doctor.sh
 
 # Clean target - removes build directory
 clean-build:
