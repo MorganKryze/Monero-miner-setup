@@ -8,8 +8,8 @@ RESET := $(shell tput sgr0)
 # Build directory outside the repo
 BUILD_DIR := build-xmrig
 
-.PHONY: help install-debian install-fedora install-macos install-freebsd \
-		deps-debian deps-fedora deps-macos deps-freebsd \
+.PHONY: help install-debian install-macos \
+		deps-debian deps-macos \
 		build clean-build clean-configs wipe test update \
 		start stop restart status service-setup service-disable
 
@@ -182,14 +182,8 @@ service-setup:
 			$(call log-error,"Failed to setup service on macOS"); \
 			exit 1; \
 		fi; \
-	elif [ -f /etc/fedora-release ] || [ -f /etc/redhat-release ]; then \
-		$(call log-warning,"Service setup not implemented for Fedora/RHEL yet"); \
-		exit 1; \
-	elif [ "$(shell uname)" = "FreeBSD" ]; then \
-		$(call log-warning,"Service setup not implemented for FreeBSD yet"); \
-		exit 1; \
 	else \
-		$(call log-warning,"Service setup not implemented for this OS"); \
+		$(call log-warning,"Native service setup supports Debian/Ubuntu and macOS only. Use the Docker install for other OSes."); \
 		exit 1; \
 	fi
 	@$(call log-success,"XMRig service setup complete. Use 'make start' to start mining.")
@@ -369,39 +363,9 @@ deps-macos:
 		fi; \
 	fi
 
-# Fedora-specific dependencies
-deps-fedora:
-	@$(call log-info,"Installing dependencies for Fedora/RHEL-based systems...")
-	# @sudo dnf install -y \
-	# 	gcc-c++ \
-	# 	cmake \
-	# 	libuv-devel \
-	# 	openssl-devel \
-	# 	hwloc-devel || { $(call log-error,"Failed to install packages"); exit 1; }
-	@$(call log-warning,"Fedora dependencies are not implemented yet. Please install manually.")
-	@exit 1
-
-# FreeBSD-specific dependencies
-deps-freebsd:
-	@$(call log-info,"Installing dependencies for FreeBSD...")
-	# @pkg install -y \
-	# 	cmake \
-	# 	git \
-	# 	hwloc2 \
-	# 	libuv \
-	# 	openssl || { $(call log-error,"Failed to install packages"); exit 1; }
-	@$(call log-warning,"FreeBSD dependencies are not implemented yet. Please install manually.")
-	@exit 1
-
 # Combined targets (for backward compatibility)
 install-debian: deps-debian build
 	@$(call log-success,"Installation complete.")
 
 install-macos: deps-macos build
 	@$(call log-success,"XMRig built successfully for macOS.")
-
-install-fedora: deps-fedora build
-	@$(call log-success,"Installation complete.")
-
-install-freebsd: deps-freebsd build
-	@$(call log-success,"Installation complete.")

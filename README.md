@@ -75,10 +75,10 @@ This project is open source, so you can verify exactly what code will be execute
 
 - **Operating Systems**:
 
-  - macOS 10.13+ (fully supported)
-  - Debian/Ubuntu (fully supported)
-  - Other Linux distributions (partially supported)
-  - FreeBSD (partially supported)
+  - macOS 10.13+
+  - Debian / Ubuntu
+
+  Other OSes (Fedora / RHEL, FreeBSD, Arch, etc.) are **not** covered by the native installer. Use the Docker install instead — it works anywhere Docker runs.
 
 - **Hardware**: Any x86/x64/ARM64/ARMv7/ARMv8 compatible CPU
 - **Software Dependencies**:
@@ -399,9 +399,7 @@ make service-disable
 
 - macOS: Full support (tested on 14.7+)
 - Debian/Ubuntu: Full support
-- Other Linux: Limited support, may require manual steps
-- FreeBSD: Limited support, requires manual configuration
-- Windows: Not supported natively (use WSL)
+- Other OSes (Fedora, Arch, FreeBSD, Windows, etc.): Not covered by the native installer — use the Docker install, which works on any OS that runs Docker.
 
 ### Security Considerations
 

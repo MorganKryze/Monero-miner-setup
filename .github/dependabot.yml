@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Bump xmrig + bash-toolbox submodules to the tip of their tracked branches.
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies", "submodules"]
+
+  # Keep CI actions current (checkout, setup-buildx, build-push, etc.).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies", "github-actions"]

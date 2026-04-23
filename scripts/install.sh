@@ -232,14 +232,7 @@ function detect_os() {
             info "Detected Linux: $OS_NAME $OS_VERSION."
         fi
 
-    # Check for FreeBSD
-    elif command -v uname &>/dev/null && uname -s | grep -q "FreeBSD"; then
-        OS_TYPE="freebsd"
-        OS_NAME="FreeBSD"
-        OS_VERSION=$(uname -r)
-        info "Detected FreeBSD: $OS_VERSION."
-
-    # Generic UNIX-like OS detection
+    # Generic UNIX-like OS detection (unsupported for native install)
     elif command -v uname &>/dev/null; then
         OS_TYPE=$(uname -s | tr '[:upper:]' '[:lower:]')
         OS_NAME=$(uname -s)
@@ -532,15 +525,9 @@ function build_project() {
                 error "Failed to build project using 'make install-debian'."
                 return 1
             fi
-        elif [[ "$OS_NAME" =~ Fedora|CentOS|Red\ Hat ]]; then
-            info "Detected Red Hat-based system, running 'make install-fedora'..."
-            if ! make install-fedora; then
-                error "Failed to build project using 'make install-fedora'."
-                return 1
-            fi
         else
             error "Unsupported Linux distribution: $OS_NAME."
-            error "Please build the project manually following instructions in the README."
+            error "Only Debian/Ubuntu are supported natively. Use the Docker install instead."
             return 1
         fi
         ;;
@@ -551,16 +538,9 @@ function build_project() {
             return 1
         fi
         ;;
-    freebsd)
-        info "Detected FreeBSD, running 'make install-freebsd'..."
-        if ! make install-freebsd; then
-            error "Failed to build project using 'make install-freebsd'."
-            return 1
-        fi
-        ;;
     *)
         error "Unsupported operating system: $OS_TYPE."
-        error "Please build the project manually following instructions in the README."
+        error "Native install supports macOS and Debian/Ubuntu. Use the Docker install instead."
         return 1
         ;;
     esac
