@@ -22,6 +22,8 @@ DEFAULT_PAUSE_ON_ACTIVE=false
 DEFAULT_VPN_PROVIDER="none"
 DEFAULT_NON_INTERACTIVE=false
 DEFAULT_AUTOSTART=false
+DEFAULT_BUILD_LOCAL=false
+DEFAULT_XMRIG_IMAGE="ghcr.io/morgankryze/monero-miner-setup:latest"
 
 set -o errexit
 set -o pipefail
@@ -62,6 +64,10 @@ Install:
   -d, --dir DIR                Base directory if clone needed (default: \$HOME)
   -y, --yes, --non-interactive Skip prompts; fail fast on missing secrets
   --autostart                  Bring the stack up after setup
+  --build                      Build the image locally from source instead of
+                               pulling the prebuilt multi-arch image from GHCR
+  --image REF                  Override the image ref used by compose
+                               (default: ${DEFAULT_XMRIG_IMAGE})
 
 VPN (optional, via Gluetun):
   --vpn PROVIDER               One of: mullvad, protonvpn, pia, nordvpn, none (default: none)
@@ -87,8 +93,11 @@ Secret precedence (each flag independent):
   4. interactive prompt      silent (read -s); skipped under -y
 
 Examples:
-  # Plain Docker install, no VPN
+  # Plain Docker install (pulls prebuilt image), no VPN
   $0 -w 4ABC... --autostart
+
+  # Build the image locally from source instead of pulling
+  $0 -w 4ABC... --build --autostart
 
   # Mullvad with WireGuard, key from file (no history leak)
   $0 -w 4ABC... --vpn mullvad --wg-key-file ~/.secrets/mullvad.key --wg-address 10.64.0.1/32 --autostart
@@ -212,6 +221,8 @@ function parse_args() {
 
     NON_INTERACTIVE="$DEFAULT_NON_INTERACTIVE"
     AUTOSTART="$DEFAULT_AUTOSTART"
+    BUILD_LOCAL="$DEFAULT_BUILD_LOCAL"
+    XMRIG_IMAGE="$DEFAULT_XMRIG_IMAGE"
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -238,6 +249,8 @@ function parse_args() {
             --vpn-pass-file) VPN_PASS_FILE="$2"; shift 2 ;;
             -y|--yes|--non-interactive) NON_INTERACTIVE=true; shift ;;
             --autostart) AUTOSTART=true; shift ;;
+            --build) BUILD_LOCAL=true; shift ;;
+            --image) XMRIG_IMAGE="$2"; shift 2 ;;
             -h|--help) usage; exit 0 ;;
             *) error "Unknown option: $1"; usage; exit 1 ;;
         esac
@@ -295,6 +308,7 @@ CPU_COUNT=$CPU_COUNT
 MEMORY_LIMIT=$MEMORY_LIMIT
 PAUSE_ON_BATTERY=$PAUSE_ON_BATTERY
 PAUSE_ON_ACTIVE=$PAUSE_ON_ACTIVE
+XMRIG_IMAGE=$XMRIG_IMAGE
 EOF
     chmod 600 "$env_file"
     success "Wrote $env_file (mode 0600)."
@@ -387,7 +401,18 @@ function start_stack() {
         compose_args+=("-f" "$REPO_DIR/docker/compose.vpn.yml")
     fi
 
-    (cd "$REPO_DIR/docker" && docker compose "${compose_args[@]}" up -d --build)
+    if [ "$BUILD_LOCAL" = "true" ]; then
+        info "Building image locally from source (--build)..."
+        (cd "$REPO_DIR/docker" && docker compose "${compose_args[@]}" up -d --build)
+    else
+        info "Pulling prebuilt image: $XMRIG_IMAGE"
+        (cd "$REPO_DIR/docker" && docker compose "${compose_args[@]}" pull xmrig) || {
+            warning "Image pull failed. Falling back to a local build from source."
+            (cd "$REPO_DIR/docker" && docker compose "${compose_args[@]}" up -d --build)
+            return $?
+        }
+        (cd "$REPO_DIR/docker" && docker compose "${compose_args[@]}" up -d)
+    fi
 
     if [ "$VPN_PROVIDER" = "none" ]; then
         success "Stack up. Tail logs: cd $REPO_DIR/docker && docker compose logs -f"
@@ -437,11 +462,15 @@ function main() {
     if [ "$AUTOSTART" = "true" ]; then
         start_stack || exit 1
     else
+        local up_suffix="up -d"
+        if [ "$BUILD_LOCAL" = "true" ]; then
+            up_suffix="up -d --build"
+        fi
         info "Setup done. To start: cd $REPO_DIR/docker && docker compose \\"
         if [ "$VPN_PROVIDER" != "none" ]; then
-            info "  -f compose.yml -f compose.vpn.yml up -d"
+            info "  -f compose.yml -f compose.vpn.yml $up_suffix"
         else
-            info "  up -d"
+            info "  $up_suffix"
         fi
     fi
 }

@@ -1,5 +1,10 @@
 services:
   xmrig:
+    # Default: pull the multi-arch prebuilt image from GHCR.
+    # Override XMRIG_IMAGE in .env to pin a tag (e.g. :v1.2.3, :main-abc1234)
+    # or to point at a fork. `docker compose up --build` rebuilds locally
+    # from the Dockerfile below and retags as XMRIG_IMAGE.
+    image: ${XMRIG_IMAGE:-ghcr.io/morgankryze/monero-miner-setup:latest}
     build:
       context: ..
       dockerfile: docker/Dockerfile

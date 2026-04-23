@@ -19,14 +19,14 @@ Both paths go through the same installer script. Pass `--docker` for the contain
 | **Docker** | You want isolation, no system changes, easy teardown             |
 | **Native** | Debian/Ubuntu or macOS. Unlocks huge pages + MSR tuning for max hashrate |
 
-### Docker (build from source)
+### Docker (prebuilt image, recommended)
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
   --docker -w YOUR_MONERO_WALLET --autostart
 ```
 
-First run compiles XMRig (3–8 min). The runtime image is ~128 MB. The container runs as a non-root `xmrig` user with `no-new-privileges`.
+Pulls a multi-arch prebuilt image (`amd64` + `arm64`) from GHCR — no compile step, no Dockerfile toolchain on the host. The installer writes `docker/.env`, then brings up the full stack (compose, healthcheck, log rotation, optional VPN sidecar). The container runs as a non-root `xmrig` user with `no-new-privileges`.
 
 Common flags (run `install.sh --docker --help` for the complete list):
 
@@ -35,10 +35,29 @@ Common flags (run `install.sh --docker --help` for the complete list):
 - `--threads PCT` / `--force-threads N`: XMRig thread tuning (defaults: `75`, `2`)
 - `--pause-battery` / `--pause-active`: pause mining when on battery or when the user is active
 - `--vpn PROVIDER`: route mining through a VPN, see [VPN config](#vpn-config-docker)
+- `--image REF`: pin a specific tag or point at a fork (default: `ghcr.io/morgankryze/monero-miner-setup:latest`)
+- `--build`: build the image locally from source instead of pulling (see below)
 
-### Docker (prebuilt image)
+Available image tags:
 
-Prebuilt multi-arch images (amd64 + arm64) are published to GHCR on tagged releases. Skips the 3–8 min compile.
+- `:latest`: tracks the `main` branch. Auto-updates whenever `main` changes (Dependabot bumps, etc.).
+- `:main-abc1234`: commit-pinned build off `main`. Use for reproducibility without committing to a version tag.
+- `:vX.Y.Z`, `:vX.Y`: release pins. Match git tags on the repo.
+
+### Docker (build from source)
+
+Pass `--build` if you'd rather compile locally — useful when you've patched XMRig, when you don't want to pull from GHCR, or when a prebuilt image isn't available for your platform.
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+  --docker --build -w YOUR_MONERO_WALLET --autostart
+```
+
+First run compiles XMRig (3–8 min). The runtime image is ~128 MB. Everything else is identical to the prebuilt path.
+
+### Minimal `docker run`
+
+If you don't want the installer, compose, or VPN support, a single `docker run` is enough to get mining:
 
 ```bash
 docker run -d \
@@ -50,15 +69,7 @@ docker run -d \
   ghcr.io/morgankryze/monero-miner-setup:latest
 ```
 
-Tail logs: `docker logs -f monero_xmrig_miner`. Stop: `docker stop monero_xmrig_miner && docker rm monero_xmrig_miner`.
-
-Available tags:
-
-- `:latest`: tracks the `main` branch. Auto-updates whenever `main` changes (Dependabot bumps, etc.).
-- `:main-abc1234`: commit-pinned build off `main`. Use for reproducibility without committing to a version tag.
-- `:vX.Y.Z`, `:vX.Y`: release pins. Match git tags on the repo.
-
-For VPN routing, healthcheck, `.env`-based config, and log rotation, use the [build-from-source](#docker-build-from-source) path instead.
+Tail logs: `docker logs -f monero_xmrig_miner`. Stop: `docker stop monero_xmrig_miner && docker rm monero_xmrig_miner`. For VPN routing, `.env`-based config, and the healthcheck wiring, use the installer above instead.
 
 ### Native (Debian/Ubuntu, macOS)
 
@@ -92,43 +103,123 @@ less scripts/install.sh        # review
 make install-debian            # or: make install-macos
 make service-setup && make start
 
-# Docker:
+# Docker (pull prebuilt image):
 cp docker/.env.example docker/.env
 # Set WALLET_ADDRESS in docker/.env, then:
 docker compose -f docker/compose.yml up -d
+
+# Docker (build locally instead of pulling):
+docker compose -f docker/compose.yml up -d --build
 ```
 
 ## VPN config (Docker)
 
-The Docker install can route all mining traffic through a [Gluetun](https://github.com/qdm12/gluetun) VPN sidecar. Supported providers: **Mullvad**, **ProtonVPN**, **PIA**, **NordVPN**.
-
-```bash
-# Mullvad + WireGuard, key kept out of shell history:
-bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
-  --docker -w YOUR_MONERO_WALLET \
-  --vpn mullvad --wg-key-file ~/.secrets/mullvad.key --wg-address 10.64.0.1/32 \
-  --autostart
-```
-
-After `--autostart`, the installer waits for the tunnel to be healthy and prints your VPN exit IP.
+The Docker install can route all mining traffic through a [Gluetun](https://github.com/qdm12/gluetun) VPN sidecar. Supported providers: **Mullvad**, **ProtonVPN**, **PIA**, **NordVPN**. After `--autostart`, the installer waits for the tunnel to be healthy and prints your VPN exit IP.
 
 ### Providers
 
-| Provider  | Protocol  | Mining policy  | Where to get credentials                                                                                                                   |
-| --------- | --------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Mullvad   | WireGuard | Allowed        | [mullvad.net/account/wireguard-config](https://mullvad.net/en/account/wireguard-config)                                                    |
-| ProtonVPN | WireGuard | Allowed (paid) | [account.protonvpn.com/downloads](https://account.protonvpn.com/downloads) (WireGuard tab)                                                 |
-| PIA       | OpenVPN   | Allowed        | Your PIA account login                                                                                                                     |
-| NordVPN   | OpenVPN   | Check ToS      | [my.nordaccount.com/.../manual-setup](https://my.nordaccount.com/dashboard/nordvpn/manual-setup/) (Service credentials, not account login) |
+| Provider  | Protocol  | Mining policy  | `--vpn-location` maps to | Where to get credentials                                                                                                                   |
+| --------- | --------- | -------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Mullvad   | WireGuard | Allowed        | `SERVER_CITIES`          | [mullvad.net/account/wireguard-config](https://mullvad.net/en/account/wireguard-config)                                                    |
+| ProtonVPN | WireGuard | Allowed (paid) | `SERVER_COUNTRIES`       | [account.protonvpn.com/downloads](https://account.protonvpn.com/downloads) (WireGuard tab)                                                 |
+| PIA       | OpenVPN   | Allowed        | `SERVER_REGIONS`         | Your PIA account login                                                                                                                     |
+| NordVPN   | OpenVPN   | Check ToS      | `SERVER_COUNTRIES`       | [my.nordaccount.com/.../manual-setup](https://my.nordaccount.com/dashboard/nordvpn/manual-setup/) (Service credentials, not account login) |
 
-### Secret handling
+### All VPN arguments (inline / file / env)
 
-`--wg-key`, `--wg-address`, `--vpn-user`, `--vpn-pass` each accept four input forms, checked in this precedence order:
+Every secret has three input forms — pick one per field. Files are the recommended form because the path lands in shell history, the content doesn't. Inline flags work but leak to history. Env vars work anywhere (CI, systemd drop-ins, `.envrc`, etc.).
 
-1. `--*-file PATH`: path is in shell history, content is not.
-2. Environment variable: `WIREGUARD_PRIVATE_KEY`, `WIREGUARD_ADDRESSES`, `OPENVPN_USER`, `OPENVPN_PASSWORD`.
-3. Direct `--*` flag: works, but prints a warning because the secret lands in shell history.
-4. Interactive prompt (silent, via `read -s`) when nothing else is set and `-y` wasn't passed.
+```text
+Common (all providers):
+  --vpn PROVIDER             mullvad | protonvpn | pia | nordvpn | none
+  --vpn-location LOC         provider-specific — see Providers table
+  --autostart                bring the stack up after setup
+  -y, --non-interactive      fail fast on missing secrets, skip prompts
+
+WireGuard providers (mullvad, protonvpn):
+  Private key — pick ONE:
+    --wg-key KEY                       inline (warns: visible in shell history)
+    --wg-key-file PATH                 read from file  (recommended)
+    env WIREGUARD_PRIVATE_KEY=KEY      environment variable
+  Interface address — pick ONE:
+    --wg-address ADDR                  inline  (e.g. 10.64.0.1/32)
+    --wg-address-file PATH             read from file
+    env WIREGUARD_ADDRESSES=ADDR       environment variable
+
+OpenVPN providers (pia, nordvpn):
+  Username — pick ONE:
+    --vpn-user USER                    inline
+    --vpn-user-file PATH               read from file  (recommended)
+    env OPENVPN_USER=USER              environment variable
+  Password — pick ONE:
+    --vpn-pass PASS                    inline (warns: visible in shell history)
+    --vpn-pass-file PATH               read from file  (recommended)
+    env OPENVPN_PASSWORD=PASS          environment variable
+```
+
+If nothing is set and `-y` wasn't passed, the installer prompts for each missing secret via `read -s` (silent). Under `-y`, a missing secret aborts the run instead.
+
+### Per-provider commands
+
+Drop the curl/bash prefix and your wallet in, then pick one block. All examples use `--*-file` so secrets never land in shell history. Replace `~/.secrets/...` paths with your own.
+
+**Mullvad (WireGuard).** Download a config from your Mullvad account page; copy `PrivateKey` and `Address` out of the `[Interface]` block.
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+  --docker -w YOUR_MONERO_WALLET \
+  --vpn mullvad \
+  --wg-key-file ~/.secrets/mullvad.key \
+  --wg-address 10.64.0.1/32 \
+  --vpn-location Zurich \
+  --autostart
+```
+
+**ProtonVPN (WireGuard).** Generate a WireGuard config in the Proton dashboard (requires a paid plan). Copy `PrivateKey` and `Address` the same way.
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+  --docker -w YOUR_MONERO_WALLET \
+  --vpn protonvpn \
+  --wg-key-file ~/.secrets/protonvpn.key \
+  --wg-address 10.2.0.2/32 \
+  --vpn-location Switzerland \
+  --autostart
+```
+
+**PIA (OpenVPN).** Uses your regular PIA account username and password. PIA's location field is a **region**, not a country (`Swiss`, `US East`, `CA Toronto`, `UK London`, etc.) — see the [gluetun PIA docs](https://github.com/qdm12/gluetun-wiki/blob/main/setup/providers/private-internet-access.md) for the full list.
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+  --docker -w YOUR_MONERO_WALLET \
+  --vpn pia \
+  --vpn-user-file ~/.secrets/pia.user \
+  --vpn-pass-file ~/.secrets/pia.pass \
+  --vpn-location Swiss \
+  --autostart
+```
+
+Fully non-interactive, credentials via env vars (useful for CI and Ansible):
+
+```bash
+OPENVPN_USER='p1234567' OPENVPN_PASSWORD='xxxxx' \
+bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+  --docker -w YOUR_MONERO_WALLET \
+  --vpn pia --vpn-location Swiss \
+  -y --autostart
+```
+
+**NordVPN (OpenVPN).** You must use NordVPN's **service credentials**, not your account login — grab them from the manual-setup page in the [nord account dashboard](https://my.nordaccount.com/dashboard/nordvpn/manual-setup/). NordVPN's ToS prohibits crypto-mining on some plans; verify yours before running long.
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+  --docker -w YOUR_MONERO_WALLET \
+  --vpn nordvpn \
+  --vpn-user-file ~/.secrets/nord.user \
+  --vpn-pass-file ~/.secrets/nord.pass \
+  --vpn-location Switzerland \
+  --autostart
+```
 
 ### Manual override
 
@@ -205,7 +296,7 @@ macOS has no userspace equivalent for any of these. Expect 10–30% less hashrat
 
 Both come from `templates/*.json.template` via `sed` substitution. Edit the templates if you want different defaults for future installs.
 
-**Docker.** Runtime config lives in `docker/.env` (and `docker/.env.vpn` if VPN is enabled). The installer writes these for you. Both files are `chmod 600`. `docker/.env.example` documents every variable.
+**Docker.** Runtime config lives in `docker/.env` (and `docker/.env.vpn` if VPN is enabled). The installer writes these for you. Both files are `chmod 600`. `docker/.env.example` documents every variable, including `XMRIG_IMAGE` for pinning a specific tag or pointing compose at a forked image.
 
 For the XMRig schema itself, see the [XMRig docs](https://xmrig.com/docs).
 
