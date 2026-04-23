@@ -96,8 +96,15 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=publish-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=publish-${{ matrix.arch }}
+          # Two cache sources in fallback order: GHA cache (fast, evicted
+          # after ~7 days idle) then a registry cache tag in our own GHCR
+          # package (durable, no eviction). Both get written on completion.
+          cache-from: |
+            type=gha,scope=publish-${{ matrix.arch }}
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-${{ matrix.arch }}
+          cache-to: |
+            type=gha,mode=max,scope=publish-${{ matrix.arch }}
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-${{ matrix.arch }},mode=max
 
       - name: Export digest
         env:
