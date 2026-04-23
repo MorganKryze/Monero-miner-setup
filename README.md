@@ -136,15 +136,32 @@ Both are generated from `templates/*.json.template` via `sed` substitution. Edit
 
 XMRig is legitimate open-source software. AV tools flag it because malware installs miners without the user's consent. Your AV will flag this project too.
 
-To verify before running:
+### Why these scripts get flagged
 
-1. **Read the install script**:
+Expect 1–4 hits out of ~91 vendors on every file in this repo, and similar on any miner-adjacent project. Three things drive the verdict:
+
+1. **URL reputation.** Once any script under `raw.githubusercontent.com/.../Monero-miner-setup/...` is reported, it lands in shared block-lists (e.g. `Chong Lua Dao`). The contents stop mattering at that point.
+2. **Keyword heuristics.** Static scanners grep for `xmrig`, `moneroocean`, `wallet`, `hashrate`, `donate-level`, the base58 address regex, the `bash <(curl …)` install pattern. Any 3–4 of these in one file triggers a YARA rule from the `BAT.CoinMiner.*` family.
+3. **Behavioral patterns.** A bash script that clones a repo, builds a binary, registers a `systemd` / `launchd` unit with `Restart=on-failure`, and generates a randomised worker name matches the same template that real cryptojackers (TeamTNT, Kinsing, 8220 Mining Group) use. The pattern, not the intent, is what gets matched.
+
+### What the verdicts mean
+
+The vendors that flag (BitDefender, Fortinet, G-Data, Chong Lua Dao) classify these files as **Riskware** / **PUA**: the same tier as Mimikatz, nmap, and PsExec. Concrete labels you'll see:
+
+- BitDefender / G-Data: `Application.RiskTool.CoinMiner.X` or `Application.Generic.X`
+- Fortinet: `Riskware/CoinMiner` or `BAT/Agent.X!tr`
+
+None of them claim the script does something it doesn't advertise. They're saying "this category of tool is high-risk." For comparison, the upstream XMRig binary sits at around 30/70 on VirusTotal. This repo's wrappers come out far lower because the binary itself isn't shipped, only the source-build pipeline.
+
+### Verify before running
+
+1. **Read the install script in your terminal**:
 
    ```bash
    curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh | less
    ```
 
-2. **Check VirusTotal URL scans** for the key files:
+2. **Check the VirusTotal URL scans** for each entry point:
 
    | File                      | Scan                                                                                                                          |
    | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
