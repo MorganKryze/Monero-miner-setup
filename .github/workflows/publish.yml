@@ -34,6 +34,11 @@ env:
   # references must be lowercase and github.repository preserves the repo's
   # canonical case (e.g. MorganKryze/Monero-miner-setup).
 
+  # Opt into Node 24 for every JS-based action, silencing the Node 20
+  # deprecation warnings (upload-artifact@v4, login-action@v3, metadata-action@v5).
+  # Remove when Dependabot bumps those actions to Node-24-native majors.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 concurrency:
   group: publish-${{ github.ref }}
   # Safe to cancel: same ref getting a newer push means the older build is
