@@ -11,6 +11,7 @@ BUILD_DIR := build-xmrig
 .PHONY: help install-debian install-macos \
 		deps-debian deps-macos \
 		build clean-build clean-configs wipe test update doctor \
+		benchmark benchmark-long \
 		start stop restart status service-setup service-disable
 
 # Logging macros
@@ -44,6 +45,8 @@ help:
 	@echo "    status                     Show service + process status"
 	@echo "    test                       Run XMRig in the foreground"
 	@echo "    doctor                     Check host tuning (huge pages, MSR, AES-NI, ...)"
+	@echo "    benchmark                  Run XMRig's 1-minute RandomX benchmark"
+	@echo "    benchmark-long             Run the 10-minute RandomX benchmark"
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    update                     git pull + rebuild + re-setup service"
@@ -227,6 +230,22 @@ test:
 
 doctor:
 	@bash ./scripts/doctor.sh
+
+benchmark:
+	@$(call log-info,"Running the XMRig 1-minute RandomX benchmark...")
+	@if [ ! -x "$(CURDIR)/xmrig" ]; then \
+		$(call log-error,"XMRig binary not found at $(CURDIR)/xmrig. Run 'make build' first."); \
+		exit 1; \
+	fi
+	@./xmrig --bench=1M
+
+benchmark-long:
+	@$(call log-info,"Running the XMRig 10-minute RandomX benchmark. This takes a while.")
+	@if [ ! -x "$(CURDIR)/xmrig" ]; then \
+		$(call log-error,"XMRig binary not found at $(CURDIR)/xmrig. Run 'make build' first."); \
+		exit 1; \
+	fi
+	@./xmrig --bench=10M
 
 # Clean target - removes build directory
 clean-build:

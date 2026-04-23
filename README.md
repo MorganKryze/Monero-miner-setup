@@ -97,6 +97,8 @@ Run from the repo root. Targets work on both Linux (systemd) and macOS (launchd)
 | `make status`          | Service state, PIDs, and the last 5 log lines                       |
 | `make test`            | Run XMRig in the foreground. Ctrl-C to exit                         |
 | `make doctor`          | Check host tuning (huge pages, MSR, AES-NI) and print recommendations |
+| `make benchmark`       | 1-minute RandomX benchmark. Prints a hashrate score                 |
+| `make benchmark-long`  | 10-minute RandomX benchmark. More stable for hardware comparisons   |
 | `make update`          | `git pull`, update submodules, rebuild, re-install the service unit |
 | `make service-disable` | Stop the service and remove the system unit                         |
 | `make clean-build`     | Remove the build directory and the `xmrig` symlink                  |
@@ -104,6 +106,12 @@ Run from the repo root. Targets work on both Linux (systemd) and macOS (launchd)
 | `make wipe`            | `clean-build` + `clean-configs` + `service-disable`                 |
 
 Docker equivalents: `docker compose up -d`, `down`, `logs -f`, `restart`, `ps`.
+
+One-off benchmark from a Docker install (builds the image if needed, no wallet required):
+
+```bash
+docker compose run --rm --entrypoint /app/xmrig xmrig --bench=1M
+```
 
 ## Tuning for performance
 
