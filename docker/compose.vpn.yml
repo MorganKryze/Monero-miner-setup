@@ -1,0 +1,39 @@
+# Compose override that routes xmrig traffic through a Gluetun VPN tunnel.
+#
+# Usage:
+#   cd docker/
+#   cp .env.vpn.example .env.vpn
+#   # Edit .env.vpn: uncomment ONE provider block and fill in credentials.
+#   docker compose -f compose.yml -f compose.vpn.yml up -d
+#
+# Verify the exit IP is NOT your own:
+#   docker exec monero_xmrig_gluetun wget -qO- https://ifconfig.io
+#
+# Preconfigured providers (see .env.vpn.example):
+#   - mullvad   (WireGuard)
+#   - protonvpn (WireGuard)
+#   - pia       (OpenVPN)
+#   - nordvpn   (OpenVPN)
+
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: monero_xmrig_gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    env_file:
+      - .env.vpn
+    restart: unless-stopped
+    # Gluetun ships its own HEALTHCHECK that verifies the tunnel is up.
+    # xmrig depends_on this so it only starts once the VPN is healthy.
+
+  xmrig:
+    # Route all xmrig network traffic through the gluetun container.
+    # Any port exposure on xmrig itself is ignored when this is set; put
+    # port mappings on the gluetun service if you need any.
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy

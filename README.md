@@ -6,104 +6,153 @@
 [![License: MIT](https://img.shields.io/github/license/MorganKryze/Monero-miner-setup)](./LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Debian%2FUbuntu%20%7C%20Docker-blue)
 
-Sets up [XMRig](https://xmrig.com) as a background service that mines Monero to a [MoneroOcean](https://moneroocean.stream) pool. Two install paths: a Docker container (works on anything) or a native install that gets a `systemd` or `launchd` service on Debian/Ubuntu or macOS.
+Sets up [XMRig](https://xmrig.com) as a background service that mines Monero to a [MoneroOcean](https://moneroocean.stream) pool. Two install paths: a Docker container (anywhere Docker runs) or a native install with a `systemd` or `launchd` service on Debian/Ubuntu and macOS.
 
 > **⚠️ Before you run this.** Mining consumes power, heats hardware, and can violate your cloud provider's ToS. Expect antivirus tools to flag XMRig. This project is not endorsed by Monero or MoneroOcean. You run it at your own risk.
 
-## Quick start (Docker)
+## Install
 
-Everything runs in a non-root container. Only `./logs/` gets written to your host.
+Both paths go through the same installer script. Pass `--docker` for the container path; omit it for the native path.
 
-```bash
-git clone https://github.com/MorganKryze/Monero-miner-setup.git
-cd Monero-miner-setup/docker
-cp .env.example .env
-# Open .env and set WALLET_ADDRESS to your Monero wallet (95 or 106 chars).
-docker compose up -d
-docker compose logs -f
-```
+| Pick       | Best when                                                        |
+| ---------- | ---------------------------------------------------------------- |
+| **Docker** | You want isolation, no system changes, easy teardown             |
+| **Native** | Debian/Ubuntu or macOS. Unlocks huge pages + MSR tuning for max hashrate |
 
-To stop it: `docker compose down`.
-
-First build takes 3–8 min (compiles XMRig from source in a builder stage). The runtime image is ~128 MB.
-
-### `.env` reference
-
-| Variable              | Default                   | Purpose                                                                  |
-| --------------------- | ------------------------- | ------------------------------------------------------------------------ |
-| `WALLET_ADDRESS`      | _(required)_              | Your Monero wallet. 95 or 106 chars, starts with `4` or `8`, base58 only |
-| `WORKER_NAME`         | `docker_miner`            | Label the pool uses to identify this worker                              |
-| `POOL_URL`            | `gulf.moneroocean.stream` | Pool hostname. Port is auto-computed for MoneroOcean                     |
-| `DONATE_LEVEL`        | `0`                       | 0–5% donation to XMRig devs                                              |
-| `CPU_COUNT`           | `2.0`                     | Container-level CPU quota                                                |
-| `MAX_THREADS_PERCENT` | `25`                      | Share of cores for `max-threads-hint` in the XMRig config                |
-| `FORCE_THREAD_COUNT`  | `2`                       | Hard thread count. Leave empty to derive from `MAX_THREADS_PERCENT`      |
-| `MEMORY_LIMIT`        | `1g`                      | Container memory cap                                                     |
-| `PAUSE_ON_BATTERY`    | `false`                   | Pause mining when the host is on battery                                 |
-| `PAUSE_ON_ACTIVE`     | `false`                   | Pause mining when the host has active user input                         |
-
-## Native install (Debian/Ubuntu or macOS)
-
-Pick this path if you want huge pages, MSR tuning, or the miner registered as a proper system service. Other OSes (Fedora, Arch, FreeBSD, Windows) don't have a native install path: use Docker.
-
-### One-liner
+### Docker
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
-  -w YOUR_MONERO_WALLET_ADDRESS
+  --docker -w YOUR_MONERO_WALLET --autostart
 ```
 
-The installer clones the repo into `$HOME/Monero-miner-setup`, builds XMRig from source, writes `config.json` + `config_background.json`, and registers the service (systemd on Linux, launchd on macOS). Inspect the script before running: see [Security](#security).
+First run compiles XMRig (3–8 min). The runtime image is ~128 MB. The container runs as a non-root `xmrig` user with `no-new-privileges`.
 
-### Flags
+Common flags (run `install.sh --docker --help` for the complete list):
 
-| Flag                           | Default                   | Purpose                                                    |
-| ------------------------------ | ------------------------- | ---------------------------------------------------------- |
-| `-w, --wallet WALLET`          | _(required)_              | Your Monero wallet                                         |
-| `-t, --threads PERCENT`        | `75`                      | `max-threads-hint` (1–100)                                 |
-| `-p, --pool URL`               | `gulf.moneroocean.stream` | Pool URL                                                   |
-| `--name STRING`                | random                    | Worker name shown on the pool                              |
-| `--donate PERCENT`             | `0`                       | 0–5                                                        |
-| `-d, --dir DIR`                | `$HOME`                   | Install dir (repo clones to `$DIR/Monero-miner-setup`)     |
-| `--pause-active`               | off                       | Pause on user input                                        |
-| `--pause-battery`              | off                       | Pause on battery                                           |
-| `--only-manual`                | off                       | Skip service setup (install binary only)                   |
-| `--autostart`                  | off                       | Start the service after install                            |
-| `-y, --yes, --non-interactive` | off                       | Skip the root-user prompt and the 15 s pre-install delay   |
+- `--worker-name NAME`: label shown on the pool (default: `docker_miner`)
+- `--cpus N` / `--memory LIMIT`: container caps (defaults: `2.0`, `1g`)
+- `--threads PCT` / `--force-threads N`: XMRig thread tuning (defaults: `75`, `2`)
+- `--pause-battery` / `--pause-active`: pause mining when on battery or when the user is active
+- `--vpn PROVIDER`: route mining through a VPN, see [VPN config](#vpn-config-docker)
+
+### Native (Debian/Ubuntu, macOS)
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+  -w YOUR_MONERO_WALLET
+```
+
+Clones to `$HOME/Monero-miner-setup`, builds XMRig from source, writes `config.json` + `config_background.json`, registers a `systemd` (Linux) or `launchd` (macOS) service. Needs `git`, `curl`, `make` on the `PATH`.
+
+Common flags (run `install.sh --help` for the complete list):
+
+- `-t, --threads PERCENT`: `max-threads-hint` 1–100 (default: `75`)
+- `-p, --pool URL`: pool override (default: `gulf.moneroocean.stream`)
+- `--name STRING`: worker name (default: random `adjective_noun_NNN`)
+- `--donate PERCENT`: 0–5
+- `--autostart`: start the service right after install
+- `--only-manual`: install the binary, skip service setup
+- `-y, --yes`: skip the root prompt and the 15 s pre-install delay
 
 ### Manual install
 
-If you'd rather drive the build yourself:
+If you'd rather clone and inspect before running anything:
 
 ```bash
 git clone --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
 cd Monero-miner-setup
-make deps-debian           # or: make deps-macos
-make build                 # compiles XMRig via CMake
-# Edit templates/config.json.template with your wallet and pool,
-# then run: make service-setup && make start
+less scripts/install.sh        # review
+
+# Native:
+make install-debian            # or: make install-macos
+make service-setup && make start
+
+# Docker:
+cp docker/.env.example docker/.env
+# Set WALLET_ADDRESS in docker/.env, then:
+docker compose -f docker/compose.yml up -d
 ```
+
+## VPN config (Docker)
+
+The Docker install can route all mining traffic through a [Gluetun](https://github.com/qdm12/gluetun) VPN sidecar. Supported providers: **Mullvad**, **ProtonVPN**, **PIA**, **NordVPN**.
+
+```bash
+# Mullvad + WireGuard, key kept out of shell history:
+bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+  --docker -w YOUR_MONERO_WALLET \
+  --vpn mullvad --wg-key-file ~/.secrets/mullvad.key --wg-address 10.64.0.1/32 \
+  --autostart
+```
+
+After `--autostart`, the installer waits for the tunnel to be healthy and prints your VPN exit IP.
+
+### Providers
+
+| Provider  | Protocol  | Mining policy  | Where to get credentials                                                                                                                   |
+| --------- | --------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Mullvad   | WireGuard | Allowed        | [mullvad.net/account/wireguard-config](https://mullvad.net/en/account/wireguard-config)                                                    |
+| ProtonVPN | WireGuard | Allowed (paid) | [account.protonvpn.com/downloads](https://account.protonvpn.com/downloads) (WireGuard tab)                                                 |
+| PIA       | OpenVPN   | Allowed        | Your PIA account login                                                                                                                     |
+| NordVPN   | OpenVPN   | Check ToS      | [my.nordaccount.com/.../manual-setup](https://my.nordaccount.com/dashboard/nordvpn/manual-setup/) (Service credentials, not account login) |
+
+### Secret handling
+
+`--wg-key`, `--wg-address`, `--vpn-user`, `--vpn-pass` each accept four input forms, checked in this precedence order:
+
+1. `--*-file PATH`: path is in shell history, content is not.
+2. Environment variable: `WIREGUARD_PRIVATE_KEY`, `WIREGUARD_ADDRESSES`, `OPENVPN_USER`, `OPENVPN_PASSWORD`.
+3. Direct `--*` flag: works, but prints a warning because the secret lands in shell history.
+4. Interactive prompt (silent, via `read -s`) when nothing else is set and `-y` wasn't passed.
+
+### Manual override
+
+Skip the installer and wire the override yourself:
+
+```bash
+cd docker/
+cp .env.vpn.example .env.vpn
+# Uncomment ONE provider block in .env.vpn and fill in credentials.
+docker compose -f compose.yml -f compose.vpn.yml up -d
+```
+
+### Verify and caveats
+
+Check the exit IP is not yours:
+
+```bash
+docker exec monero_xmrig_gluetun wget -qO- https://ifconfig.io
+```
+
+Gluetun's killswitch (`FIREWALL=on`) blocks outbound traffic if the VPN drops, so your real IP can't leak.
+
+Tradeoffs to know about:
+
+- +1–5 ms latency per share submission. Not material for mining.
+- Some pools rate-limit VPN IP ranges. MoneroOcean accepts them in practice; watch the acceptance rate if you see drops.
+- NordVPN's ToS prohibits crypto-mining on some plans. Mullvad and ProtonVPN are the safe bets.
 
 ## Operating the miner
 
-Run from the repo root. Targets work on both Linux (systemd) and macOS (launchd).
+For the native install, run from the repo root. Targets work on both Linux (systemd) and macOS (launchd).
 
-| Command                | What it does                                                        |
-| ---------------------- | ------------------------------------------------------------------- |
-| `make help`            | Print all targets. This is also the default when you just type `make` |
-| `make start`           | Start the mining service                                            |
-| `make stop`            | Stop the service and kill any stray `xmrig` processes               |
-| `make restart`         | `stop` + `start`                                                    |
-| `make status`          | Service state, PIDs, and the last 5 log lines                       |
-| `make test`            | Run XMRig in the foreground. Ctrl-C to exit                         |
+| Command                | What it does                                                          |
+| ---------------------- | --------------------------------------------------------------------- |
+| `make help`            | Print all targets. Also the default when you just type `make`         |
+| `make start`           | Start the mining service                                              |
+| `make stop`            | Stop the service and kill any stray `xmrig` processes                 |
+| `make restart`         | `stop` + `start`                                                      |
+| `make status`          | Service state, PIDs, and the last 5 log lines                         |
+| `make test`            | Run XMRig in the foreground. Ctrl-C to exit                           |
 | `make doctor`          | Check host tuning (huge pages, MSR, AES-NI) and print recommendations |
-| `make benchmark`       | 1-minute RandomX benchmark. Prints a hashrate score                 |
-| `make benchmark-long`  | 10-minute RandomX benchmark. More stable for hardware comparisons   |
-| `make update`          | `git pull`, update submodules, rebuild, re-install the service unit |
-| `make service-disable` | Stop the service and remove the system unit                         |
-| `make clean-build`     | Remove the build directory and the `xmrig` symlink                  |
-| `make clean-configs`   | Remove generated configs                                            |
-| `make wipe`            | `clean-build` + `clean-configs` + `service-disable`                 |
+| `make benchmark`       | 1-minute RandomX benchmark. Prints a hashrate score                   |
+| `make benchmark-long`  | 10-minute RandomX benchmark. More stable for hardware comparisons     |
+| `make update`          | `git pull`, update submodules, rebuild, re-install the service unit   |
+| `make service-disable` | Stop the service and remove the system unit                           |
+| `make clean-build`     | Remove the build directory and the `xmrig` symlink                    |
+| `make clean-configs`   | Remove generated configs                                              |
+| `make wipe`            | `clean-build` + `clean-configs` + `service-disable`                   |
 
 Docker equivalents: `docker compose up -d`, `down`, `logs -f`, `restart`, `ps`.
 
@@ -115,30 +164,34 @@ docker compose run --rm --entrypoint /app/xmrig xmrig --bench=1M
 
 ## Tuning for performance
 
-Run `make doctor` first. It inspects your host and prints a numbered list of concrete commands to run. Common wins on Linux:
+Run `make doctor` first. It inspects your host and prints a numbered list of concrete commands to apply. Common wins on Linux:
 
-- **Reserve 2 MB huge pages**: `sudo sysctl -w vm.nr_hugepages=1280`. Persist it in `/etc/sysctl.d/99-xmrig.conf`.
+- **Reserve 2 MB huge pages**: `sudo sysctl -w vm.nr_hugepages=1280`. Persist in `/etc/sysctl.d/99-xmrig.conf`.
 - **Load the `msr` module**: `sudo modprobe msr`. Persist via `echo msr | sudo tee /etc/modules-load.d/msr.conf`. Worth 5–15% on Ryzen and EPYC.
-- **Enable 1 GB pages** (if the CPU supports `pdpe1gb`): add `hugepagesz=1G hugepages=3 default_hugepagesz=2M` to `GRUB_CMDLINE_LINUX`, regenerate GRUB, reboot. Worth 1–5%.
+- **Enable 1 GB pages** (if the CPU has `pdpe1gb`): add `hugepagesz=1G hugepages=3 default_hugepagesz=2M` to `GRUB_CMDLINE_LINUX`, regenerate GRUB, reboot. Worth 1–5%.
 
 macOS has no userspace equivalent for any of these. Expect 10–30% less hashrate than a tuned Linux host on the same silicon.
 
 ## Configuration
 
-Configs live under `configs/` after install:
+**Native.** Generated configs live under `configs/`:
 
 - `config.json`: used by `make test`
 - `config_background.json`: used by the service
 
-Both are generated from `templates/*.json.template` via `sed` substitution. Edit the templates if you want different defaults for future installs. For the full XMRig schema, see the [XMRig docs](https://xmrig.com/docs).
+Both come from `templates/*.json.template` via `sed` substitution. Edit the templates if you want different defaults for future installs.
+
+**Docker.** Runtime config lives in `docker/.env` (and `docker/.env.vpn` if VPN is enabled). The installer writes these for you. Both files are `chmod 600`. `docker/.env.example` documents every variable.
+
+For the XMRig schema itself, see the [XMRig docs](https://xmrig.com/docs).
 
 ## Logs
 
-| Install    | Location                                           | Rotation                                                                      |
-| ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Linux      | `$REPO/logs/xmrig.log`                             | `/etc/logrotate.d/xmrig` (daily, 7 rotations, compressed) if `logrotate` is installed |
-| macOS      | `$REPO/logs/xmrig_stdout.log` + `xmrig_stderr.log` | None. Truncate them yourself if they grow                                     |
-| Docker     | `./logs/xmrig.log` + container stdout              | Container stdout rotates via compose (`max-size: 10m`, `max-file: 3`). File log grows until truncated |
+| Install | Location                                           | Rotation                                                                                              |
+| ------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Linux   | `$REPO/logs/xmrig.log`                             | `/etc/logrotate.d/xmrig` (daily, 7 rotations, compressed) if `logrotate` is installed                 |
+| macOS   | `$REPO/logs/xmrig_stdout.log` + `xmrig_stderr.log` | None. Truncate them yourself if they grow                                                             |
+| Docker  | `./logs/xmrig.log` + container stdout              | Container stdout rotates via compose (`max-size: 10m`, `max-file: 3`). File log grows until truncated |
 
 ## Security
 
@@ -171,8 +224,8 @@ None of them claim the script does something it doesn't advertise. They're sayin
 
 2. **Check the VirusTotal URL scans** for each entry point:
 
-   | File                      | Scan                                                                                                                          |
-   | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+   | File                      | Scan                                                                                                                        |
+   | ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
    | `install.sh`              | [VirusTotal](https://www.virustotal.com/gui/url/39d67119bd9c0dcb96d6594167b654e40141f522b8305112bbc532678c145a07/detection) |
    | `Makefile`                | [VirusTotal](https://www.virustotal.com/gui/url/77e9022659f5b43b8d75c5c83f4a8f63c99e945c9c04ea478433e0219bdcd66e/detection) |
    | `setup_service_debian.sh` | [VirusTotal](https://www.virustotal.com/gui/url/a734f2bf7ae11cce6db7dd8e7712be3600ce318d83cc3c4bf39fb204d37dbc4f/detection) |
@@ -191,7 +244,7 @@ The Docker image runs as a non-root `xmrig` user with `no-new-privileges`. The i
 
 **Service won't start.** Run `make status`. It prints the tail of the error log. Common causes: wallet rejected by the validator (wrong length, wrong leading char, non-base58 character), missing executable bit on `./xmrig`, or XMRig exiting on a missing CPU feature.
 
-**Hashrate lower than you expected.** Run `make doctor` and apply its recommendations. On Ryzen/EPYC, the `msr` kernel module is the single biggest lever.
+**Hashrate lower than expected.** Run `make doctor` and apply its recommendations. On Ryzen/EPYC, the `msr` kernel module is the single biggest lever.
 
 **Service keeps coming back after `make stop`.** Use `make service-disable`. `systemd` and `launchd` re-spawn stopped units; `stop` alone won't keep them down.
 
@@ -203,7 +256,7 @@ The Docker image runs as a non-root `xmrig` user with `no-new-privileges`. The i
 
 - CI (`.github/workflows/ci.yml`) runs `shellcheck`, `hadolint`, a `make -n` dry-run, and a full Docker build smoke test on every push and PR. First-time contributor PRs require maintainer approval before workflows run.
 - Dependabot opens weekly PRs for the vendored `xmrig` and `bash-toolbox` submodules, and for the GitHub Actions in the workflow. A companion workflow auto-merges Dependabot PRs once CI is green.
-- Pull requests welcome. Fork, branch, open a PR. The CI will tell you if anything's broken before a human looks at it.
+- Pull requests welcome. Fork, branch, open a PR. CI will tell you if anything's broken before a human looks at it.
 
 ## License
 

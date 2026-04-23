@@ -8,7 +8,7 @@ RESET := $(shell tput sgr0)
 # Build directory outside the repo
 BUILD_DIR := build-xmrig
 
-.PHONY: help install-debian install-macos \
+.PHONY: help install-debian install-macos docker-setup \
 		deps-debian deps-macos \
 		build clean-build clean-configs wipe test update doctor \
 		benchmark benchmark-long \
@@ -39,6 +39,7 @@ help:
 	@echo "    build                      Build XMRig from the vendored submodule"
 	@echo "    service-setup              Install systemd/launchd service"
 	@echo "    install-debian / install-macos  deps + build (one-shot)"
+	@echo "    docker-setup               Interactive Docker installer (supports VPN)"
 	@echo ""
 	@echo "  Runtime:"
 	@echo "    start / stop / restart     Control the mining service"
@@ -230,6 +231,9 @@ test:
 
 doctor:
 	@bash ./scripts/doctor.sh
+
+docker-setup:
+	@bash ./scripts/docker_setup.sh $(ARGS)
 
 benchmark:
 	@$(call log-info,"Running the XMRig 1-minute RandomX benchmark...")

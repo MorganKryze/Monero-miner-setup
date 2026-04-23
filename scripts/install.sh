@@ -16,6 +16,48 @@ DEFAULT_PAUSE_ON_ACTIVE=false
 DEFAULT_PAUSE_ON_BATTERY=false
 DEFAULT_SERVICE_MODE="setup" # Options: "setup", "manual", "autostart"
 DEFAULT_NON_INTERACTIVE=false
+DOCKER_SCRIPT_URL="https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh"
+
+# ===== Docker-mode dispatch =====
+# If --docker appears anywhere in the args, hand off to docker_setup.sh
+# (preferring a local sibling file, falling back to a fetch from GitHub).
+# Runs before any other logic so the native install path never executes.
+function maybe_dispatch_docker() {
+    local is_docker=false
+    local passthrough=()
+    for arg in "$@"; do
+        if [ "$arg" = "--docker" ]; then
+            is_docker=true
+        else
+            passthrough+=("$arg")
+        fi
+    done
+
+    if [ "$is_docker" != "true" ]; then
+        return 0
+    fi
+
+    # Prefer a sibling docker_setup.sh when running from a clone.
+    local self_dir=""
+    self_dir=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd) || self_dir=""
+    if [ -n "$self_dir" ] && [ -f "$self_dir/docker_setup.sh" ]; then
+        echo "Dispatching to $self_dir/docker_setup.sh..."
+        exec bash "$self_dir/docker_setup.sh" "${passthrough[@]}"
+    fi
+
+    # Otherwise fetch the latest from GitHub and exec.
+    local tmpfile
+    tmpfile=$(mktemp) || { echo "Failed to create temp file." >&2; exit 1; }
+    if ! curl -fsSL "$DOCKER_SCRIPT_URL" -o "$tmpfile"; then
+        echo "Failed to fetch $DOCKER_SCRIPT_URL. Check your network or install from a local clone." >&2
+        rm -f "$tmpfile"
+        exit 1
+    fi
+    echo "Dispatching to docker_setup.sh (fetched)..."
+    exec bash "$tmpfile" "${passthrough[@]}"
+}
+
+maybe_dispatch_docker "$@"
 
 # ===== Error handling =====
 set -o errexit  # Exit on error

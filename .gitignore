@@ -10,3 +10,4 @@ docker-configs
 logs/
 
 .env
+.env.vpn
