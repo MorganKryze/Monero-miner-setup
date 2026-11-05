@@ -320,7 +320,7 @@ build:
 	
 	@$(call log-success,"XMRig built successfully.")
 
-# Update target - pulls latest repo changes, updates submodules, then cleans and rebuilds
+# Update target - pulls latest repo changes, checks out the pinned submodules, then cleans and rebuilds
 update:
 	@$(call log-info,"Pulling latest changes from repository...")
 	@git pull; \
@@ -329,10 +329,10 @@ update:
 		exit 1; \
 	fi
 	
-	@$(call log-info,"Updating git submodules...")
-	@git submodule update --remote; \
+	@$(call log-info,"Checking out the pinned submodule commits...")
+	@git submodule update --init --recursive; \
 	if [ $$? -ne 0 ]; then \
-		$(call log-error,"Failed to update submodules"); \
+		$(call log-error,"Failed to check out the pinned submodules"); \
 		exit 1; \
 	fi
 	
