@@ -19,3 +19,29 @@ updates:
     commit-message:
       prefix: "ci"
     labels: ["dependencies", "github-actions"]
+
+  # Ubuntu base of the Dockerfile. Only its minor releases are skipped (the October one of an LTS
+  # year); odd-year releases still open a pull request, closed until the next LTS. Never
+  # auto-merged: every host's image is built on it.
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies", "docker"]
+    ignore:
+      - dependency-name: "ubuntu"
+        update-types: ["version-update:semver-minor"]
+
+  # Gluetun in the VPN compose file. Never auto-merged: it holds the VPN credentials and the
+  # killswitch.
+  - package-ecosystem: "docker-compose"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies", "docker"]
