@@ -8,6 +8,13 @@ RESET := $(shell tput sgr0)
 # Build directory outside the repo
 BUILD_DIR := build-xmrig
 
+# One compile job per CPU, but no more than one per whole GiB of memory available now, not
+# installed: `make update` often runs while the miner holds ~2.3 GB for RandomX. macOS has no
+# MemAvailable: its free, inactive and speculative pages stand in. Unknown memory: one job.
+CPUS := $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+MEM_GIB := $(shell awk '/^MemAvailable:/ {print int($$2 / 1048576)}' /proc/meminfo 2>/dev/null || vm_stat 2>/dev/null | awk '/page size of/ {p = $$8} /^Pages (free|inactive|speculative):/ {n += $$3} END {if (p) print int(n * p / 1073741824)}')
+BUILD_JOBS := $(shell j=$(CPUS); m=$(MEM_GIB); [ "$${m:-0}" -lt "$$j" ] && j=$${m:-0}; [ "$$j" -ge 1 ] || j=1; echo "$$j")
+
 .PHONY: help install-debian install-macos docker-setup \
 		deps-debian deps-macos \
 		build clean-build clean-configs wipe test update doctor \
@@ -304,8 +311,8 @@ build:
 		exit 1; \
 	fi
 	
-	@$(call log-info,"Building XMRig...")
-	@cd $(BUILD_DIR) && make; \
+	@$(call log-info,"Building XMRig with $(BUILD_JOBS) parallel jobs...")
+	@cd $(BUILD_DIR) && make -j$(BUILD_JOBS); \
 	if [ $$? -ne 0 ]; then \
 		$(call log-error,"Build failed"); \
 		exit 1; \
