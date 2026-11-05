@@ -29,6 +29,9 @@ jobs:
         with:
           severity: error
           ignore_paths: dependencies
+          # Same release as the local gate; the default, stable, moves under us.
+          # Dependabot doesn't see this input, so bump it by hand.
+          version: v0.11.0
 
   hadolint:
     name: Hadolint
@@ -104,3 +107,9 @@ jobs:
             exit 1
           fi
           echo "$output" | grep -q "WALLET_ADDRESS environment variable is required"
+
+      - name: Container runs as non-root (uid 999)
+        run: |
+          ids=$(docker run --rm --entrypoint id monero-miner-setup:ci)
+          echo "$ids"
+          [ "$ids" = "uid=999(xmrig) gid=999(xmrig) groups=999(xmrig)" ]
