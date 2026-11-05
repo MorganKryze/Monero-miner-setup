@@ -17,7 +17,7 @@ BUILD_JOBS := $(shell j=$(CPUS); m=$(MEM_GIB); [ "$${m:-0}" -lt "$$j" ] && j=$${
 
 .PHONY: help install-debian install-macos docker-setup \
 		deps-debian deps-macos \
-		build clean-build clean-configs wipe test update doctor \
+		build clean-build clean-configs wipe test check update doctor \
 		benchmark benchmark-long \
 		start stop restart status service-setup service-disable
 
@@ -58,6 +58,7 @@ help:
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    update                     git pull + rebuild + re-setup service"
+	@echo "    check                      Run the regression checks in tests/ (no build, no mining)"
 	@echo "    clean-build                Remove build artifacts"
 	@echo "    clean-configs              Remove generated configs"
 	@echo "    service-disable            Stop and remove the service"
@@ -326,6 +327,19 @@ build:
 	fi
 	
 	@$(call log-success,"XMRig built successfully.")
+
+# Regression checks: every script in tests/, all of them even after a failure. None of them
+# builds, mines, installs or needs the network, so this runs on any host and in CI.
+check:
+	@failed=0; \
+	for t in tests/*.sh; do \
+		bash "$$t" || failed=$$((failed + 1)); \
+	done; \
+	if [ $$failed -ne 0 ]; then \
+		$(call log-error,"$$failed of the regression checks failed"); \
+		exit 1; \
+	fi
+	@$(call log-success,"All regression checks passed.")
 
 # Update target - pulls latest repo changes, checks out the pinned submodules, then cleans and rebuilds
 update:

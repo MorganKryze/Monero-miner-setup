@@ -61,6 +61,16 @@ jobs:
       - name: make -n update (dry-run)
         run: make -n update
 
+  checks:
+    name: Regression checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # No submodules: the checks build their own fixtures and need no network.
+      - name: make check
+        run: make check
+
   docker-build:
     name: Docker build smoke test (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -95,6 +105,14 @@ jobs:
 
       - name: xmrig --version
         run: docker run --rm --entrypoint /app/xmrig monero-miner-setup:ci --version
+
+      # xmrig's cmake takes a static libuv.a when one is installed; the miner must load the
+      # runtime's libuv1t64 instead, so the image's package updates reach it.
+      - name: xmrig loads libuv from the runtime package
+        run: |
+          libs=$(docker run --rm --entrypoint ldd monero-miner-setup:ci /app/xmrig)
+          echo "$libs"
+          printf '%s\n' "$libs" | grep -qxE '[[:space:]]libuv[.]so[.]1 => /usr/lib/[a-z0-9_]+-linux-gnu/libuv[.]so[.]1 [(]0x[0-9a-f]+[)]'
 
       - name: Entrypoint rejects missing wallet
         run: |
