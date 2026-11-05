@@ -63,5 +63,20 @@ got=$(grep -E '^ +(flavor: |type=(raw|sha|semver),)' "$p")
 # main's protection requires these check names; a renamed job would block every pull request.
 want=$(printf '    name: %s\n' 'ShellCheck' 'Hadolint' 'Makefile dry-run' 'Regression checks' 'Docker build smoke test (${{ matrix.arch }})')
 [ "$(grep -E '^    name: ' .github/workflows/ci.yml)" = "$want" ] || { echo "FAIL ci job names"; rc=1; }
+# The Regression checks job runs make check, and only that.
+want=$(cat <<'YML'
+  checks:
+    name: Regression checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # No submodules: the checks build their own fixtures and need no network.
+      - name: make check
+        run: make check
+YML
+)
+got=$(block .github/workflows/ci.yml '  checks:')
+[ "$got" = "$want" ] || { echo "FAIL ci regression checks job"; diff <(echo "$want") <(echo "$got"); rc=1; }
 [ "$rc" -eq 0 ] && echo "PASS workflow-policy"
 exit "$rc"
