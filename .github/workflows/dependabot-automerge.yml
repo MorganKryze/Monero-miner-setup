@@ -56,7 +56,8 @@ jobs:
         run: |
           gh pr merge --auto --squash "$PR_URL"
           for _ in $(seq 1 120); do
-            state=$(gh pr view "$PR_URL" --json state --jq .state)
+            # The runner uses bash -e: one failed API call must not end the wait.
+            state=$(gh pr view "$PR_URL" --json state --jq .state) || state=""
             case "$state" in
               MERGED)
                 gh api "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=main-merged
@@ -69,7 +70,10 @@ jobs:
             esac
             sleep 30
           done
-          echo "::error::Not merged after 60 minutes; check the required CI checks."
+          # Disarm the queued merge: a later one made with this token would send no
+          # signal, while the owner's own merge pushes to main and publishes.
+          gh pr merge --disable-auto "$PR_URL"
+          echo "::error::Not merged after 60 minutes; check the required CI checks, then merge by hand."
           exit 1
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
