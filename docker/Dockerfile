@@ -19,7 +19,9 @@ WORKDIR /src
 
 COPY dependencies/xmrig ./xmrig
 
-RUN cmake -S xmrig -B build \
+# FindUV in xmrig takes libuv.a first, and libuv1-dev on 26.04 ships one: link the
+# shared libuv instead, so the miner loads the runtime libuv1t64 and gets its updates.
+RUN cmake -S xmrig -B build -DUV_LIBRARY="/usr/lib/$(gcc -dumpmachine)/libuv.so" \
     && cmake --build build -j"$(nproc)" \
     && strip build/xmrig
 
