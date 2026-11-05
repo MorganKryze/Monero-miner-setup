@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6
 
 # -------- Stage 1: builder --------
-FROM ubuntu:22.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -24,15 +24,15 @@ RUN cmake -S xmrig -B build \
     && strip build/xmrig
 
 # -------- Stage 2: runtime --------
-FROM ubuntu:22.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        libuv1 \
-        libssl3 \
+        libuv1t64 \
+        libssl3t64 \
         libhwloc15 \
         procps \
         jq \
