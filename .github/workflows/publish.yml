@@ -147,8 +147,11 @@ jobs:
         env:
           INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if ! printf '%s' "$INPUT_TAG" | grep -Eq '^[A-Za-z0-9._-]+$'; then
-            echo "::error::Invalid tag input: $INPUT_TAG"
+          # Match the whole string: grep tests line by line, so a newline in the
+          # input would add its own rule to the tags list. The value is not echoed
+          # back, since a line of it could read as a workflow command.
+          if ! [[ "$INPUT_TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::Invalid tag input: only alphanumerics, dot, dash, underscore"
             exit 1
           fi
           # The push and release rules own these names; a manual run must not move them.
