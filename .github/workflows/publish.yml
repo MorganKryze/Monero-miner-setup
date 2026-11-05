@@ -7,7 +7,7 @@ name: Publish images
 # Triggers:
 #   - push to main           -> :latest, :main-<shortsha>
 #   - git tag matching v*    -> :vX.Y.Z, :vX.Y, :latest
-#   - workflow_dispatch      -> :<input.tag> (default: dev)
+#   - workflow_dispatch      -> :<input.tag> only (default: dev), never :latest
 #
 # Dependabot auto-merges show up as pushes to main, so new xmrig / base-image
 # bumps get published without maintainer action.
@@ -159,8 +159,9 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             # Main branch pushes: always-current :latest + a SHA-pinned :main-<sha>.
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=main-,enable={{is_default_branch}}
+            # Push only: the default-branch flag is also true for a manual dispatch on main.
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=sha,prefix=main-,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
             # Version tag pushes: :vX.Y.Z, :vX.Y, and update :latest.
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
