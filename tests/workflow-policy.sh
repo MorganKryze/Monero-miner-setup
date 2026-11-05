@@ -24,9 +24,11 @@ want=$(cat <<'YML'
 YML
 )
 [ "$(block "$a" '        if: >-')" = "$want" ] || { echo "FAIL automerge allowlist"; rc=1; }
-want=$(printf '%s\n' '    permissions:' '      pull-requests: read' '    outputs:' '--' \
+# Each job's permissions block whole: a scope appended to either one fails here.
+want=$(printf '%s\n' '    permissions:' '      pull-requests: read' \
   '    permissions:' '      contents: write' '      pull-requests: write')
-[ "$(grep -c 'permissions:' "$a")" -eq 3 ] && [ "$(grep -A2 -xF '    permissions:' "$a")" = "$want" ] \
+got=$(awk '/^    permissions:$/ {on = 1; print; next} on && /^      / {print; next} {on = 0}' "$a")
+[ "$(grep -c 'permissions:' "$a")" -eq 3 ] && [ "$got" = "$want" ] \
   || { echo "FAIL automerge job permissions"; rc=1; }
 ! grep -n 'continue-on-error' "$a" "$p" || { echo "FAIL continue-on-error in a guarded workflow"; rc=1; }
 
