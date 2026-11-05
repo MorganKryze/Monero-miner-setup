@@ -7,11 +7,12 @@ name: Publish images
 # Triggers:
 #   - push to main           -> :latest, :main-<shortsha>
 #   - git tag matching v*    -> :X.Y.Z, :X.Y, :latest
+#   - repository_dispatch    -> same as a push to main (main-merged, sent after a Dependabot merge)
 #   - workflow_dispatch      -> :<input.tag> only (default: dev), never :latest
 #     the names above (latest, main-*, versions) and buildcache-* are refused
 #
-# Dependabot auto-merges show up as pushes to main, so new xmrig / base-image
-# bumps get published without maintainer action.
+# Dependabot merges made by the auto-merge workflow fire no push event, so that
+# workflow sends main-merged once the PR is in; its ref is main, like a push.
 #
 # First-time setup: after the first run, go to GitHub -> your profile ->
 # Packages -> monero-miner-setup -> Package settings -> Change visibility
@@ -22,6 +23,8 @@ on:
     branches: [main]
     tags:
       - 'v*'
+  repository_dispatch:
+    types: [main-merged]
   workflow_dispatch:
     inputs:
       tag:
@@ -175,8 +178,8 @@ jobs:
           tags: |
             # Main branch pushes: always-current :latest + a SHA-pinned :main-<sha>.
             # Push only: the default-branch flag is also true for a manual dispatch on main.
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-            type=sha,prefix=main-,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && github.ref == 'refs/heads/main' }}
+            type=sha,prefix=main-,enable=${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && github.ref == 'refs/heads/main' }}
             # Version tag pushes: :X.Y.Z, :X.Y, and update :latest.
             # Push only: a manual run on a tag ref would republish that release and move :latest.
             type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}

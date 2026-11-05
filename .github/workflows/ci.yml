@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  # Sent after a Dependabot merge, which fires no push, so main's badge sees it.
+  repository_dispatch:
+    types: [main-merged]
 
 # Minimum perms - this workflow only reads code and runs linters/builds.
 permissions:

@@ -29,11 +29,17 @@ jobs:
     needs: meta
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    # The merge step waits up to 60 minutes for the required checks.
+    timeout-minutes: 70
+    # A newer push to the same PR restarts the wait; the older run's view is stale.
+    concurrency:
+      group: automerge-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     permissions:
       contents: write
       pull-requests: write
     steps:
-      - name: Enable auto-merge (squash)
+      - name: Merge once CI is green, then publish main
         # Only Actions patch and minor bumps merge on their own. A submodule bump
         # pulls in upstream XMRig source and a major bump can break the workflows,
         # so both wait for the owner to review.
@@ -43,7 +49,28 @@ jobs:
           needs.meta.outputs.update-type == 'version-update:semver-minor')
         # --auto queues the merge; GitHub waits for required status checks
         # (configured in branch protection) before actually merging.
-        run: gh pr merge --auto --squash "$PR_URL"
+        # A merge made with the workflow token fires no push event, so neither CI
+        # nor the publish workflow would see it. repository_dispatch is one of the
+        # two events that token may still trigger, so we wait for the merge and
+        # send it ourselves.
+        run: |
+          gh pr merge --auto --squash "$PR_URL"
+          for _ in $(seq 1 120); do
+            state=$(gh pr view "$PR_URL" --json state --jq .state)
+            case "$state" in
+              MERGED)
+                gh api "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=main-merged
+                exit 0
+                ;;
+              CLOSED)
+                echo "PR closed without merging; nothing to publish."
+                exit 0
+                ;;
+            esac
+            sleep 30
+          done
+          echo "::error::Not merged after 60 minutes; check the required CI checks."
+          exit 1
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
