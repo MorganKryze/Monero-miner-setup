@@ -6,8 +6,9 @@ name: Publish images
 #
 # Triggers:
 #   - push to main           -> :latest, :main-<shortsha>
-#   - git tag matching v*    -> :vX.Y.Z, :vX.Y, :latest
-#   - workflow_dispatch      -> :<input.tag> (default: dev)
+#   - git tag matching v*    -> :X.Y.Z, :X.Y, :latest
+#   - workflow_dispatch      -> :<input.tag> only (default: dev), never :latest
+#     the names above (latest, main-*, versions) and buildcache-* are refused
 #
 # Dependabot auto-merges show up as pushes to main, so new xmrig / base-image
 # bumps get published without maintainer action.
@@ -24,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag name to publish (e.g. dev, nightly). Only alphanumerics, dot, dash, underscore.
+        description: Tag name to publish (e.g. dev, nightly). Only alphanumerics, dot, dash, underscore; not latest, main-*, buildcache-* or a version.
         required: false
         default: dev
 
@@ -35,9 +36,10 @@ env:
   # canonical case (e.g. MorganKryze/Monero-miner-setup).
 
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-${{ github.event_name == 'workflow_dispatch' && 'manual-' || '' }}${{ github.ref }}
   # Safe to cancel: same ref getting a newer push means the older build is
-  # stale and its output would be overwritten anyway.
+  # stale and its output would be overwritten anyway. Manual runs get their
+  # own group: they don't publish :latest, so one must never cancel a push.
   cancel-in-progress: true
 
 permissions:
@@ -140,15 +142,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Validate dispatch input (alphanumerics, dot, dash, underscore)
+      - name: Validate dispatch input (allowed characters, no reserved name)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if ! printf '%s' "$INPUT_TAG" | grep -Eq '^[A-Za-z0-9._-]+$'; then
-            echo "::error::Invalid tag input: $INPUT_TAG"
+          # Match the whole string: grep tests line by line, so a newline in the
+          # input would add its own rule to the tags list. The value is not echoed
+          # back, since a line of it could read as a workflow command.
+          if ! [[ "$INPUT_TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::Invalid tag input: only alphanumerics, dot, dash, underscore"
             exit 1
           fi
+          # The push and release rules own these names; a manual run must not move them.
+          case "$INPUT_TAG" in
+            latest|main-*|buildcache-*|v[0-9]*|[0-9]*)
+              echo "::error::Reserved tag name: $INPUT_TAG"
+              exit 1
+              ;;
+          esac
 
       - name: Compute tags
         id: meta
@@ -157,14 +169,19 @@ jobs:
           DISPATCH_TAG: ${{ github.event.inputs.tag }}
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Only the two explicit latest rules below may add :latest; the default
+          # flavor would also add it for any semver tag, whatever the event.
+          flavor: latest=false
           tags: |
             # Main branch pushes: always-current :latest + a SHA-pinned :main-<sha>.
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=main-,enable={{is_default_branch}}
-            # Version tag pushes: :vX.Y.Z, :vX.Y, and update :latest.
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            # Push only: the default-branch flag is also true for a manual dispatch on main.
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=sha,prefix=main-,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            # Version tag pushes: :X.Y.Z, :X.Y, and update :latest.
+            # Push only: a manual run on a tag ref would republish that release and move :latest.
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
             # Manual dispatch: user-supplied tag.
             type=raw,value=${{ env.DISPATCH_TAG }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
