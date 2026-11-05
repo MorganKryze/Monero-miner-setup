@@ -2,20 +2,79 @@ name: Dependabot auto-merge
 
 on: pull_request
 
-permissions:
-  contents: write
-  pull-requests: write
+# Nothing by default; each job below gets only what it needs.
+permissions: {}
 
 jobs:
+  meta:
+    name: Read Dependabot metadata
+    # Check who opened the PR, not who triggered the run: github.actor is
+    # whoever re-ran the job or pushed last, which must not count as Dependabot.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    # The third-party action runs apart from the write token: compromised, it
+    # could only misreport this PR's metadata, not merge or push anything.
+    permissions:
+      pull-requests: read
+    outputs:
+      package-ecosystem: ${{ steps.meta.outputs.package-ecosystem }}
+      update-type: ${{ steps.meta.outputs.update-type }}
+    steps:
+      - name: Read Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+
   automerge:
     name: Auto-merge Dependabot PRs
-    if: github.actor == 'dependabot[bot]'
+    needs: meta
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    # The merge step waits up to 60 minutes for the required checks.
+    timeout-minutes: 70
+    # A newer push to the same PR restarts the wait; the older run's view is stale.
+    concurrency:
+      group: automerge-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - name: Enable auto-merge (squash)
+      - name: Merge once CI is green, then publish main
+        # Only Actions patch and minor bumps merge on their own. A submodule bump
+        # pulls in upstream XMRig source and a major bump can break the workflows,
+        # so both wait for the owner to review.
+        if: >-
+          needs.meta.outputs.package-ecosystem == 'github_actions' &&
+          (needs.meta.outputs.update-type == 'version-update:semver-patch' ||
+          needs.meta.outputs.update-type == 'version-update:semver-minor')
         # --auto queues the merge; GitHub waits for required status checks
         # (configured in branch protection) before actually merging.
-        run: gh pr merge --auto --squash "$PR_URL"
+        # A merge made with the workflow token fires no push event, so neither CI
+        # nor the publish workflow would see it. repository_dispatch is one of the
+        # two events that token may still trigger, so we wait for the merge and
+        # send it ourselves.
+        run: |
+          gh pr merge --auto --squash "$PR_URL"
+          for _ in $(seq 1 120); do
+            # The runner uses bash -e: one failed API call must not end the wait.
+            state=$(gh pr view "$PR_URL" --json state --jq .state) || state=""
+            case "$state" in
+              MERGED)
+                gh api "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=main-merged
+                exit 0
+                ;;
+              CLOSED)
+                echo "PR closed without merging; nothing to publish."
+                exit 0
+                ;;
+            esac
+            sleep 30
+          done
+          # Disarm the queued merge: a later one made with this token would send no
+          # signal, while the owner's own merge pushes to main and publishes.
+          gh pr merge --disable-auto "$PR_URL"
+          echo "::error::Not merged after 60 minutes; check the required CI checks, then merge by hand."
+          exit 1
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

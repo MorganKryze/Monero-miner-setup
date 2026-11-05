@@ -6,15 +6,13 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  # Sent after a Dependabot merge, which fires no push, so main's badge sees it.
+  repository_dispatch:
+    types: [main-merged]
 
 # Minimum perms - this workflow only reads code and runs linters/builds.
 permissions:
   contents: read
-
-env:
-  # Opt into Node 24 for JS-based actions still on Node 20 (login-action@v3,
-  # metadata-action@v5, etc.). Remove when Dependabot has bumped them.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   shellcheck:
@@ -24,7 +22,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Run shellcheck on project scripts
-        uses: ludeeus/action-shellcheck@master
+        uses: ludeeus/action-shellcheck@2.0.0
         env:
           # SC1091: sourced file not found (bash-toolbox is fetched at runtime).
           SHELLCHECK_OPTS: -e SC1091
