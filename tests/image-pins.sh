@@ -1,7 +1,8 @@
 #!/bin/bash
 # The published image's Dockerfile: every line but comments and blanks, continuation lines
 # included (a new RUN, ADD, COPY or USER, or one more command in a RUN, fails here), both
-# stages on one Ubuntu tag, the two package lists, the apt-get install lines and the cmake line that links the shared libuv, so the miner loads the runtime's libuv1t64.
+# stages on one Ubuntu tag, the two package lists, the apt-get install lines and the cmake
+# line that links the shared libuv, so the miner loads the runtime's libuv1t64.
 # A Dependabot bump of the Ubuntu tag passes; any other change updates this file with it.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
