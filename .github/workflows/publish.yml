@@ -35,9 +35,10 @@ env:
   # canonical case (e.g. MorganKryze/Monero-miner-setup).
 
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-${{ github.event_name == 'workflow_dispatch' && 'manual-' || '' }}${{ github.ref }}
   # Safe to cancel: same ref getting a newer push means the older build is
-  # stale and its output would be overwritten anyway.
+  # stale and its output would be overwritten anyway. Manual runs get their
+  # own group: they don't publish :latest, so one must never cancel a push.
   cancel-in-progress: true
 
 permissions:
