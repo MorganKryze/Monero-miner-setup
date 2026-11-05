@@ -2,31 +2,45 @@ name: Dependabot auto-merge
 
 on: pull_request
 
-# Nothing by default; the one job below gets only what merging needs.
+# Nothing by default; each job below gets only what it needs.
 permissions: {}
 
 jobs:
-  automerge:
-    name: Auto-merge Dependabot PRs
+  meta:
+    name: Read Dependabot metadata
     # Check who opened the PR, not who triggered the run: github.actor is
     # whoever re-ran the job or pushed last, which must not count as Dependabot.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    # The third-party action runs apart from the write token: compromised, it
+    # could only misreport this PR's metadata, not merge or push anything.
+    permissions:
+      pull-requests: read
+    outputs:
+      package-ecosystem: ${{ steps.meta.outputs.package-ecosystem }}
+      update-type: ${{ steps.meta.outputs.update-type }}
+    steps:
+      - name: Read Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+
+  automerge:
+    name: Auto-merge Dependabot PRs
+    needs: meta
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
     steps:
-      - name: Read Dependabot metadata
-        id: meta
-        uses: dependabot/fetch-metadata@v3
       - name: Enable auto-merge (squash)
         # Only Actions patch and minor bumps merge on their own. A submodule bump
         # pulls in upstream XMRig source and a major bump can break the workflows,
         # so both wait for the owner to review.
         if: >-
-          steps.meta.outputs.package-ecosystem == 'github_actions' &&
-          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
-          steps.meta.outputs.update-type == 'version-update:semver-minor')
+          needs.meta.outputs.package-ecosystem == 'github_actions' &&
+          (needs.meta.outputs.update-type == 'version-update:semver-patch' ||
+          needs.meta.outputs.update-type == 'version-update:semver-minor')
         # --auto queues the merge; GitHub waits for required status checks
         # (configured in branch protection) before actually merging.
         run: gh pr merge --auto --squash "$PR_URL"
