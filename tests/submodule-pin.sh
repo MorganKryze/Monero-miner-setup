@@ -9,6 +9,10 @@ rc=0
 root=$PWD
 w=$(mktemp -d)
 trap 'rm -rf -- "$w"' EXIT
+# A hook or a linked worktree exports GIT_DIR, GIT_INDEX_FILE and the like: left set, the fixture
+# commands below would act on the developer's own repository instead of the ones under $w.
+# shellcheck disable=SC2046 # the names are git's, one word each
+unset $(git rev-parse --local-env-vars)
 # Only these settings: the developer's own git config must not change the answer.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=4
 export GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always
