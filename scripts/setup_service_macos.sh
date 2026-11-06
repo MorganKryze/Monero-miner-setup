@@ -8,6 +8,9 @@ BASE_DIR=$(dirname "$SCRIPT_DIR")
 TEMPLATE_FILE="$BASE_DIR/templates/com.moneroocean.xmrig.plist.template"
 TARGET_FILE="$HOME/Library/LaunchAgents/com.moneroocean.xmrig.plist"
 
+# shellcheck source=setup_service_common.sh
+source "$SCRIPT_DIR/setup_service_common.sh" || { echo "Error: $SCRIPT_DIR/setup_service_common.sh not found."; exit 1; }
+
 # Ensure XMRig is executable
 if [ ! -x "$BASE_DIR/xmrig" ]; then
     echo "Making XMRig executable..."
@@ -33,6 +36,13 @@ if [ ! -f "$CONFIG_FILE" ]; then
     fi
 fi
 
+# The job runs this config: in background mode, launchd would start a new miner each time the
+# last one forks away.
+if ! turn_background_off "$CONFIG_FILE"; then
+    echo "Error: Failed to turn off background mode in $CONFIG_FILE"
+    exit 1
+fi
+
 # Create LaunchAgents directory if it doesn't exist
 mkdir -p "$HOME/Library/LaunchAgents"
 
@@ -47,22 +57,17 @@ if [ ! -f "$TEMPLATE_FILE" ]; then
     exit 1
 fi
 
-# Copy the template to the target location
-cp "$TEMPLATE_FILE" "$TARGET_FILE"
-
-# Replace placeholders with actual values
+# Write the plist from the template with the actual paths
 XMRIG_PATH="$BASE_DIR/xmrig"
 CONFIG_PATH="$CONFIG_FILE"
 WORKING_DIR="$BASE_DIR"
-
-# Use sed compatible with macOS
-sed -i '' "s|%%XMRIG_PATH%%|${XMRIG_PATH}|g" "$TARGET_FILE"
-sed -i '' "s|%%CONFIG_PATH%%|${CONFIG_PATH}|g" "$TARGET_FILE"
-sed -i '' "s|%%LOG_PATH%%|${LOG_DIR}|g" "$TARGET_FILE"
-sed -i '' "s|%%WORKING_DIR%%|${WORKING_DIR}|g" "$TARGET_FILE"
+sed -e "s|%%XMRIG_PATH%%|${XMRIG_PATH}|g" -e "s|%%CONFIG_PATH%%|${CONFIG_PATH}|g" \
+    -e "s|%%LOG_PATH%%|${LOG_DIR}|g" -e "s|%%WORKING_DIR%%|${WORKING_DIR}|g" "$TEMPLATE_FILE" > "$TARGET_FILE"
 
 # Set correct permissions on the plist file
 chmod 644 "$TARGET_FILE"
+
+report_detached_miners "$CONFIG_FILE" "$(launchctl list | awk '$3 == "com.moneroocean.xmrig" {print $1}')"
 
 # Unload the service if it's already loaded (to avoid conflicts)
 launchctl unload "$TARGET_FILE" 2>/dev/null || true
