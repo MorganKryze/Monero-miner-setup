@@ -312,7 +312,7 @@ build:
 		exit 1; \
 	fi
 	
-	@$(call log-info,"Building XMRig with $(BUILD_JOBS) parallel jobs...")
+	@$(call log-info,"Building XMRig with $(BUILD_JOBS) parallel $(if $(filter 1,$(BUILD_JOBS)),job,jobs)...")
 	@cd $(BUILD_DIR) && make -j$(BUILD_JOBS); \
 	if [ $$? -ne 0 ]; then \
 		$(call log-error,"Build failed"); \
@@ -365,17 +365,19 @@ update:
 	
 	@$(call log-success,"Repository updated and rebuilt successfully.")
 
-# Debian-specific dependencies
+# Debian-specific dependencies: fresh package lists and the build packages, nothing else.
+# --no-upgrade leaves a package that is already installed at its version: system updates are
+# the host owner's (unattended-upgrades or their own apt-get upgrade), not the miner's.
 deps-debian:
-	@$(call log-info,"Updating package lists and upgrading system...")
-	@sudo apt update && sudo apt upgrade -y; \
+	@$(call log-info,"Updating package lists...")
+	@sudo apt-get update; \
 	if [ $$? -ne 0 ]; then \
-		$(call log-error,"Failed to update packages"); \
+		$(call log-error,"Failed to update package lists"); \
 		exit 1; \
 	fi
 
 	@$(call log-info,"Installing required packages...")
-	@sudo apt install -y \
+	@sudo apt-get install -y --no-upgrade \
 		build-essential \
 		cmake \
 		libuv1-dev \
@@ -386,29 +388,20 @@ deps-debian:
 		exit 1; \
 	fi
 
-# macOS-specific dependencies
+# macOS-specific dependencies. Homebrew's own installer asks for sudo and the Xcode tools in its
+# own way, so a Mac without Homebrew gets its install command and stops here; a re-run of the
+# installer picks up where this one stopped.
 deps-macos:
-	@$(call log-info,"Installing dependencies for macOS...")
-	
 	@$(call log-info,"Installing dependencies using Homebrew...")
-	@if command -v brew >/dev/null 2>&1; then \
-		brew install cmake libuv openssl hwloc; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to install dependencies with Homebrew"); \
-			exit 1; \
-		fi; \
-	else \
-		$(call log-warning,"Homebrew not found. Installing Homebrew..."); \
-		/bin/bash -c "$$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to install Homebrew"); \
-			exit 1; \
-		fi; \
-		brew install cmake libuv openssl hwloc; \
-		if [ $$? -ne 0 ]; then \
-			$(call log-error,"Failed to install dependencies with Homebrew"); \
-			exit 1; \
-		fi; \
+	@if ! command -v brew >/dev/null 2>&1; then \
+		$(call log-error,"Homebrew not found. Install it with the command below and run the installer again:"); \
+		echo '  /bin/bash -c "$$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; \
+		exit 1; \
+	fi; \
+	brew install cmake libuv openssl hwloc; \
+	if [ $$? -ne 0 ]; then \
+		$(call log-error,"Failed to install dependencies with Homebrew"); \
+		exit 1; \
 	fi
 
 # Combined targets (for backward compatibility)
