@@ -84,7 +84,7 @@ want_unit() { # user
 }
 want_lr() { # user, group
   printf '%s\n' "$c/logs/*.log {" "    su $1 $2" "    daily" "    rotate 7" "    compress" "    delaycompress" \
-    "    missingok" "    notifempty" "    copytruncate" "    create 0644 $1 $1" "}"
+    "    missingok" "    notifempty" "    copytruncate" "    create 0644 $1 $2" "}"
 }
 installed() { # label, user, group: both files as root installed them, the planted ones untouched, nothing left
   same "$1: the unit root installed" "$(want_unit "$2")" "$(cat "$w/installed/xmrig.service" 2>/dev/null)"
