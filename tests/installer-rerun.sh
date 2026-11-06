@@ -72,7 +72,9 @@ host() { # state: a fresh host, then each part an earlier run left
       clone) mkdir -p "$t/.git" "$t/templates"; cp "$root"/templates/config*.template "$t/templates/" ;;
       configs) mkdir -p "$t/configs"
         sed "s/\"user\": \"[^\"]*\"/\"user\": \"EARLIER\"/" "$root/templates/config.json.template" > "$t/configs/config.json"
-        sed "s/\"user\": \"[^\"]*\"/\"user\": \"EARLIER\"/" "$root/templates/config_background.json.template" > "$t/configs/config_background.json" ;;
+        sed "s/\"user\": \"[^\"]*\"/\"user\": \"EARLIER\"/" "$root/templates/config_background.json.template" > "$t/configs/config_background.json"
+        ln -s "$t/configs/config.json" "$t/config.json"
+        ln -s "$t/configs/config_background.json" "$t/config_background.json" ;;
       build) mkdir -p "$t/build-xmrig"; : > "$t/xmrig" ;;
       service) : > "$w/unit" ;;
     esac
@@ -80,8 +82,11 @@ host() { # state: a fresh host, then each part an earlier run left
 }
 snapshot() { (cd "$w" && find home -type f -exec cksum {} + | LC_ALL=C sort; [ -e unit ] && echo unit) }
 last() { printf '%s\n' "$out" | tail -1; }
-keeping() { # file
-  printf '%s\n' "$out" | grep -cxF "[INFO] Keeping $t/configs/$1. To regenerate it, run 'make clean-configs', then the installer again."
+keeping() { # file, under the clone
+  printf '%s\n' "$out" | grep -cxF "[INFO] Keeping $t/$1. To regenerate it, run 'make clean-configs', then the installer again."
+}
+linked() { # name: the link at the clone root that the miner reads points to configs/<name>
+  [ -L "$t/$1" ] && [ "$(readlink "$t/$1")" = "$t/configs/$1" ]
 }
 
 # A first install: every step, in order.
@@ -91,6 +96,7 @@ run setup
 [ "$steps" = "STEP clone STEP build STEP service " ] || fail "first install: steps '$steps'"
 [ "$(last)" = "[SUCCESS] Project installed successfully." ] || fail "first install: last line '$(last)'"
 grep -qxF "      \"user\": \"$wallet\"," "$t/configs/config_background.json" || fail "first install: the wallet is not in the service config"
+linked config.json && linked config_background.json || fail "first install: the configs are not linked at the clone root"
 # The clone of a run whose build failed: configs, build, service.
 host clone
 run setup
@@ -112,8 +118,20 @@ cp "$t/configs/config.json" "$w/c1"; cp "$t/configs/config_background.json" "$w/
 run setup
 [ "$steps" = "STEP service " ] || fail "no service yet: steps '$steps'"
 cmp -s "$t/configs/config.json" "$w/c1" && cmp -s "$t/configs/config_background.json" "$w/c2" || fail "no service yet: a kept config changed"
-[ "$(keeping config.json)" -eq 1 ] && [ "$(keeping config_background.json)" -eq 1 ] || fail "no service yet: not one keeping line per config"
+[ "$(keeping configs/config.json)" -eq 1 ] && [ "$(keeping configs/config_background.json)" -eq 1 ] || fail "no service yet: not one keeping line per config"
 [ "$(last)" = "[SUCCESS] Project installed successfully." ] || fail "no service yet: last line '$(last)'"
+# A config edited through its link at the clone root, which GNU sed -i turns into a regular file:
+# that file is what the miner reads, so it stays as it is, and the keeping line names it.
+host clone configs build
+rm "$t/config.json"; echo "USER EDITED CONFIG" > "$t/config.json"
+cp "$t/configs/config.json" "$w/c1"
+run setup
+[ "$steps" = "STEP service " ] || fail "edited at the root: steps '$steps'"
+[ ! -L "$t/config.json" ] && [ "$(cat "$t/config.json")" = "USER EDITED CONFIG" ] || fail "edited at the root: the edited config was replaced"
+cmp -s "$t/configs/config.json" "$w/c1" || fail "edited at the root: configs/config.json changed"
+linked config_background.json || fail "edited at the root: the other link changed"
+[ "$(keeping config.json)" -eq 1 ] && [ "$(keeping configs/config.json)" -eq 0 ] \
+  && [ "$(keeping configs/config_background.json)" -eq 1 ] || fail "edited at the root: keeping lines"
 # One config missing: the other kept, the missing one generated.
 host clone configs build service
 rm "$t/configs/config_background.json"
@@ -121,7 +139,7 @@ cp "$t/configs/config.json" "$w/c1"
 run setup
 [ "$steps" = "" ] || fail "one config missing: steps '$steps'"
 cmp -s "$t/configs/config.json" "$w/c1" || fail "one config missing: the kept config changed"
-[ "$(keeping config.json)" -eq 1 ] && [ "$(keeping config_background.json)" -eq 0 ] || fail "one config missing: keeping lines"
+[ "$(keeping configs/config.json)" -eq 1 ] && [ "$(keeping configs/config_background.json)" -eq 0 ] || fail "one config missing: keeping lines"
 grep -qxF "      \"user\": \"$wallet\"," "$t/configs/config_background.json" || fail "one config missing: not regenerated"
 # Every step done (with --only-manual: no service asked; with --autostart: nothing started):
 # nothing changes, and the run says so.

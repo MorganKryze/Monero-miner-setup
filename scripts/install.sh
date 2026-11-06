@@ -667,7 +667,7 @@ function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
-    local name missing=()
+    local name kept missing=()
 
     info "Generating miner configuration files..."
 
@@ -675,12 +675,21 @@ function generate_config_files() {
     mkdir -p "$dest_config_dir"
 
     # A config from an earlier run holds the user's wallet, pool and worker name, and maybe their
-    # own edits: it is kept as it is.
+    # own edits: it is kept as it is. The miner reads the one at the clone root, which is a link to
+    # configs/ unless an edit replaced it with a file (GNU sed -i on the link does): that file is
+    # the config the line names.
     for name in config.json config_background.json; do
+        kept=""
         if [ -f "$dest_config_dir/$name" ]; then
-            info "Keeping $dest_config_dir/$name. To regenerate it, run 'make clean-configs', then the installer again."
+            kept="$dest_config_dir/$name"
         else
             missing+=("$name")
+        fi
+        if [ -e "$target_dir/$name" ] && [ ! -L "$target_dir/$name" ]; then
+            kept="$target_dir/$name"
+        fi
+        if [ -n "$kept" ]; then
+            info "Keeping $kept. To regenerate it, run 'make clean-configs', then the installer again."
         fi
     done
 
@@ -744,9 +753,13 @@ function generate_config_files() {
         success "Configuration files generated successfully."
     fi
 
-    # Create symbolic links for easy access
-    ln -sf "$dest_config_dir/config.json" "$target_dir/config.json"
-    ln -sf "$dest_config_dir/config_background.json" "$target_dir/config_background.json"
+    # Link each config at the clone root, where the miner reads it, unless something is already
+    # there: an earlier run's link, or a config edited in its place.
+    for name in config.json config_background.json; do
+        if [ ! -e "$target_dir/$name" ] && [ ! -L "$target_dir/$name" ]; then
+            ln -s "$dest_config_dir/$name" "$target_dir/$name"
+        fi
+    done
 
     info "Main config: $dest_config_dir/config.json"
     info "Background config: $dest_config_dir/config_background.json"
