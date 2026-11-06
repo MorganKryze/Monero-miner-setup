@@ -47,6 +47,19 @@ for v in 2 4 nl; do
   same "turn off again ($v): output" "" "$out"
   cmp -s "$w/cfg/configs/c$v.json" "$w/cfg/off$v" || fail "turn off again ($v): the file changed"
 done
+# A write that fails half way (the file size limit here, a full disk or a crash elsewhere) leaves
+# the config as it was, byte for byte, behind its link, with nothing new beside it.
+cp "$w/cfg/on2" "$w/cfg/configs/cut.json"
+ln -s "$w/cfg/configs/cut.json" "$w/cfg/linkcut.json"
+out=$(trap '' XFSZ; ulimit -f 1; turn_background_off "$w/cfg/linkcut.json" 2>/dev/null); code=$?
+[ "$code" -ne 0 ] || fail "write fails: exit 0"
+same "write fails: output" "" "$out"
+cmp -s "$w/cfg/configs/cut.json" "$w/cfg/on2" || fail "write fails: the config changed"
+[ -L "$w/cfg/linkcut.json" ] || fail "write fails: the link was replaced by a file"
+same "write fails: files beside the config" "c2.json
+c4.json
+cnl.json
+cut.json" "$(ls -A "$w/cfg/configs")"
 cp "$w/cfg/off2" "$w/cfg/already"
 out=$(turn_background_off "$w/cfg/already")
 same "already off: output" "" "$out"

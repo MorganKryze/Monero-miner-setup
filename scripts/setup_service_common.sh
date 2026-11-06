@@ -13,13 +13,25 @@ function background_is_on() {
 }
 
 # Turns background mode off in the config at $1, that one line alone, and says so, naming it $2
-# when given. Written through the configs/ link, so the file keeps its place, owner and mode; the
-# trailing x keeps the file's last newlines, which command substitution would strip.
+# when given. The file at the end of the configs/ link is replaced by an edited copy written beside
+# it: the link stays, the copy keeps the file's mode (a file nobody may write stays unwritten) and
+# its owner where this user may set it, and a write that fails half way (a full disk, a crash)
+# leaves the wallet and pool settings as they were. Links are followed by hand because macOS
+# before 12.3 has no readlink -f; 40 hops is Linux's own limit. The trailing x keeps the file's
+# last newlines, which command substitution would strip.
 function turn_background_off() {
-    local config="$1" name="${2:-$1}" edited
+    local config="$1" name="${2:-$1}" target="$1" link hops=0 edited copy
     background_is_on "$config" || return 0
-    edited=$(sed -E 's/^([[:space:]]*"background":[[:space:]]*)true(,?)$/\1false\2/' "$config" && echo x) || return 1
-    printf '%s' "${edited%x}" > "$config" || return 1
+    while link=$(readlink "$target"); do
+        [ $((hops += 1)) -le 40 ] || return 1
+        case $link in /*) target=$link ;; *) target=$(dirname "$target")/$link ;; esac
+    done
+    edited=$(sed -E 's/^([[:space:]]*"background":[[:space:]]*)true(,?)$/\1false\2/' "$target" && echo x) || return 1
+    copy=$(mktemp "$(dirname "$target")/.${target##*/}.XXXXXXXXXX") || return 1
+    if ! cp -p "$target" "$copy" || ! printf '%s' "${edited%x}" > "$copy" || ! mv -f "$copy" "$target"; then
+        rm -f -- "$copy"
+        return 1
+    fi
     echo "Turned off background mode in $name: the service now supervises the miner."
 }
 
