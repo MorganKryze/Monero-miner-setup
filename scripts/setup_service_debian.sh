@@ -39,20 +39,22 @@ if [ "$LOGROTATE" = true ]; then
     LOGROTATE_STAGED=$(mktemp "${TMPDIR:-/tmp}/xmrig-logrotate.XXXXXXXXXX") || { echo "ERROR: Failed to create a temporary file."; exit 1; }
 fi
 
-# Install systemd service file
-sed -e "s|%%USER%%|$(whoami)|g" -e "s|%%WORKING_DIR%%|${BASE_DIR}|g" "$TEMPLATE_FILE" > "$UNIT_STAGED"
-if ! sudo install -o root -g root -m 644 "$UNIT_STAGED" "$TARGET_FILE"; then
-    echo "ERROR: Failed to install $TARGET_FILE."
+# A write that fails half way would install a cut file: each is checked before root installs it.
+if ! sed -e "s|%%USER%%|$(whoami)|g" -e "s|%%WORKING_DIR%%|${BASE_DIR}|g" "$TEMPLATE_FILE" > "$UNIT_STAGED"; then
+    echo "ERROR: Failed to write the unit from $TEMPLATE_FILE."
     exit 1
 fi
-sudo systemctl daemon-reload
-sudo systemctl enable xmrig.service
 
 # Install logrotate config (best-effort: skip if logrotate is absent)
 # Root runs logrotate inside a directory this user owns: the su line makes it act as this user
-# there, so a symlink swapped in for logs/ cannot point it at root's files.
+# there, so a symlink swapped in for logs/ cannot point it at root's files. It goes in before the
+# unit, whose presence marks the service as set up: a failure leaves no unit, and the next run sets
+# the service up again.
 if [ "$LOGROTATE" = true ]; then
-    sed -e "s|%%LOG_DIR%%|${BASE_DIR}/logs|g" -e "s|%%USER%%|$(whoami)|g" -e "s|%%GROUP%%|$(id -gn)|g" "$LOGROTATE_TEMPLATE" > "$LOGROTATE_STAGED"
+    if ! sed -e "s|%%LOG_DIR%%|${BASE_DIR}/logs|g" -e "s|%%USER%%|$(whoami)|g" -e "s|%%GROUP%%|$(id -gn)|g" "$LOGROTATE_TEMPLATE" > "$LOGROTATE_STAGED"; then
+        echo "ERROR: Failed to write the logrotate config from $LOGROTATE_TEMPLATE."
+        exit 1
+    fi
     if ! sudo install -o root -g root -m 644 "$LOGROTATE_STAGED" "$LOGROTATE_TARGET"; then
         echo "ERROR: Failed to install $LOGROTATE_TARGET."
         exit 1
@@ -61,6 +63,14 @@ if [ "$LOGROTATE" = true ]; then
 else
     echo "Skipping logrotate setup (logrotate not installed)."
 fi
+
+# Install systemd service file
+if ! sudo install -o root -g root -m 644 "$UNIT_STAGED" "$TARGET_FILE"; then
+    echo "ERROR: Failed to install $TARGET_FILE."
+    exit 1
+fi
+sudo systemctl daemon-reload
+sudo systemctl enable xmrig.service
 
 echo "XMRig service has been setup and enabled, but not started."
 echo "Use 'make start' to start mining."
