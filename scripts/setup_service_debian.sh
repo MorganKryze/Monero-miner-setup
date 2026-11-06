@@ -10,6 +10,9 @@ SEED_SOURCE="$BASE_DIR/config_background.json"
 SEED_DIR="/etc/xmrig"
 SEED_TARGET="$SEED_DIR/config.json"
 
+# shellcheck source=setup_service_common.sh
+source "$SCRIPT_DIR/setup_service_common.sh" || { echo "ERROR: $SCRIPT_DIR/setup_service_common.sh not found."; exit 1; }
+
 # Check if systemd is available
 if ! command -v systemctl >/dev/null 2>&1; then
     echo "ERROR: systemd is not available on this system."
@@ -19,6 +22,14 @@ fi
 # Check if template exists
 if [ ! -f "$TEMPLATE_FILE" ]; then
     echo "ERROR: Template file not found at $TEMPLATE_FILE"
+    exit 1
+fi
+
+# The service config the seed is read from: in background mode, systemd would lose the miner as
+# soon as it starts. Done first, as this user, so a unit an earlier setup left gets a supervised
+# miner even when this setup stops below.
+if ! turn_background_off "$SEED_SOURCE"; then
+    echo "ERROR: Failed to turn off background mode in $SEED_SOURCE."
     exit 1
 fi
 
@@ -156,6 +167,9 @@ if ! sudo install -o root -g root -m 644 "$UNIT_STAGED" "$TARGET_FILE"; then
 fi
 sudo systemctl daemon-reload
 sudo systemctl enable xmrig.service
+# Miners an earlier background-mode start left ran on the clone's config, as the account the
+# installed unit named.
+report_detached_miners "$SEED_SOURCE" "$(systemctl show -p MainPID --value xmrig.service 2>/dev/null)" "$OLD_ACCOUNT"
 
 # Each account has its own pair of directories, so an earlier one's files never reach the next.
 if [ -n "$OLD_ACCOUNT" ] && [ "$OLD_ACCOUNT" != "$ACCOUNT" ]; then

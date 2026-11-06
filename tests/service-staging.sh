@@ -42,7 +42,7 @@ for t in bash sh sed cat mktemp dirname readlink rm ls cut awk cp mv mkdir basen
   p=$(command -v "$t") && [ -x "$p" ] || { echo "FAIL no $t on PATH"; exit 1; }
   case $t in mktemp|sed|cat) ln -s "$p" "$b/$t.real" ;; *) ln -s "$p" "$b/$t" ;; esac
 done
-cp "$root/$script" "$c/$script"
+cp "$root/$script" "$root/scripts/setup_service_common.sh" "$c/scripts/"
 cp "$root/templates/xmrig.service.template" "$root/templates/logrotate.xmrig.template" "$c/templates/"
 # The binary sits in the build directory behind a link in the clone, as make build leaves it.
 mkdir "$c/build-xmrig"
@@ -108,6 +108,8 @@ echo "\$2 \$3"
 STUB
 printf '#!%s/bash\necho "useradd run without sudo" >> "%s/sudo.log"; exit 1\n' "$b" "$w" > "$b/useradd"
 printf '#!%s/sh\nexit 0\n' "$b" > "$b/logrotate"
+# pgrep: records whose processes were asked for; no xmrig runs, so the report stays silent.
+printf '#!%s/sh\necho "pgrep $*" >> "%s/pgrep.log"\nexit 1\n' "$b" "$w" > "$b/pgrep"
 # mktemp that fails on its Nth call only (FAIL_AT); sed and cat that write a cut line and fail when
 # they read the file SED_FAIL or CAT_FAIL names; the plain tools otherwise.
 cat > "$b/mktemp" <<STUB
@@ -122,11 +124,11 @@ for t in sed cat; do
   printf '#!%s/bash\nPATH="%s"\nfor a; do [ "$a" = "${%s:-}" ] && { echo PARTIAL; exit 4; }; done\nexec "%s/%s.real" "$@"\n' \
     "$b" "$b" "$v" "$b" "$t" > "$b/$t"
 done
-chmod +x "$b/stat" "$b/sudo" "$b/install" "$b/id" "$b/systemctl" "$b/useradd" "$b/logrotate" "$b/mktemp" "$b/sed" "$b/cat" "$c/xmrig"
+chmod +x "$b/stat" "$b/sudo" "$b/install" "$b/id" "$b/systemctl" "$b/useradd" "$b/logrotate" "$b/pgrep" "$b/mktemp" "$b/sed" "$b/cat" "$c/xmrig"
 [ "$(PATH="$b" command -v sudo)" = "$b/sudo" ] || { echo "FAIL sudo resolves outside the stub dir"; exit 1; }
 
 setup() { # runs the copy, sets out, code, calls, staged, installs; keeps the fixture account list
-  rm -rf "${w:?}/tmp" "${SERVICE_ROOT:?}" "${w:?}/sudo.log" "${w:?}/staged.log" "${w:?}/install.log" "${w:?}/mktemp.n" "${w:?}/stat.log"
+  rm -rf "${w:?}/tmp" "${SERVICE_ROOT:?}" "${w:?}/sudo.log" "${w:?}/staged.log" "${w:?}/install.log" "${w:?}/mktemp.n" "${w:?}/stat.log" "${w:?}/pgrep.log"
   mkdir "$w/tmp"
   printf 'PLANTED\n' > "$w/tmp/xmrig.service"
   printf 'PLANTED\n' > "$w/tmp/xmrig.logrotate"
@@ -207,6 +209,7 @@ nothing() { # label: no file installed, nothing left
 accounts
 setup
 ends_well "caller alice" alice alice
+same "caller alice: whose miners were looked for" "pgrep -u 1000 -x xmrig" "$(cat "$w/pgrep.log" 2>/dev/null)"
 # Root through sudo by alice: the miner runs as alice.
 accounts
 SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
@@ -237,16 +240,27 @@ same "SERVICE_AS_ROOT=yes: paths looked at" "$( (chain "$c/build-xmrig/xmrig"; c
 accounts
 OLD_USER=bob setup
 ends_well "after bob" alice alice "The miner ran as bob before: its files stay in /var/lib/xmrig/bob and /var/log/xmrig/bob; remove them with: sudo rm -r /var/lib/xmrig/bob /var/log/xmrig/bob"
+# Miners an earlier background-mode start left detached ran as the account the old unit named.
+same "after bob: whose miners were looked for" "pgrep -u bob -x xmrig" "$(cat "$w/pgrep.log" 2>/dev/null)"
 OLD_USER=alice setup
 ends_well "after alice" alice alice
 
 # The account cannot run the binary: one error line naming it, the binary and /opt, nothing
-# installed.
+# installed. The service config still has background mode turned off first, so the unit an earlier
+# setup left runs a supervised miner.
+printf '{\n  "background": true,\n  "colors": true\n}\n' > "$c/configs.json"
 chmod -x "$c/xmrig"
 setup
 chmod +x "$c/xmrig"
 [ "$code" -ne 0 ] || fail "unreachable binary: exit 0"
-same "unreachable binary: output" "ERROR: The account alice cannot run $c/xmrig; move the clone where it can, such as /opt." "$out"
+same "unreachable binary: output" "Turned off background mode in $c/config_background.json: the service now supervises the miner.
+ERROR: The account alice cannot run $c/xmrig; move the clone where it can, such as /opt." "$out"
+same "unreachable binary: the service config" '{
+  "background": false,
+  "colors": true
+}' "$(cat "$c/configs.json")"
+[ -L "$c/config_background.json" ] || fail "unreachable binary: the config link was replaced by a file"
+printf '{"pool":"seed"}\n' > "$c/configs.json"
 same "unreachable binary: sudo calls" "$(reach alice)" "$calls"
 nothing "unreachable binary"
 
