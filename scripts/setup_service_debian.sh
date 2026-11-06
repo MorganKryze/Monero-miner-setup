@@ -31,6 +31,8 @@ LOGROTATE=false
 if command -v logrotate >/dev/null 2>&1 && [ -f "$LOGROTATE_TEMPLATE" ]; then
     LOGROTATE=true
 fi
+# Cleared before the trap names it: a value inherited from the environment would be removed on exit.
+LOGROTATE_STAGED=
 UNIT_STAGED=$(mktemp "${TMPDIR:-/tmp}/xmrig-unit.XXXXXXXXXX") || { echo "ERROR: Failed to create a temporary file."; exit 1; }
 trap 'rm -f -- "$UNIT_STAGED" "${LOGROTATE_STAGED:-}"' EXIT
 if [ "$LOGROTATE" = true ]; then

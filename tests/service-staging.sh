@@ -105,5 +105,14 @@ SUDO_FAIL=install setup ""
 [ "${out##*$'\n'}" = "ERROR: Failed to install /etc/systemd/system/xmrig.service." ] || { echo "FAIL install fails: last line '${out##*$'\n'}'"; rc=1; }
 [ "$calls" = "sudo install -o root -g root -m 644 STAGED /etc/systemd/system/xmrig.service" ] || { echo "FAIL install fails: sudo calls '$calls'"; rc=1; }
 [ -z "$(left)" ] || { echo "FAIL install fails: staged files left behind"; rc=1; }
+# No logrotate file to stage, with LOGROTATE_STAGED inherited from the caller's environment: the
+# cleanup on exit must not remove the file it names.
+mv "$c/templates/logrotate.xmrig.template" "$w/logrotate.xmrig.template"
+printf 'KEEP\n' > "$w/victim"
+LOGROTATE_STAGED="$w/victim" setup ""
+[ "$code" -eq 0 ] || { echo "FAIL inherited LOGROTATE_STAGED: exit $code"; rc=1; }
+[ "$(cat "$w/victim" 2>/dev/null)" = "KEEP" ] || { echo "FAIL inherited LOGROTATE_STAGED: the file it names was removed"; rc=1; }
+[ -z "$(left)" ] || { echo "FAIL inherited LOGROTATE_STAGED: staged files left behind"; rc=1; }
+mv "$w/logrotate.xmrig.template" "$c/templates/logrotate.xmrig.template"
 [ "$rc" -eq 0 ] && echo "PASS service-staging"
 exit "$rc"
