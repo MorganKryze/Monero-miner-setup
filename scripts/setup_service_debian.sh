@@ -49,8 +49,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable xmrig.service
 
 # Install logrotate config (best-effort: skip if logrotate is absent)
+# Root runs logrotate inside a directory this user owns: the su line makes it act as this user
+# there, so a symlink swapped in for logs/ cannot point it at root's files.
 if [ "$LOGROTATE" = true ]; then
-    sed -e "s|%%LOG_DIR%%|${BASE_DIR}/logs|g" -e "s|%%USER%%|$(whoami)|g" "$LOGROTATE_TEMPLATE" > "$LOGROTATE_STAGED"
+    sed -e "s|%%LOG_DIR%%|${BASE_DIR}/logs|g" -e "s|%%USER%%|$(whoami)|g" -e "s|%%GROUP%%|$(id -gn)|g" "$LOGROTATE_TEMPLATE" > "$LOGROTATE_STAGED"
     if ! sudo install -o root -g root -m 644 "$LOGROTATE_STAGED" "$LOGROTATE_TARGET"; then
         echo "ERROR: Failed to install $LOGROTATE_TARGET."
         exit 1

@@ -38,6 +38,7 @@ PATH=/usr/bin:/bin exec mktemp "\$@"
 STUB
 chmod +x "$w/bin/"* "$w/failtmp/mktemp"
 me=$(whoami)
+mygroup=$(id -gn)
 
 setup() { # extra PATH dir: runs the copy, sets out, code, calls
   rm -rf "$w/tmp" "$w/installed" "$w/sudo.log" "$w/mktemp.n"
@@ -76,6 +77,7 @@ WantedBy=multi-user.target"
 got=$(cat "$w/installed/xmrig.service" 2>/dev/null)
 [ "$got" = "$want_unit" ] || { echo "FAIL setup: the unit root installed"; diff <(printf '%s\n' "$want_unit") <(printf '%s\n' "$got") | sed 's/^/    /'; rc=1; }
 want_lr="$c/logs/*.log {
+    su $me $mygroup
     daily
     rotate 7
     compress
