@@ -69,13 +69,14 @@ printf 'echo "DECOY ran"\n' > "$w/loose/docker_setup.sh"
 cp "$root/scripts/install.sh" "$w/shared/scripts/install.sh"
 printf 'echo "DECOY ran"\n' > "$w/shared/scripts/docker_setup.sh"
 for f in bash -- docker_setup.sh install.sh; do printf 'echo "DECOY ran"\n' > "$w/cwd/scripts/$f"; done
-toolbox decoy > "$w/cwd/dependencies/bash-toolbox/src/prefix.sh"
+toolbox decoy > "$w/fx/decoy.sh"
+cp "$w/fx/decoy.sh" "$w/cwd/dependencies/bash-toolbox/src/prefix.sh"
 mkdir -p "$w/cwd/loose"
 cp "$root/scripts/install.sh" "$w/cwd/loose/install.sh"
 for d in open:1777 group:775 other:757; do
   mkdir -p "$w/${d%:*}/scripts" "$w/${d%:*}/.git" "$w/${d%:*}/dependencies/bash-toolbox/src"
   cp "$root/scripts/install.sh" "$w/${d%:*}/scripts/install.sh"
-  toolbox decoy > "$w/${d%:*}/dependencies/bash-toolbox/src/prefix.sh"
+  cp "$w/fx/decoy.sh" "$w/${d%:*}/dependencies/bash-toolbox/src/prefix.sh"
   chmod 755 "$w/${d%:*}/scripts" && chmod "${d#*:}" "$w/${d%:*}"
 done
 cwd="$w/cwd/scripts"
