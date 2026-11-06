@@ -74,7 +74,7 @@ out=$(turn_background_off "$w/cfg/missing" 2>&1); code=$?
 # processes by exact name. kill is a shell builtin a PATH stub cannot catch: a function stands in
 # for it, exported to the setup scripts too, and records instead of signalling.
 mkdir -p "$w/bin" "$w/procs" "$w/tools"
-# PATH holds the stub dir and a tools dir of links to plain tools, no host directory (C9): nothing
+# PATH holds the stub dir and a tools dir of links to plain tools, no host directory: nothing
 # run here can reach the host's sudo, chown or useradd; checked once the stubs are written.
 for tool in bash sh cat sed grep cut sort ls dirname readlink mktemp cmp mv cp rm ln id awk tr head tail mkdir chmod uname; do
   p=$(type -P "$tool") && ln -s "$p" "$w/tools/$tool" || { echo "FAIL no $tool on this host"; exit 1; }
