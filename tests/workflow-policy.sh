@@ -24,10 +24,12 @@ want=$(cat <<'YML'
 YML
 )
 [ "$(block "$a" '        if: >-')" = "$want" ] || { echo "FAIL automerge allowlist"; rc=1; }
-# Each job's permissions block whole: a scope appended to either one fails here.
+# Each job's permissions block whole: a scope appended to either one fails here. Blank and
+# comment lines don't end a YAML mapping, so they're read and compared too.
 want=$(printf '%s\n' '    permissions:' '      pull-requests: read' \
   '    permissions:' '      contents: write' '      pull-requests: write')
-got=$(awk '/^    permissions:$/ {on = 1; print; next} on && /^      / {print; next} {on = 0}' "$a")
+got=$(awk '/^    permissions:$/ {on = 1; print; next}
+  on && (/^[ \t]*$/ || /^[ \t]*#/ || /^      /) {print; next} {on = 0}' "$a")
 [ "$(grep -c 'permissions:' "$a")" -eq 3 ] && [ "$got" = "$want" ] \
   || { echo "FAIL automerge job permissions"; rc=1; }
 ! grep -n 'continue-on-error' "$a" "$p" || { echo "FAIL continue-on-error in a guarded workflow"; rc=1; }
