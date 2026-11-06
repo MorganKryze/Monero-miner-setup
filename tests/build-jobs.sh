@@ -34,6 +34,12 @@ done <<'CASES'
 1 16 1
 16 64 16
 CASES
+# The log line names the count it builds with: one job, or N jobs.
+for cpus in 1 4; do
+  want="[  INFO   ] Building XMRig with $cpus parallel job$([ "$cpus" -eq 1 ] || echo s)..."
+  got=$(TERM=dumb make -n build CPUS="$cpus" MEM_GIB=64 2>/dev/null | grep -F 'Building XMRig with' | sh)
+  [ "$got" = "$want" ] || { echo "FAIL log line for $cpus job(s): '$got'"; rc=1; }
+done
 # The memory reading, through make itself: a copy of the Makefile reads a fixture instead of
 # /proc/meminfo, and a vm_stat stub stands in for macOS's. 64 CPUs, so memory sets the count.
 d=$(mktemp -d) && [ -d "$d" ] || { echo "FAIL mktemp -d"; exit 1; }
