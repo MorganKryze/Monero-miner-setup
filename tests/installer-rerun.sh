@@ -97,6 +97,12 @@ run setup
 [ "$(last)" = "[SUCCESS] Project installed successfully." ] || fail "first install: last line '$(last)'"
 grep -qxF "      \"user\": \"$wallet\"," "$t/configs/config_background.json" || fail "first install: the wallet is not in the service config"
 linked config.json && linked config_background.json || fail "first install: the configs are not linked at the clone root"
+# A fresh clone on a host whose unit or plist an earlier install left (its clone deleted, or under
+# another directory): that service runs the old clone, so the new one sets up its own.
+host service
+run setup
+[ "$code" -eq 0 ] || fail "fresh clone, old service: exit $code"
+[ "$steps" = "STEP clone STEP build STEP service " ] || fail "fresh clone, old service: steps '$steps'"
 # The clone of a run whose build failed: configs, build, service.
 host clone
 run setup

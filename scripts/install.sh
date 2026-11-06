@@ -905,7 +905,9 @@ function install_project() {
         fi
     fi
 
-    if ! service_is_set_up; then
+    # A unit or plist found beside a fresh clone was left by an earlier install and runs that
+    # clone's binary and config: a fresh clone sets up its own.
+    if [ "$cloned" = false ] || ! service_is_set_up; then
         if ! setup_service; then
             warning "Service setup failed, but installation will continue."
             # Don't return error here to allow installation to complete
