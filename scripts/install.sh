@@ -19,6 +19,10 @@ DEFAULT_PAUSE_ON_ACTIVE=false
 DEFAULT_PAUSE_ON_BATTERY=false
 DEFAULT_SERVICE_MODE="setup" # Options: "setup", "manual", "autostart"
 DEFAULT_NON_INTERACTIVE=false
+# Where the service setup (scripts/setup_service_*.sh) installs the service: a re-run that finds
+# it there leaves the service as it is.
+SYSTEMD_UNIT="/etc/systemd/system/xmrig.service"
+LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.moneroocean.xmrig.plist"
 DOCKER_SCRIPT_URL="https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh"
 
 # ===== Own clone =====
@@ -654,93 +658,111 @@ function build_project() {
     success "Project built successfully."
     return 0
 }
+function configs_exist() {
+    local dest_config_dir="$BASE_DIR/$REPO_NAME/configs"
+    [ -f "$dest_config_dir/config.json" ] && [ -f "$dest_config_dir/config_background.json" ]
+}
+
 function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
+    local name missing=()
 
     info "Generating miner configuration files..."
 
     # Create destination config directory if it doesn't exist
     mkdir -p "$dest_config_dir"
 
-    # Define full pool URL with port if needed
-    local full_pool_url="$POOL_URL"
-    if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "$POOL_URL" != *":"* ]]; then
-        full_pool_url="${POOL_URL}:${PORT}"
-        info "Using MoneroOcean with optimized port: $full_pool_url"
-    fi
+    # A config from an earlier run holds the user's wallet, pool and worker name, and maybe their
+    # own edits: it is kept as it is.
+    for name in config.json config_background.json; do
+        if [ -f "$dest_config_dir/$name" ]; then
+            info "Keeping $dest_config_dir/$name. To regenerate it, run 'make clean-configs', then the installer again."
+        else
+            missing+=("$name")
+        fi
+    done
 
     # Set log file path
     local log_file="$target_dir/logs/xmrig.log"
     mkdir -p "$target_dir/logs"
 
-    function generate_random_worker_name() {
-        local adjectives=("swift" "rapid" "blazing" "cosmic" "digital" "quantum" "stellar" "epic" "crypto" "atomic" "shadow" "hyper" "mega" "ultra" "power" "turbo")
-        local nouns=("miner" "rig" "node" "worker" "machine" "server" "core" "unit" "beast" "hawk" "titan" "phoenix" "dragon" "ninja" "master" "runner")
-
-        # Get random elements from arrays
-        local rand_adj=${adjectives[$((RANDOM % ${#adjectives[@]}))]}
-        local rand_noun=${nouns[$((RANDOM % ${#nouns[@]}))]}
-
-        # Add a random number (1-999) at the end
-        local rand_num=$((RANDOM % 999 + 1))
-
-        # Combine elements to form the worker name
-        echo "${rand_adj}_${rand_noun}_${rand_num}"
-    }
-    # Create worker pass
-    local worker_name="$PASS"
-    if [ "$worker_name" = "$DEFAULT_PASS" ]; then
-        worker_name=$(generate_random_worker_name)
-        info "Generated random worker name: $worker_name"
-    fi
-
-    # Copy template files to destination
-    cp "$source_config_dir/config.json.template" "$dest_config_dir/config.json"
-    cp "$source_config_dir/config_background.json.template" "$dest_config_dir/config_background.json"
-
-    # Cross-platform sed function
-    function sed_inplace() {
-        local pattern="$1"
-        local file="$2"
-
-        if [[ "$OS_TYPE" == "macos" ]]; then
-            sed -i '' "$pattern" "$file"
-        else
-            sed -i "$pattern" "$file"
+    if [ ${#missing[@]} -gt 0 ]; then
+        # Define full pool URL with port if needed
+        local full_pool_url="$POOL_URL"
+        if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "$POOL_URL" != *":"* ]]; then
+            full_pool_url="${POOL_URL}:${PORT}"
+            info "Using MoneroOcean with optimized port: $full_pool_url"
         fi
-    }
 
-    # Update foreground config file
-    sed_inplace 's/"max-threads-hint": [0-9]*,/"max-threads-hint": '$MAX_THREADS',/' "$dest_config_dir/config.json"
-    sed_inplace 's/"donate-level": [0-9]*,/"donate-level": '$DONATE_LEVEL',/' "$dest_config_dir/config.json"
-    sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/config.json"
-    sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/config.json"
-    sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/config.json"
-    sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_name'",#' "$dest_config_dir/config.json"
-    sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/config.json"
-    sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/config.json"
+        function generate_random_worker_name() {
+            local adjectives=("swift" "rapid" "blazing" "cosmic" "digital" "quantum" "stellar" "epic" "crypto" "atomic" "shadow" "hyper" "mega" "ultra" "power" "turbo")
+            local nouns=("miner" "rig" "node" "worker" "machine" "server" "core" "unit" "beast" "hawk" "titan" "phoenix" "dragon" "ninja" "master" "runner")
 
-    # Update background config file (same changes)
-    sed_inplace 's/"max-threads-hint": [0-9]*,/"max-threads-hint": '$MAX_THREADS',/' "$dest_config_dir/config_background.json"
-    sed_inplace 's/"donate-level": [0-9]*,/"donate-level": '$DONATE_LEVEL',/' "$dest_config_dir/config_background.json"
-    sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/config_background.json"
-    sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/config_background.json"
-    sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/config_background.json"
-    sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_name'",#' "$dest_config_dir/config_background.json"
-    sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/config_background.json"
-    sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/config_background.json"
+            # Get random elements from arrays
+            local rand_adj=${adjectives[$((RANDOM % ${#adjectives[@]}))]}
+            local rand_noun=${nouns[$((RANDOM % ${#nouns[@]}))]}
+
+            # Add a random number (1-999) at the end
+            local rand_num=$((RANDOM % 999 + 1))
+
+            # Combine elements to form the worker name
+            echo "${rand_adj}_${rand_noun}_${rand_num}"
+        }
+        # Create worker pass
+        local worker_name="$PASS"
+        if [ "$worker_name" = "$DEFAULT_PASS" ]; then
+            worker_name=$(generate_random_worker_name)
+            info "Generated random worker name: $worker_name"
+        fi
+
+        # Cross-platform sed function
+        function sed_inplace() {
+            local pattern="$1"
+            local file="$2"
+
+            if [[ "$OS_TYPE" == "macos" ]]; then
+                sed -i '' "$pattern" "$file"
+            else
+                sed -i "$pattern" "$file"
+            fi
+        }
+
+        # Each missing file from its template, with the same settings
+        for name in "${missing[@]}"; do
+            cp "$source_config_dir/$name.template" "$dest_config_dir/$name"
+            sed_inplace 's/"max-threads-hint": [0-9]*,/"max-threads-hint": '$MAX_THREADS',/' "$dest_config_dir/$name"
+            sed_inplace 's/"donate-level": [0-9]*,/"donate-level": '$DONATE_LEVEL',/' "$dest_config_dir/$name"
+            sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/$name"
+            sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/$name"
+            sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/$name"
+            sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_name'",#' "$dest_config_dir/$name"
+            sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/$name"
+            sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/$name"
+        done
+        success "Configuration files generated successfully."
+    fi
 
     # Create symbolic links for easy access
     ln -sf "$dest_config_dir/config.json" "$target_dir/config.json"
     ln -sf "$dest_config_dir/config_background.json" "$target_dir/config_background.json"
 
-    success "Configuration files generated successfully."
     info "Main config: $dest_config_dir/config.json"
     info "Background config: $dest_config_dir/config_background.json"
     info "Log file: $log_file"
     return 0
+}
+
+# The service step is done when the unit or the plist is where the service setup puts it, or when
+# --only-manual asks for no service.
+function service_is_set_up() {
+    [ "$SERVICE_MODE" == "manual" ] && return 0
+    case "$OS_TYPE" in
+    linux) [ -f "$SYSTEMD_UNIT" ] ;;
+    macos) [ -f "$LAUNCHD_PLIST" ] ;;
+    *) return 1 ;;
+    esac
 }
 
 function setup_service() {
@@ -831,45 +853,50 @@ function set_script_permissions() {
     return 0
 }
 
+# A first install, or a re-run that carries out what an earlier run left undone (a failed build, a
+# service never set up), each missing step in the order a first install takes them.
 function install_project() {
+    local cloned=false built=false
+
     info "Checking project installation status..."
 
     if check_repo_exists; then
-        if check_if_built; then
-            success "Project is already installed. No further action required."
-            return 0
-        else
-            info "Project is cloned but not built. Proceeding with build..."
-            set_script_permissions
-            if ! build_project; then
-                error "Failed to build project."
-                return 1
-            fi
-        fi
-    else
+        cloned=true
+        check_if_built && built=true
+    fi
+
+    if [ "$cloned" = true ] && [ "$built" = true ] && configs_exist && service_is_set_up; then
+        success "Project is already installed. No further action required."
+        return 0
+    fi
+
+    if [ "$cloned" = false ]; then
         info "Project not found. Cloning and building..."
         if ! clone_repository; then
             error "Failed to clone repository."
             return 1
         fi
+    fi
 
-        set_script_permissions
+    set_script_permissions
 
-        if ! generate_config_files; then
-            error "Failed to generate configuration files."
-            return 1
-        fi
+    if ! generate_config_files; then
+        error "Failed to generate configuration files."
+        return 1
+    fi
 
+    if [ "$built" = false ]; then
         if ! build_project; then
             error "Failed to build project."
             return 1
         fi
+    fi
 
+    if ! service_is_set_up; then
         if ! setup_service; then
             warning "Service setup failed, but installation will continue."
             # Don't return error here to allow installation to complete
         fi
-
     fi
 
     success "Project installed successfully."
