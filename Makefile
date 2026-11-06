@@ -8,6 +8,12 @@ RESET := $(shell tput sgr0)
 # Build directory outside the repo
 BUILD_DIR := build-xmrig
 
+# What the service setup installs on the host (scripts/setup_service_*.sh), and so what the service
+# targets look for and remove. Set on the command line only by the regression checks.
+SYSTEMD_UNIT := /etc/systemd/system/xmrig.service
+LAUNCHD_PLIST := $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist
+LOGROTATE_CONF := /etc/logrotate.d/xmrig
+
 # One compile job per CPU, but no more than one per whole GiB of memory available now, not
 # installed: `make update` often runs while the miner holds ~2.3 GB for RandomX. macOS has no
 # MemAvailable: its free, inactive and speculative pages stand in. Unknown memory: one job.
@@ -68,15 +74,15 @@ help:
 start:
 	@echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Starting XMRig service...$(RESET)"
 	@bash -c ' \
-		if [ -f /etc/systemd/system/xmrig.service ]; then \
+		if [ -f "$(SYSTEMD_UNIT)" ]; then \
 			sudo systemctl start xmrig; \
 			if [ $$? -ne 0 ]; then \
 				echo "[$(RED)  ERROR  $(RESET)] $(RED)Failed to start XMRig service$(RESET)"; \
 				exit 1; \
 			fi; \
 			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service started.$(RESET)"; \
-		elif [ -f "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" ]; then \
-			launchctl load -w "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" 2>/dev/null || true; \
+		elif [ -f "$(LAUNCHD_PLIST)" ]; then \
+			launchctl load -w "$(LAUNCHD_PLIST)" 2>/dev/null || true; \
 			sleep 2; \
 			if ! pgrep -x xmrig >/dev/null; then \
 				echo "[$(RED)  ERROR  $(RESET)] $(RED)Failed to start XMRig service$(RESET)"; \
@@ -84,13 +90,6 @@ start:
 					echo "Last 5 lines of error log:"; \
 					tail -n 5 $(CURDIR)/logs/xmrig_stderr.log; \
 				fi; \
-				exit 1; \
-			fi; \
-			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service started.$(RESET)"; \
-		elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
-			sudo service xmrig start; \
-			if [ $$? -ne 0 ]; then \
-				echo "[$(RED)  ERROR  $(RESET)] $(RED)Failed to start XMRig service$(RESET)"; \
 				exit 1; \
 			fi; \
 			echo "[$(GREEN) SUCCESS $(RESET)] $(GREEN)XMRig service started.$(RESET)"; \
@@ -104,14 +103,11 @@ stop:
 	@echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Stopping XMRig service...$(RESET)"
 	@bash -c ' \
 		STOPPED=false; \
-		if [ -f /etc/systemd/system/xmrig.service ]; then \
+		if [ -f "$(SYSTEMD_UNIT)" ]; then \
 			sudo systemctl stop xmrig 2>/dev/null || true; \
 			STOPPED=true; \
-		elif [ -f "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" ]; then \
-			launchctl unload "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" 2>/dev/null || true; \
-			STOPPED=true; \
-		elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
-			sudo service xmrig stop 2>/dev/null || true; \
+		elif [ -f "$(LAUNCHD_PLIST)" ]; then \
+			launchctl unload "$(LAUNCHD_PLIST)" 2>/dev/null || true; \
 			STOPPED=true; \
 		fi; \
 		\
@@ -140,9 +136,9 @@ restart: stop start
 status:
 	@echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Checking XMRig service status...$(RESET)"
 	@bash -c ' \
-		if [ -f /etc/systemd/system/xmrig.service ]; then \
+		if [ -f "$(SYSTEMD_UNIT)" ]; then \
 			sudo systemctl status xmrig; \
-		elif [ -f "$(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist" ]; then \
+		elif [ -f "$(LAUNCHD_PLIST)" ]; then \
 			echo "LaunchAgent status:"; \
 			launchctl list | grep com.moneroocean.xmrig || echo "XMRig service is not registered."; \
 			\
@@ -165,8 +161,6 @@ status:
 				echo -e "\nLast 5 lines of output log:"; \
 				tail -n 5 "$(CURDIR)/logs/xmrig_stdout.log"; \
 			fi; \
-		elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
-			sudo service xmrig status; \
 		elif pgrep -x xmrig >/dev/null; then \
 			echo "XMRig is running with the following PIDs:"; \
 			pgrep -x xmrig | tr "\n" " "; \
@@ -203,21 +197,17 @@ service-setup:
 
 service-disable:
 	@$(call log-info,"Disabling and removing XMRig service...")
-	@if [ -f /etc/systemd/system/xmrig.service ]; then \
+	@if [ -f "$(SYSTEMD_UNIT)" ]; then \
 		sudo systemctl stop xmrig 2>/dev/null || true; \
 		sudo systemctl disable xmrig 2>/dev/null || true; \
-		sudo rm -f /etc/systemd/system/xmrig.service; \
+		sudo rm -f "$(SYSTEMD_UNIT)"; \
 		sudo systemctl daemon-reload; \
 		$(call log-success,"XMRig systemd service disabled and removed."); \
-	elif [ -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist ]; then \
+	elif [ -f "$(LAUNCHD_PLIST)" ]; then \
 		launchctl stop com.moneroocean.xmrig 2>/dev/null || true; \
-		launchctl unload -w $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist 2>/dev/null || true; \
-		rm -f $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist; \
+		launchctl unload -w "$(LAUNCHD_PLIST)" 2>/dev/null || true; \
+		rm -f "$(LAUNCHD_PLIST)"; \
 		$(call log-success,"XMRig launchd service disabled and removed."); \
-	elif [ -f /usr/local/etc/rc.d/xmrig ]; then \
-		sudo service xmrig stop 2>/dev/null || true; \
-		sudo rm -f /usr/local/etc/rc.d/xmrig; \
-		$(call log-success,"XMRig rc.d service disabled and removed."); \
 	else \
 		if pgrep -x xmrig >/dev/null; then \
 			pkill -15 xmrig; \
@@ -227,6 +217,10 @@ service-disable:
 		else \
 			$(call log-info,"No XMRig service configuration or running processes found."); \
 		fi; \
+	fi
+	@if [ -f "$(LOGROTATE_CONF)" ]; then \
+		sudo rm -f "$(LOGROTATE_CONF)"; \
+		$(call log-success,"XMRig logrotate config removed."); \
 	fi
 
 test:
