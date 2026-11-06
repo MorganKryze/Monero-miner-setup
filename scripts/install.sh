@@ -4,7 +4,10 @@
 VERSION="0.0.1"
 LOW_DELAY=0.5
 HIGH_DELAY=15
-TOOLBOX_URL="https://raw.githubusercontent.com/MorganKryze/bash-toolbox/main/src/prefix.sh"
+# The commit dependencies/bash-toolbox pins: a fetch by commit cannot change under a running
+# install, unlike the branch tip. tests/installer-sources.sh fails when the two differ.
+TOOLBOX_COMMIT="b17a126be5390700e081e6f7ae6cddfdb47537e9"
+TOOLBOX_URL="https://raw.githubusercontent.com/MorganKryze/bash-toolbox/${TOOLBOX_COMMIT}/src/prefix.sh"
 PROJECT_URL="https://github.com/MorganKryze/Monero-miner-setup"
 REPO_NAME="Monero-miner-setup"
 REPO_URL="https://github.com/MorganKryze/Monero-miner-setup.git"
@@ -18,10 +21,60 @@ DEFAULT_SERVICE_MODE="setup" # Options: "setup", "manual", "autostart"
 DEFAULT_NON_INTERACTIVE=false
 DOCKER_SCRIPT_URL="https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh"
 
+# ===== Own clone =====
+# BASH_SOURCE is read here, at the top level: inside a function, bash 5 gives a script read from a
+# pipe its $0 ("bash", or the first argument of `bash -c`), which may name a file in the current
+# directory.
+SELF_PATH="${BASH_SOURCE[0]-}"
+
+# Prints the clone this file sits in (<clone>/scripts/install.sh), or nothing. Piped into bash, run
+# through `bash <(...)` or `bash -c "$(...)"`, or saved outside a clone, the installer has no clone
+# of its own and never looks in the current directory, where another user may have left a file.
+# Nor has it one when someone else can write to the clone root, as in /tmp: they could have
+# planted the .git and the toolbox there.
+function find_own_clone() {
+    local dir root
+    [ -n "$SELF_PATH" ] && [ -f "$SELF_PATH" ] || return 0
+    dir=$(cd -- "$(dirname -- "$SELF_PATH")" 2>/dev/null && pwd -P) || return 0
+    root="${dir%/*}"
+    if [ "${dir##*/}" = "scripts" ] && [ -e "$root/.git" ] && only_user_can_write "$root"; then
+        printf '%s' "$root"
+    fi
+}
+
+# Other users can never write to the folder. Its group can only when the group is the user's own:
+# Ubuntu gives each user one and a umask of 0002, so a clone there is group-writable, while a
+# shared group (macOS's staff holds every local user) or a project group holds other users. find
+# prints the folder only when it is safe, so a failed check, or a failed id, falls back to the fetch.
+# The mode bits miss an ACL, which can let anyone add files to the folder: one on the folder is a no
+# too. macOS lists each entry on a line of its own under ls -e (its + marker gives way to @ when
+# the folder has extended attributes); Linux ends the mode with +.
+function only_user_can_write() {
+    local group_ok listing
+    group_ok=(! -perm -0020)
+    if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
+        group_ok=("(" ! -perm -0020 -o -group "$(id -g)" ")")
+    fi
+    [ "$(find "$1/" -maxdepth 0 ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1/" ] || return 1
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        listing=$(ls -lde -- "$1/" 2>/dev/null) || return 1
+    else
+        listing=$(ls -ld -- "$1/" 2>/dev/null) || return 1
+    fi
+    case $listing in
+        *$'\n'*) return 1 ;;
+    esac
+    case ${listing%% *} in
+        *+) return 1 ;;
+    esac
+}
+
+OWN_CLONE=$(find_own_clone)
+
 # ===== Docker-mode dispatch =====
-# If --docker appears anywhere in the args, hand off to docker_setup.sh
-# (preferring a local sibling file, falling back to a fetch from GitHub).
-# Runs before any other logic so the native install path never executes.
+# If --docker appears anywhere in the args, hand off to docker_setup.sh: the own clone's copy,
+# otherwise a fetch from GitHub. Runs before any other logic so the native install path never
+# executes.
 function maybe_dispatch_docker() {
     local is_docker=false
     local passthrough=()
@@ -37,19 +90,21 @@ function maybe_dispatch_docker() {
         return 0
     fi
 
-    # Prefer a sibling docker_setup.sh when running from a clone.
-    local self_dir=""
-    self_dir=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd) || self_dir=""
-    if [ -n "$self_dir" ] && [ -f "$self_dir/docker_setup.sh" ]; then
-        echo "Dispatching to $self_dir/docker_setup.sh..."
-        exec bash "$self_dir/docker_setup.sh" "${passthrough[@]}"
+    if [ -n "$OWN_CLONE" ] && [ -f "$OWN_CLONE/scripts/docker_setup.sh" ]; then
+        echo "Dispatching to $OWN_CLONE/scripts/docker_setup.sh..."
+        exec bash "$OWN_CLONE/scripts/docker_setup.sh" "${passthrough[@]}"
     fi
 
-    # Otherwise fetch the latest from GitHub and exec.
     local tmpfile
-    tmpfile=$(mktemp) || { echo "Failed to create temp file." >&2; exit 1; }
-    if ! curl -fsSL "$DOCKER_SCRIPT_URL" -o "$tmpfile"; then
-        echo "Failed to fetch $DOCKER_SCRIPT_URL. Check your network or install from a local clone." >&2
+    tmpfile=$(mktemp) || { echo "[  ERROR  ] Failed to create temp file." >&2; exit 1; }
+    if ! curl -fsSL --proto '=https' "$DOCKER_SCRIPT_URL" -o "$tmpfile"; then
+        echo "[  ERROR  ] Failed to fetch $DOCKER_SCRIPT_URL. Check your network or install from a local clone." >&2
+        rm -f "$tmpfile"
+        exit 1
+    fi
+    # bash runs an empty file and exits 0: a cut download would look like a finished install.
+    if [ ! -s "$tmpfile" ]; then
+        echo "[  ERROR  ] Fetched an empty file from $DOCKER_SCRIPT_URL. Check your network or install from a local clone." >&2
         rm -f "$tmpfile"
         exit 1
     fi
@@ -74,29 +129,24 @@ function cleanup() {
     return $exit_code
 }
 
+# The log helpers: the own clone's vendored copy when it is checked out, otherwise the pinned
+# commit from GitHub. Without them nothing below can print, so a failed, empty or partial load
+# stops here, before any other step.
 function load_toolbox() {
-    if ! source <(curl -s --connect-timeout 10 "$TOOLBOX_URL"); then
-        echo "Error: Failed to load bash toolbox. Check your internet connection."
-        echo "Using fallback basic functions..."
-
-        GREEN='\033[0;32m'
-        BLUE='\033[0;34m'
-        RED='\033[0;31m'
-        ORANGE='\033[0;33m'
-        RESET='\033[0m'
-        LINK='\033[0;36m'
-        UNDERLINE='\033[4m'
-
-        function txt() { echo -e "${RESET}$1"; }
-        function info() { txt "[${BLUE}  INFO   ${RESET}] ${BLUE}$1${RESET}"; }
-        function warning() { txt "[${ORANGE} WARNING ${RESET}] ${ORANGE}$1${RESET}" >&2; }
-        function error() {
-            txt "[${RED}  ERROR  ${RESET}] ${RED}$1${RESET}" >&2
-            return 1
-        }
-        function success() { txt "[${GREEN} SUCCESS ${RESET}] ${GREEN}$1${RESET}"; }
-        function hint() { txt "[${ORANGE}  HINT   ${RESET}] ${ORANGE}$1${RESET}"; }
+    local from toolbox=""
+    if [ -n "$OWN_CLONE" ] && [ -f "$OWN_CLONE/dependencies/bash-toolbox/src/prefix.sh" ]; then
+        from="$OWN_CLONE/dependencies/bash-toolbox/src/prefix.sh"
+        toolbox=$(cat -- "$from") || toolbox=""
+    else
+        from="$TOOLBOX_URL"
+        toolbox=$(curl -fsSL --proto '=https' --connect-timeout 10 "$TOOLBOX_URL") || toolbox=""
     fi
+    # eval, not `source <(...)`: macOS's bash 3.2 sources nothing from a process substitution.
+    if [ -n "$toolbox" ] && eval "$toolbox" && declare -F txt info warning error success hint >/dev/null; then
+        return 0
+    fi
+    echo "[  ERROR  ] Failed to load the log helpers from $from." >&2
+    exit 1
 }
 
 function display_header() {
