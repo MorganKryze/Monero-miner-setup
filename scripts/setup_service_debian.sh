@@ -6,6 +6,9 @@ TEMPLATE_FILE="$BASE_DIR/templates/xmrig.service.template"
 TARGET_FILE="/etc/systemd/system/xmrig.service"
 LOGROTATE_TEMPLATE="$BASE_DIR/templates/logrotate.xmrig.template"
 LOGROTATE_TARGET="/etc/logrotate.d/xmrig"
+SEED_SOURCE="$BASE_DIR/config_background.json"
+SEED_DIR="/etc/xmrig"
+SEED_TARGET="$SEED_DIR/config.json"
 
 # Check if systemd is available
 if ! command -v systemctl >/dev/null 2>&1; then
@@ -19,42 +22,99 @@ if [ ! -f "$TEMPLATE_FILE" ]; then
     exit 1
 fi
 
-# Create logs directory if it doesn't exist
-mkdir -p "$BASE_DIR/logs"
+# Prints the account the service runs the miner as: root only when asked, else the user running
+# the setup, else the user who ran sudo, else the system account xmrig.
+function pick_account() {
+    if [ "${SERVICE_AS_ROOT:-}" = yes ]; then
+        echo root
+    elif [ "$(id -u)" != 0 ]; then
+        id -un
+    elif [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+        echo "$SUDO_USER"
+    else
+        echo xmrig
+    fi
+}
+
+# The system account xmrig has no home and no login; an existing one is reused as it is.
+function ensure_account() {
+    local name="$1"
+    [ "$name" = xmrig ] || return 0
+    id xmrig >/dev/null 2>&1 && return 0
+    if ! sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin xmrig; then
+        echo "ERROR: Failed to create the system account xmrig."
+        return 1
+    fi
+    echo "Created the system account xmrig to run the miner."
+}
+
+ACCOUNT=$(pick_account)
+ensure_account "$ACCOUNT" || exit 1
+if ! GROUP=$(id -gn "$ACCOUNT") || [ -z "$GROUP" ]; then
+    echo "ERROR: Failed to find the group of $ACCOUNT."
+    exit 1
+fi
+# The account is given nothing in the clone: the kernel decides whether it can run the binary.
+if ! sudo -u "$ACCOUNT" test -x "$BASE_DIR/xmrig"; then
+    echo "ERROR: The account $ACCOUNT cannot run $BASE_DIR/xmrig; move the clone where it can, such as /opt."
+    exit 1
+fi
+# The account the installed unit names, if any: asked of systemd, so nothing reads /etc here.
+OLD_ACCOUNT=$(systemctl show -p User --value xmrig.service 2>/dev/null)
 
 # Root installs what this user stages. Staged under a fixed name in the shared /tmp, another local
 # user could create that name first and rewrite the unit, its User= line included; mktemp adds a
 # random part nobody can guess and creates the file for this user alone (macOS's mktemp ignores
-# TMPDIR without a template, hence the explicit one). Both are created before anything
+# TMPDIR without a template, hence the explicit one). All are created before anything
 # is installed, so a failure leaves the host as it was.
 LOGROTATE=false
 if command -v logrotate >/dev/null 2>&1 && [ -f "$LOGROTATE_TEMPLATE" ]; then
     LOGROTATE=true
 fi
-# Cleared before the trap names it: a value inherited from the environment would be removed on exit.
+# Cleared before the trap names them: a value inherited from the environment would be removed on exit.
+SEED_STAGED=
 LOGROTATE_STAGED=
 UNIT_STAGED=$(mktemp "${TMPDIR:-/tmp}/xmrig-unit.XXXXXXXXXX") || { echo "ERROR: Failed to create a temporary file."; exit 1; }
-trap 'rm -f -- "$UNIT_STAGED" "${LOGROTATE_STAGED:-}"' EXIT
+trap 'rm -f -- "$UNIT_STAGED" "${SEED_STAGED:-}" "${LOGROTATE_STAGED:-}"' EXIT
+SEED_STAGED=$(mktemp "${TMPDIR:-/tmp}/xmrig-config.XXXXXXXXXX") || { echo "ERROR: Failed to create a temporary file."; exit 1; }
 if [ "$LOGROTATE" = true ]; then
     LOGROTATE_STAGED=$(mktemp "${TMPDIR:-/tmp}/xmrig-logrotate.XXXXXXXXXX") || { echo "ERROR: Failed to create a temporary file."; exit 1; }
 fi
 
 # A write that fails half way would install a cut file: each is checked before root installs it.
-if ! sed -e "s|%%USER%%|$(whoami)|g" -e "s|%%WORKING_DIR%%|${BASE_DIR}|g" "$TEMPLATE_FILE" > "$UNIT_STAGED"; then
+if ! sed -e "s|%%USER%%|${ACCOUNT}|g" -e "s|%%GROUP%%|${GROUP}|g" -e "s|%%WORKING_DIR%%|${BASE_DIR}|g" "$TEMPLATE_FILE" > "$UNIT_STAGED"; then
     echo "ERROR: Failed to write the unit from $TEMPLATE_FILE."
+    exit 1
+fi
+# Read as this user, never as root: root would follow any link in the clone to a file it alone can
+# read.
+if ! cat "$SEED_SOURCE" > "$SEED_STAGED"; then
+    echo "ERROR: Failed to write the service config from $SEED_SOURCE."
+    exit 1
+fi
+if [ "$LOGROTATE" = true ]; then
+    if ! sed -e "s|%%USER%%|${ACCOUNT}|g" -e "s|%%GROUP%%|${GROUP}|g" "$LOGROTATE_TEMPLATE" > "$LOGROTATE_STAGED"; then
+        echo "ERROR: Failed to write the logrotate config from $LOGROTATE_TEMPLATE."
+        exit 1
+    fi
+fi
+
+# The service copies this config into its own state directory as the account when it starts;
+# root writes only here, a directory the account can read through its group but not write.
+if ! sudo install -d -o root -g root -m 0755 "$SEED_DIR"; then
+    echo "ERROR: Failed to install $SEED_DIR."
+    exit 1
+fi
+if ! sudo install -o root -g "$GROUP" -m 640 "$SEED_STAGED" "$SEED_TARGET"; then
+    echo "ERROR: Failed to install $SEED_TARGET."
     exit 1
 fi
 
 # Install logrotate config (best-effort: skip if logrotate is absent)
-# Root runs logrotate inside a directory this user owns: the su line makes it act as this user
-# there, so a symlink swapped in for logs/ cannot point it at root's files. It goes in before the
-# unit, whose presence marks the service as set up: a failure leaves no unit, and the next run sets
-# the service up again.
+# The su line makes root's logrotate act as the account in the account's own logs directory, so a
+# link planted there cannot point it at root's files. It goes in before the unit, whose presence
+# marks the service as set up: a failure leaves no unit, and the next run sets the service up again.
 if [ "$LOGROTATE" = true ]; then
-    if ! sed -e "s|%%LOG_DIR%%|${BASE_DIR}/logs|g" -e "s|%%USER%%|$(whoami)|g" -e "s|%%GROUP%%|$(id -gn)|g" "$LOGROTATE_TEMPLATE" > "$LOGROTATE_STAGED"; then
-        echo "ERROR: Failed to write the logrotate config from $LOGROTATE_TEMPLATE."
-        exit 1
-    fi
     if ! sudo install -o root -g root -m 644 "$LOGROTATE_STAGED" "$LOGROTATE_TARGET"; then
         echo "ERROR: Failed to install $LOGROTATE_TARGET."
         exit 1
@@ -72,7 +132,12 @@ fi
 sudo systemctl daemon-reload
 sudo systemctl enable xmrig.service
 
+# Each account has its own pair of directories, so an earlier one's files never reach the next.
+if [ -n "$OLD_ACCOUNT" ] && [ "$OLD_ACCOUNT" != "$ACCOUNT" ]; then
+    echo "The miner ran as $OLD_ACCOUNT before: its files stay in /var/lib/xmrig/$OLD_ACCOUNT and /var/log/xmrig/$OLD_ACCOUNT; remove them with: sudo rm -r /var/lib/xmrig/$OLD_ACCOUNT /var/log/xmrig/$OLD_ACCOUNT"
+fi
 echo "XMRig service has been setup and enabled, but not started."
 echo "Use 'make start' to start mining."
+echo "The service runs the miner as $ACCOUNT."
 
 exit 0

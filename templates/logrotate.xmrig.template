@@ -1,4 +1,4 @@
-%%LOG_DIR%%/*.log {
+/var/log/xmrig/%%USER%%/*.log {
     su %%USER%% %%GROUP%%
     daily
     rotate 7
@@ -6,6 +6,9 @@
     delaycompress
     missingok
     notifempty
-    copytruncate
-    create 0644 %%USER%% %%GROUP%%
+    create 0640 %%USER%% %%GROUP%%
+    sharedscripts
+    postrotate
+        /usr/bin/systemctl try-restart xmrig.service
+    endscript
 }

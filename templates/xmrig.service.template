@@ -5,8 +5,15 @@ After=network.target
 [Service]
 Type=simple
 User=%%USER%%
-WorkingDirectory=%%WORKING_DIR%%
-ExecStart=%%WORKING_DIR%%/xmrig --config=%%WORKING_DIR%%/config_background.json
+Group=%%GROUP%%
+ConfigurationDirectory=xmrig
+StateDirectory=xmrig/%%USER%%
+StateDirectoryMode=0700
+LogsDirectory=xmrig/%%USER%%
+LogsDirectoryMode=0750
+WorkingDirectory=/var/lib/xmrig/%%USER%%
+ExecStartPre=/bin/sh -c 'cmp -s /etc/xmrig/config.json /var/lib/xmrig/%%USER%%/seed.json || { cp /etc/xmrig/config.json /var/lib/xmrig/%%USER%%/config.json.new && mv -f /var/lib/xmrig/%%USER%%/config.json.new /var/lib/xmrig/%%USER%%/config.json && cp /etc/xmrig/config.json /var/lib/xmrig/%%USER%%/seed.json; }'
+ExecStart=%%WORKING_DIR%%/xmrig --config=/var/lib/xmrig/%%USER%%/config.json --log-file=/var/log/xmrig/%%USER%%/xmrig.log
 Restart=on-failure
 RestartSec=15
 Nice=10
