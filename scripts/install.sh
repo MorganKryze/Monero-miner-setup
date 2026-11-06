@@ -30,12 +30,17 @@ SELF_PATH="${BASH_SOURCE[0]-}"
 # Prints the clone this file sits in (<clone>/scripts/install.sh), or nothing. Piped into bash, run
 # through `bash <(...)` or `bash -c "$(...)"`, or saved outside a clone, the installer has no clone
 # of its own and never looks in the current directory, where another user may have left a file.
+# Nor has it one when its group or other users can write to the clone root, as in /tmp: anyone
+# could have planted the .git and the toolbox there. find prints the root only when it is safe, so
+# a failed check falls back to the fetch.
 function find_own_clone() {
-    local dir
+    local dir root
     [ -n "$SELF_PATH" ] && [ -f "$SELF_PATH" ] || return 0
     dir=$(cd -- "$(dirname -- "$SELF_PATH")" 2>/dev/null && pwd -P) || return 0
-    if [ "${dir##*/}" = "scripts" ] && [ -e "${dir%/*}/.git" ]; then
-        printf '%s' "${dir%/*}"
+    root="${dir%/*}"
+    if [ "${dir##*/}" = "scripts" ] && [ -e "$root/.git" ] &&
+        [ "$(find "$root/" -maxdepth 0 ! -perm -0002 ! -perm -0020 -print 2>/dev/null)" = "$root/" ]; then
+        printf '%s' "$root"
     fi
 }
 
