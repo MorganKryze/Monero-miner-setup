@@ -308,7 +308,7 @@ refused "link in a clone others can write" root "$(reach root)"
 mv "$w/opt/xmrig" "$c/build-xmrig/xmrig"
 ln -sf build-xmrig/xmrig "$c/xmrig"
 # Root and a config with background mode on. On alice's clone root writes nothing there: alice
-# could point the link, between root's read and write, at a file of root's. The refusal comes
+# could point the link at a file of root's. The refusal comes
 # alone and the file stays as it was; through sudo by alice, root turns off only the copy it
 # installs. On a clone only root can change, root turns the file off itself.
 printf '{\n  "background": true,\n  "colors": true\n}\n' > "$c/configs.json"
@@ -340,6 +340,27 @@ same "root's clone, background on: the service config" "$off" "$(cat "$c/configs
 [ -L "$c/config_background.json" ] || fail "root's clone, background on: the config link was replaced by a file"
 same "root's clone, background on: the config root installed" "$off" "$(cat "$SERVICE_ROOT/etc/xmrig/config.json" 2>/dev/null)"
 printf '{"pool":"seed"}\n' > "$c/configs.json"
+# The link points out of the clone, at a file only root can change: on alice's clone she chose
+# where it points, and on root's the file is not the clone's. Root leaves that file as it is, and
+# turns off only the copy it installs.
+printf '%s\n' "$on" > "$w/outside.json"
+ln -sf "$w/outside.json" "$c/config_background.json"
+accounts
+FAKE_UID=0 FAKE_USER=root setup
+refused "xmrig on alice's clone, link out of it" xmrig "sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin xmrig
+$(reach xmrig)" "Created the system account xmrig to run the miner."
+same "xmrig on alice's clone, link out of it: the file it points at" "$on" "$(cat "$w/outside.json")"
+accounts
+owners root
+FAKE_UID=0 FAKE_USER=root setup
+[ "$code" -eq 0 ] || fail "root's clone, link out of it: exit $code"
+same "root's clone, link out of it: output" "Created the system account xmrig to run the miner.
+Turned off background mode in /etc/xmrig/config.json: the service now supervises the miner.
+$(out_for xmrig)" "$out"
+same "root's clone, link out of it: the file it points at" "$on" "$(cat "$w/outside.json")"
+same "root's clone, link out of it: the config root installed" "$off" "$(cat "$SERVICE_ROOT/etc/xmrig/config.json" 2>/dev/null)"
+ln -sf configs.json "$c/config_background.json"
+rm -f "$w/outside.json"
 # The binary's owner cannot be read: an error line, nothing installed.
 accounts
 owners root "$c/build-xmrig/xmrig - -"

@@ -40,12 +40,13 @@ function only_root_can_change() {
 
 # The service config the seed is read from: in background mode, systemd would lose the miner as
 # soon as it starts. Done first, so a unit an earlier setup left gets a supervised miner even when
-# this setup stops below. Root edits it only at the end of its links and where only root can change
-# it or a directory above: anyone else could point the link, between root's read and write, at a
-# file of root's, and have root write there. Elsewhere root leaves it and turns off the copy it
-# installs.
+# this setup stops below. Root edits it only at the end of its links, inside the clone, and where
+# only root can change it, the clone and every directory above: anyone else could point the link
+# at a file of root's and have root write there. Elsewhere root leaves it and turns off the copy
+# it installs.
 CLONE_CONFIG=$SEED_SOURCE
-if [ "$(id -u)" = 0 ] && { ! CLONE_CONFIG=$(readlink -f "$SEED_SOURCE") || ! only_root_can_change "$CLONE_CONFIG"; }; then
+if [ "$(id -u)" = 0 ] && { ! CLONE_CONFIG=$(readlink -f "$SEED_SOURCE") \
+    || [ "${CLONE_CONFIG#"$BASE_DIR"/}" = "$CLONE_CONFIG" ] || ! only_root_can_change "$CLONE_CONFIG"; }; then
     CLONE_CONFIG=
 fi
 if [ -n "$CLONE_CONFIG" ] && ! turn_background_off "$CLONE_CONFIG" "$SEED_SOURCE"; then
