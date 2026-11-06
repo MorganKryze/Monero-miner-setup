@@ -46,13 +46,27 @@ function find_own_clone() {
 # Ubuntu gives each user one and a umask of 0002, so a clone there is group-writable, while a
 # shared group (macOS's staff holds every local user) or a project group holds other users. find
 # prints the folder only when it is safe, so a failed check, or a failed id, falls back to the fetch.
+# The mode bits miss an ACL, which can let anyone add files to the folder: one on the folder is a no
+# too. macOS lists each entry on a line of its own under ls -e (its + marker gives way to @ when
+# the folder has extended attributes); Linux ends the mode with +.
 function only_user_can_write() {
-    local group_ok
+    local group_ok listing
     group_ok=(! -perm -0020)
     if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
         group_ok=("(" ! -perm -0020 -o -group "$(id -g)" ")")
     fi
-    [ "$(find "$1/" -maxdepth 0 ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1/" ]
+    [ "$(find "$1/" -maxdepth 0 ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1/" ] || return 1
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        listing=$(ls -lde -- "$1/" 2>/dev/null) || return 1
+    else
+        listing=$(ls -ld -- "$1/" 2>/dev/null) || return 1
+    fi
+    case $listing in
+        *$'\n'*) return 1 ;;
+    esac
+    case ${listing%% *} in
+        *+) return 1 ;;
+    esac
 }
 
 OWN_CLONE=$(find_own_clone)

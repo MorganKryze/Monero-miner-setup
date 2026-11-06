@@ -92,12 +92,22 @@ toolbox decoy > "$w/fx/decoy.sh"
 cp "$w/fx/decoy.sh" "$w/cwd/dependencies/bash-toolbox/src/prefix.sh"
 mkdir -p "$w/cwd/loose"
 cp "$root/scripts/install.sh" "$w/cwd/loose/install.sh"
-for d in open:1777 group:775 other:757; do
+for d in open:1777 group:775 other:757 acl:755; do
   mkdir -p "$w/${d%:*}/scripts" "$w/${d%:*}/.git" "$w/${d%:*}/dependencies/bash-toolbox/src"
   cp "$root/scripts/install.sh" "$w/${d%:*}/scripts/install.sh"
   cp "$w/fx/decoy.sh" "$w/${d%:*}/dependencies/bash-toolbox/src/prefix.sh"
   chmod 755 "$w/${d%:*}/scripts" && chmod "${d#*:}" "$w/${d%:*}"
 done
+# The acl root's mode bits are safe, but its ACL lets other users add files: macOS always, Linux
+# when setfacl is there and the file system takes ACLs. A Linux ACL for another user also raises
+# the group bits, so the root is in the user's own group, to show those bits are not what refuses it.
+acl=yes
+chgrp "$gid" "$w/acl"
+if [ "$(uname -s)" = Darwin ]; then
+  chmod +a "everyone allow add_file,add_subdirectory" "$w/acl" || { echo "FAIL acl: chmod +a"; rc=1; }
+elif ! { command -v setfacl >/dev/null && setfacl -m u:nobody:rwx "$w/acl" 2>/dev/null; }; then
+  acl=no
+fi
 cwd="$w/cwd/scripts"
 
 # run <name> <how> <args...>: how is file:<path>, pipe, procsub or dashc. Sets out, err, code, calls.
@@ -137,6 +147,13 @@ want docker-private "curl calls" "" "$calls"
 ID_MODE=private ID_GID=9999901 run private-other-group "file:$w/private/scripts/install.sh" --help
 want private-other-group "curl calls" "$toolbox_call" "$calls"
 printf '%s\n' "$out" | grep -qx 'TOOLBOX fetched' || { echo "FAIL private-other-group: the fetched toolbox was not loaded"; rc=1; }
+# From a clone whose ACL lets other users write to it, the fetched one.
+if [ "$acl" = yes ]; then
+  ID_MODE=private run acl "file:$w/acl/scripts/install.sh" --help
+  want acl exit 0 "$code"
+  want acl "curl calls" "$toolbox_call" "$calls"
+  printf '%s\n' "$out" | grep -qx 'TOOLBOX fetched' || { echo "FAIL acl: the fetched toolbox was not loaded"; rc=1; }
+fi
 # Without a checked-out toolbox, from a loose copy and from each stream form, one fetch
 # of the pinned commit, silent about locating itself (stderr empty).
 for how in "file:$w/bare/scripts/install.sh" "file:$w/loose/install.sh" "file:$w/cwd/loose/install.sh" "file:$w/shared/scripts/install.sh" "file:$w/open/scripts/install.sh" "file:$w/group/scripts/install.sh" "file:$w/other/scripts/install.sh" pipe procsub dashc; do
