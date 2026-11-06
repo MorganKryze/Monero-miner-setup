@@ -235,6 +235,14 @@ SERVICE_AS_ROOT=yes SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
 ends_well "SERVICE_AS_ROOT=yes" root root
 same "SERVICE_AS_ROOT=yes: paths looked at" "$( (chain "$c/build-xmrig/xmrig"; chain "$c"; chain "$c/configs.json") | sort -u)" \
   "$(sort -u "$w/stat.log" 2>/dev/null)"
+# SERVICE_AS_ROOT=no, which the installer passes unless asked otherwise: the caller, or the user who
+# ran sudo, as with no value at all.
+accounts
+SERVICE_AS_ROOT=no setup
+ends_well "SERVICE_AS_ROOT=no, caller alice" alice alice
+accounts
+SERVICE_AS_ROOT=no SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
+ends_well "SERVICE_AS_ROOT=no, sudo by alice" alice alice
 # The installed unit runs the miner as bob: his directories are named with the command that
 # removes them, and left alone. The same account again: no such line.
 accounts
