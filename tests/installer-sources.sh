@@ -48,7 +48,8 @@ chmod +x "$w/bin/curl" "$w/bin/sleep"
 # A clone (scripts/, .git, a checked-out toolbox), the same clone without its toolbox, a copy of
 # the installer saved outside any clone next to a planted docker_setup.sh, and a current directory
 # laid out like a clone and full of decoys: files named after what bash 5 reports as the script
-# path of a piped script ("bash", "--"), a docker_setup.sh and a toolbox.
+# path of a piped script ("bash", "--"), a docker_setup.sh and a toolbox. A copy saved in a folder
+# not named scripts, directly under that planted clone, still has no clone of its own.
 mkclone() { # dir, with-toolbox
   mkdir -p "$1/scripts" "$1/.git" "$1/dependencies/bash-toolbox/src"
   cp "$root/scripts/install.sh" "$1/scripts/install.sh"
@@ -66,6 +67,8 @@ cp "$root/scripts/install.sh" "$w/shared/scripts/install.sh"
 printf 'echo "DECOY ran"\n' > "$w/shared/scripts/docker_setup.sh"
 for f in bash -- docker_setup.sh install.sh; do printf 'echo "DECOY ran"\n' > "$w/cwd/scripts/$f"; done
 toolbox decoy > "$w/cwd/dependencies/bash-toolbox/src/prefix.sh"
+mkdir -p "$w/cwd/loose"
+cp "$root/scripts/install.sh" "$w/cwd/loose/install.sh"
 cwd="$w/cwd/scripts"
 
 # run <name> <how> <args...>: how is file:<path>, pipe, procsub or dashc. Sets out, err, code, calls.
@@ -95,7 +98,7 @@ printf '%s\n' "$out" | grep -qx 'TOOLBOX vendored' || { echo "FAIL vendored: the
 printf '%s\n' "$out" | grep -qx "Usage: $w/clone/scripts/install.sh \[OPTIONS\]" || { echo "FAIL vendored: no usage line"; rc=1; }
 # Without a checked-out toolbox, from a loose copy and from each stream form, one fetch
 # of the pinned commit, silent about locating itself (stderr empty).
-for how in "file:$w/bare/scripts/install.sh" "file:$w/loose/install.sh" "file:$w/shared/scripts/install.sh" pipe procsub dashc; do
+for how in "file:$w/bare/scripts/install.sh" "file:$w/loose/install.sh" "file:$w/cwd/loose/install.sh" "file:$w/shared/scripts/install.sh" pipe procsub dashc; do
   name=fetched-${how#file:"$w"/}
   run "$name" "$how" --help
   want "$name" exit 0 "$code"
@@ -123,7 +126,7 @@ want docker-clone exit 0 "$code"
 want docker-clone output "Dispatching to $w/clone/scripts/docker_setup.sh..."$'\n'"DOCKER clone -y" "$out"
 want docker-clone "curl calls" "" "$calls"
 # From a loose copy and each stream form, the fetched one, never a decoy.
-for how in "file:$w/loose/install.sh" "file:$w/shared/scripts/install.sh" pipe procsub dashc; do
+for how in "file:$w/loose/install.sh" "file:$w/cwd/loose/install.sh" "file:$w/shared/scripts/install.sh" pipe procsub dashc; do
   name=docker-${how#file:"$w"/}
   run "$name" "$how" --docker -y
   want "$name" exit 0 "$code"
