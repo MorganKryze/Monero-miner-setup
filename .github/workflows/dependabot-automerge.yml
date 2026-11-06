@@ -48,7 +48,7 @@ jobs:
           (needs.meta.outputs.update-type == 'version-update:semver-patch' ||
           needs.meta.outputs.update-type == 'version-update:semver-minor')
         # --auto queues the merge; GitHub waits for required status checks
-        # (configured in branch protection) before actually merging.
+        # (configured in branch protection) before merging.
         # A merge made with the workflow token fires no push event, so neither CI
         # nor the publish workflow would see it. repository_dispatch is one of the
         # two events that token may still trigger, so we wait for the merge and
