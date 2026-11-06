@@ -26,13 +26,15 @@ if [ ! -f "$TEMPLATE_FILE" ]; then
 fi
 
 # Fails when a user other than root owns the path or a directory above it, or its group or others
-# can write one of them.
+# can write one of them. stat drops a mode's leading zeros (0007 comes out as 7), so the mode is read
+# as a whole octal number, and anything else stat prints counts as a no.
 function only_root_can_change() {
     local p="$1" info mode
     while :; do
         info=$(stat -c '%U %a' "$p") || return 1
         mode=${info#* }
-        [ "${info%% *}" = root ] && [ $(( ${mode: -2:1} & 2 | ${mode: -1} & 2 )) -eq 0 ] || return 1
+        [[ "$mode" =~ ^[0-7]+$ ]] || return 1
+        [ "${info%% *}" = root ] && (( (8#$mode & 8#022) == 0 )) || return 1
         [ "$p" = / ] && return 0
         p=$(dirname "$p")
     done

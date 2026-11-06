@@ -304,6 +304,11 @@ accounts
 owners root "/ alice 755"
 SERVICE_AS_ROOT=yes setup
 refused "/ not root's" root "$(reach root)"
+# stat prints a mode without its leading zeros: 0007 comes out as 7, still writable by others.
+accounts
+owners root "$w root 7"
+SERVICE_AS_ROOT=yes setup
+refused "a directory above with mode 0007" root "$(reach root)"
 # The binary elsewhere, root's alone, behind a link in a clone others can write: the link can be
 # replaced.
 mkdir "$w/opt"
