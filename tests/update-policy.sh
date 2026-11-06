@@ -10,6 +10,17 @@ v=docker/compose.vpn.yml
 # Images without a variable, on latest or on no tag at all.
 bad=$(grep -hE '^ *image: [^$]*$' docker/compose*.yml | grep -vE ':[A-Za-z0-9_.-]+$|:[A-Za-z0-9_.-]+@sha256:[0-9a-f]{64}$')
 bad="$bad$(grep -hE '^ *image: [^$]*:latest *$' docker/compose*.yml)"
+# Images in a variable: the default after :- under the same rule; only this project's own image
+# may default to latest. A variable with no default, or any other form, is not read: it fails.
+while IFS= read -r img; do
+  def=$(printf '%s\n' "$img" | sed -nE 's/^\$\{[A-Za-z_][A-Za-z0-9_]*:-([^$}]+)\}$/\1/p')
+  case $def in
+    '') bad="$bad $img" ;;
+    ghcr.io/morgankryze/monero-miner-setup:*) ;;
+    *) printf '%s\n' "$def" | grep -qE ':[A-Za-z0-9_.-]+(@sha256:[0-9a-f]{64})?$' \
+         && ! printf '%s\n' "$def" | grep -qE ':latest(@|$)' || bad="$bad $img" ;;
+  esac
+done < <(grep -hE '^ *image: .*\$' docker/compose*.yml | sed -E 's/^ *image: //')
 [ -z "$bad" ] || { echo "FAIL a third-party image on latest or untagged: $bad"; rc=1; }
 y=.github/dependabot.yml
 # One line per entry: ecosystem directory interval limit prefix ignore-rules.
