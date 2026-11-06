@@ -151,5 +151,23 @@ for os in debian macos; do
 done
 grep -qxF "        <string>--config=$c/config_background.json</string>" "$w/home/Library/LaunchAgents/com.moneroocean.xmrig.plist" \
   || fail "macos setup: the plist does not run the service config"
+# A service config the setup cannot write (read-only, and this user is not root): the setup stops
+# with one error line and exit 1, before anything is installed, registered or loaded.
+for os in debian macos; do
+  cp "$w/cfg/on2" "$c/configs/config_background.json"
+  chmod 444 "$c/configs/config_background.json"
+  rm -f "$w/sudo.log" "$w/launchctl.log" "$w/home/Library/LaunchAgents/com.moneroocean.xmrig.plist"
+  out=$(cd "$w" && HOME="$w/home" TMPDIR="$w" PATH=$stubpath bash "$c/scripts/setup_service_$os.sh" 2>&1); code=$?
+  [ "$code" -eq 1 ] || fail "$os setup, config not writable: exit $code"
+  case $os in
+    debian) want="ERROR: Failed to turn off background mode in $c/config_background.json." ;;
+    macos) want="Error: Failed to turn off background mode in $c/config_background.json" ;;
+  esac
+  printf '%s\n' "$out" | grep -qxF "$want" || fail "$os setup, config not writable: no error line"
+  cmp -s "$c/configs/config_background.json" "$w/cfg/on2" || fail "$os setup, config not writable: the config changed"
+  [ ! -e "$w/sudo.log" ] && [ ! -e "$w/launchctl.log" ] && [ ! -e "$w/home/Library/LaunchAgents/com.moneroocean.xmrig.plist" ] \
+    || fail "$os setup, config not writable: the setup went on past the error"
+  chmod 644 "$c/configs/config_background.json"
+done
 [ "$rc" -eq 0 ] && echo "PASS service-background"
 exit "$rc"
