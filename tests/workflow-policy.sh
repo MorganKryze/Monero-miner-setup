@@ -12,9 +12,12 @@ p=.github/workflows/publish.yml
 ! LC_ALL=C grep -q '[^ -~]' "$a" "$p" .github/workflows/ci.yml \
   || { echo "FAIL a byte other than printable ASCII in a guarded workflow"; rc=1; }
 block() { # file, first line: from that whole line to the next line indented as little or less
+  # YAML reads past comment and whitespace-only lines whatever their indent, so neither ends the
+  # block: a comment indented as little or less is skipped, a whitespace-only line is compared.
   awk -v first="$2" '
     !on && $0 == first { on = 1; match($0, /^ */); ind = RLENGTH; print; next }
-    on { match($0, /^ */); if ($0 != "" && RLENGTH <= ind) exit; print }' "$1"
+    on { match($0, /^ */); if (RLENGTH <= ind && /^ *#/) next
+      if (RLENGTH <= ind && !/^ *$/) exit; print }' "$1"
 }
 grep -qx 'on: pull_request' "$a" || { echo "FAIL automerge trigger"; rc=1; }
 grep -qx 'permissions: {}' "$a" || { echo "FAIL automerge default permissions"; rc=1; }
