@@ -1,12 +1,18 @@
 #!/bin/bash
-# The published image's Dockerfile: every line but comments and blanks, continuation lines
-# included (a new RUN, ADD, COPY or USER, or one more command in a RUN, fails here), both
-# stages on one Ubuntu tag, the two package lists, the apt-get install lines and the cmake
-# line that links the shared libuv, so the miner loads the runtime's libuv1t64.
-# A Dependabot bump of the Ubuntu tag passes; any other change updates this file with it.
+# The published image's Dockerfile: its parser directives, every line but comments and blanks,
+# continuation lines included (a new RUN, ADD, COPY or USER, or one more command in a RUN,
+# fails here), both stages on one Ubuntu tag, the two package lists, the apt-get install lines
+# and the cmake line that links the shared libuv, so the miner loads the runtime's libuv1t64.
+# A bump of the Ubuntu tag or of the official frontend's version passes; any other change
+# updates this file with it.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
 f=docker/Dockerfile
+# Line 1 picks the frontend that turns this file into the build, so it names the official one;
+# the blank line 2 ends directive parsing, so a `# check=` or `# escape=` after it is a comment.
+first=$(sed -n 1p "$f") second=$(sed -n 2p "$f")
+[ -z "$second" ] && printf '%s\n' "$first" | grep -qxE '# syntax=docker/dockerfile:[0-9]+(\.[0-9]+)*' \
+  || { echo "FAIL parser directives: line 1 '$first', line 2 '$second'"; rc=1; }
 tags=$(sed -nE 's/^FROM ubuntu:([0-9]{2}\.04) AS (builder|runtime)$/\1/p' "$f" | sort -u)
 [ "$(grep -c '^FROM ' "$f")" -eq 2 ] && [ "$(printf '%s\n' "$tags" | grep -c .)" -eq 1 ] \
   || { echo "FAIL two stages on one ubuntu:NN.04 tag: $(grep '^FROM ' "$f" | xargs)"; rc=1; }
