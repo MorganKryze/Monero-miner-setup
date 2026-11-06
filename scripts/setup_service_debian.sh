@@ -25,10 +25,30 @@ if [ ! -f "$TEMPLATE_FILE" ]; then
     exit 1
 fi
 
+# Fails when a user other than root owns the path or a directory above it, or its group or others
+# can write one of them.
+function only_root_can_change() {
+    local p="$1" info mode
+    while :; do
+        info=$(stat -c '%U %a' "$p") || return 1
+        mode=${info#* }
+        [ "${info%% *}" = root ] && [ $(( ${mode: -2:1} & 2 | ${mode: -1} & 2 )) -eq 0 ] || return 1
+        [ "$p" = / ] && return 0
+        p=$(dirname "$p")
+    done
+}
+
 # The service config the seed is read from: in background mode, systemd would lose the miner as
-# soon as it starts. Done first, as this user, so a unit an earlier setup left gets a supervised
-# miner even when this setup stops below.
-if ! turn_background_off "$SEED_SOURCE"; then
+# soon as it starts. Done first, so a unit an earlier setup left gets a supervised miner even when
+# this setup stops below. Root edits it only at the end of its links and where only root can change
+# it or a directory above: anyone else could point the link, between root's read and write, at a
+# file of root's, and have root write there. Elsewhere root leaves it and turns off the copy it
+# installs.
+CLONE_CONFIG=$SEED_SOURCE
+if [ "$(id -u)" = 0 ] && { ! CLONE_CONFIG=$(readlink -f "$SEED_SOURCE") || ! only_root_can_change "$CLONE_CONFIG"; }; then
+    CLONE_CONFIG=
+fi
+if [ -n "$CLONE_CONFIG" ] && ! turn_background_off "$CLONE_CONFIG" "$SEED_SOURCE"; then
     echo "ERROR: Failed to turn off background mode in $SEED_SOURCE."
     exit 1
 fi
@@ -70,18 +90,6 @@ if ! sudo -u "$ACCOUNT" test -x "$BASE_DIR/xmrig"; then
     echo "ERROR: The account $ACCOUNT cannot run $BASE_DIR/xmrig; move the clone where it can, such as /opt."
     exit 1
 fi
-# Fails when a user other than root owns the path or a directory above it, or its group or others
-# can write one of them.
-function only_root_can_change() {
-    local p="$1" info mode
-    while :; do
-        info=$(stat -c '%U %a' "$p") || return 1
-        mode=${info#* }
-        [ "${info%% *}" = root ] && [ $(( ${mode: -2:1} & 2 | ${mode: -1} & 2 )) -eq 0 ] || return 1
-        [ "$p" = / ] && return 0
-        p=$(dirname "$p")
-    done
-}
 # The unit runs the clone's binary through the link make build leaves. Root, or an account that does
 # not own the binary, would run whatever its owner or anyone who can write a directory above it puts
 # there, so only root may be able to change the binary, the link or the directories above them.
@@ -126,6 +134,10 @@ fi
 # read.
 if ! cat "$SEED_SOURCE" > "$SEED_STAGED"; then
     echo "ERROR: Failed to write the service config from $SEED_SOURCE."
+    exit 1
+fi
+if ! turn_background_off "$SEED_STAGED" "$SEED_TARGET"; then
+    echo "ERROR: Failed to turn off background mode in $SEED_TARGET."
     exit 1
 fi
 if [ "$LOGROTATE" = true ]; then

@@ -228,12 +228,12 @@ same "root: the unit root installed" "$(want_unit xmrig xmrig)" "$(cat "$SERVICE
 SUDO_USER=root FAKE_UID=0 FAKE_USER=root setup
 ends_well "root again, sudo user root" xmrig xmrig
 # SERVICE_AS_ROOT=yes: root, whoever runs the setup, on a clone only root can change: the binary,
-# the clone and every directory above them were looked at.
+# the clone, the config and every directory above them were looked at.
 accounts
 owners root
 SERVICE_AS_ROOT=yes SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
 ends_well "SERVICE_AS_ROOT=yes" root root
-same "SERVICE_AS_ROOT=yes: paths looked at" "$( (chain "$c/build-xmrig/xmrig"; chain "$c") | sort -u)" \
+same "SERVICE_AS_ROOT=yes: paths looked at" "$( (chain "$c/build-xmrig/xmrig"; chain "$c"; chain "$c/configs.json") | sort -u)" \
   "$(sort -u "$w/stat.log" 2>/dev/null)"
 # The installed unit runs the miner as bob: his directories are named with the command that
 # removes them, and left alone. The same account again: no such line.
@@ -307,6 +307,39 @@ SERVICE_AS_ROOT=yes setup
 refused "link in a clone others can write" root "$(reach root)"
 mv "$w/opt/xmrig" "$c/build-xmrig/xmrig"
 ln -sf build-xmrig/xmrig "$c/xmrig"
+# Root and a config with background mode on. On alice's clone root writes nothing there: alice
+# could point the link, between root's read and write, at a file of root's. The refusal comes
+# alone and the file stays as it was; through sudo by alice, root turns off only the copy it
+# installs. On a clone only root can change, root turns the file off itself.
+printf '{\n  "background": true,\n  "colors": true\n}\n' > "$c/configs.json"
+on=$(cat "$c/configs.json")
+off='{
+  "background": false,
+  "colors": true
+}'
+accounts
+FAKE_UID=0 FAKE_USER=root setup
+refused "xmrig on alice's clone, background on" xmrig "sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin xmrig
+$(reach xmrig)" "Created the system account xmrig to run the miner."
+same "xmrig on alice's clone, background on: the service config" "$on" "$(cat "$c/configs.json")"
+accounts
+SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
+[ "$code" -eq 0 ] || fail "sudo by alice, background on: exit $code"
+same "sudo by alice, background on: output" "Turned off background mode in /etc/xmrig/config.json: the service now supervises the miner.
+$(out_for alice)" "$out"
+same "sudo by alice, background on: the service config" "$on" "$(cat "$c/configs.json")"
+same "sudo by alice, background on: the config root installed" "$off" "$(cat "$SERVICE_ROOT/etc/xmrig/config.json" 2>/dev/null)"
+accounts
+owners root
+FAKE_UID=0 FAKE_USER=root setup
+[ "$code" -eq 0 ] || fail "root's clone, background on: exit $code"
+same "root's clone, background on: output" "Turned off background mode in $c/config_background.json: the service now supervises the miner.
+Created the system account xmrig to run the miner.
+$(out_for xmrig)" "$out"
+same "root's clone, background on: the service config" "$off" "$(cat "$c/configs.json")"
+[ -L "$c/config_background.json" ] || fail "root's clone, background on: the config link was replaced by a file"
+same "root's clone, background on: the config root installed" "$off" "$(cat "$SERVICE_ROOT/etc/xmrig/config.json" 2>/dev/null)"
+printf '{"pool":"seed"}\n' > "$c/configs.json"
 # The binary's owner cannot be read: an error line, nothing installed.
 accounts
 owners root "$c/build-xmrig/xmrig - -"

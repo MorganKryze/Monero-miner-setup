@@ -12,15 +12,15 @@ function background_is_on() {
     grep -Eq "$BACKGROUND_ON" "$1" 2>/dev/null
 }
 
-# Turns background mode off in the config at $1, that one line alone, and says so. Written
-# through the configs/ link, so the file keeps its place, owner and mode; the trailing x keeps
-# the file's last newlines, which command substitution would strip.
+# Turns background mode off in the config at $1, that one line alone, and says so, naming it $2
+# when given. Written through the configs/ link, so the file keeps its place, owner and mode; the
+# trailing x keeps the file's last newlines, which command substitution would strip.
 function turn_background_off() {
-    local config="$1" edited
+    local config="$1" name="${2:-$1}" edited
     background_is_on "$config" || return 0
     edited=$(sed -E 's/^([[:space:]]*"background":[[:space:]]*)true(,?)$/\1false\2/' "$config" && echo x) || return 1
     printf '%s' "${edited%x}" > "$config" || return 1
-    echo "Turned off background mode in $config: the service now supervises the miner."
+    echo "Turned off background mode in $name: the service now supervises the miner."
 }
 
 # Reports the xmrig processes of an account ($3, this user when empty) that run on a service config
