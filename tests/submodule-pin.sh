@@ -7,7 +7,7 @@
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
-w=$(mktemp -d)
+w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 # A hook or a linked worktree exports GIT_DIR, GIT_INDEX_FILE and the like: left set, the fixture
 # commands below would act on the developer's own repository instead of the ones under $w.

@@ -48,7 +48,7 @@ order=$(grep -nxF -e "$step" -e '      - name: Compute tags' -e '      - name: C
   || { echo "FAIL the dispatch check does not run before the tags"; rc=1; }
 [ "$(block "$p" "$step" | sed -n 2p)" = "        if: \${{ github.event_name == 'workflow_dispatch' }}" ] \
   || { echo "FAIL the dispatch check's condition"; rc=1; }
-d=$(mktemp -d)
+d=$(mktemp -d) && [ -d "$d" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$d"' EXIT
 block "$p" "$step" | sed -n '/^        run: |$/,$p' | sed '1d;s/^          //' > "$d/validate.sh"
 for tag in latest main-0ce9664 buildcache-amd64 v1.2.3 v1 1.2.3 1.2 '' 'dev latest' "$(printf 'dev\nlatest')" 'a/b' '../x'; do

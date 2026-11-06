@@ -36,7 +36,7 @@ done <<'CASES'
 CASES
 # The memory reading, through make itself: a copy of the Makefile reads a fixture instead of
 # /proc/meminfo, and a vm_stat stub stands in for macOS's. 64 CPUs, so memory sets the count.
-d=$(mktemp -d)
+d=$(mktemp -d) && [ -d "$d" ] || { echo "FAIL mktemp -d"; exit 1; }
 mkdir "$d/bin"
 sed "s#/proc/meminfo#$d/meminfo#" "$f" > "$d/Makefile"
 printf '#!/bin/sh\n[ -f "%s/vm_stat.out" ] || exit 1\ncat "%s/vm_stat.out"\n' "$d" "$d" > "$d/bin/vm_stat"

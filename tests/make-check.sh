@@ -4,7 +4,7 @@
 # holds two stubs: one that fails, sorted first, and one that passes.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
-w=$(mktemp -d)
+w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 mkdir "$w/tests"
 cp Makefile "$w/Makefile"
