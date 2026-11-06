@@ -120,11 +120,13 @@ target stop
 same "stop with no service: calls" "pgrep -x xmrig" "$calls"
 target status
 same "status with no service: calls" "pgrep -x xmrig" "$calls"
-# status on systemd: the unit's status, then the service's own log read through sudo.
+# status on systemd: the unit's status, then the service's own log, read as the service account
+# (never as root inside the account's log directory), control characters shown with cat -v.
 setup etc/xmrig.service run/keep run/logs/xmrig_stdout.log run/logs/xmrig_stderr.log
 target status
 same "systemd status: calls" "sudo systemctl status xmrig.service
 systemctl show -p User --value xmrig.service
-sudo tail -n 5 /var/log/xmrig/fixture-miner/xmrig.log" "$calls"
+sudo -u fixture-miner test -f /var/log/xmrig/fixture-miner/xmrig.log
+sudo -u fixture-miner tail -n 5 -- /var/log/xmrig/fixture-miner/xmrig.log" "$calls"
 [ "$rc" -eq 0 ] && echo "PASS service-disable"
 exit "$rc"

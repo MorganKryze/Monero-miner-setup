@@ -141,7 +141,12 @@ status:
 			user=$$(systemctl show -p User --value xmrig.service); \
 			if [ -n "$$user" ]; then \
 				echo -e "\nLast 5 lines of the service log:"; \
-				sudo tail -n 5 "/var/log/xmrig/$$user/xmrig.log"; \
+				log="/var/log/xmrig/$$user/xmrig.log"; \
+				if sudo -u "$$user" test -f "$$log"; then \
+					sudo -u "$$user" tail -n 5 -- "$$log" | cat -v; \
+				else \
+					echo "No service log yet."; \
+				fi; \
 			fi; \
 		elif [ -f "$(LAUNCHD_PLIST)" ]; then \
 			echo "LaunchAgent status:"; \
