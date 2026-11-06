@@ -30,18 +30,29 @@ SELF_PATH="${BASH_SOURCE[0]-}"
 # Prints the clone this file sits in (<clone>/scripts/install.sh), or nothing. Piped into bash, run
 # through `bash <(...)` or `bash -c "$(...)"`, or saved outside a clone, the installer has no clone
 # of its own and never looks in the current directory, where another user may have left a file.
-# Nor has it one when its group or other users can write to the clone root, as in /tmp: anyone
-# could have planted the .git and the toolbox there. find prints the root only when it is safe, so
-# a failed check falls back to the fetch.
+# Nor has it one when someone else can write to the clone root, as in /tmp: they could have
+# planted the .git and the toolbox there.
 function find_own_clone() {
     local dir root
     [ -n "$SELF_PATH" ] && [ -f "$SELF_PATH" ] || return 0
     dir=$(cd -- "$(dirname -- "$SELF_PATH")" 2>/dev/null && pwd -P) || return 0
     root="${dir%/*}"
-    if [ "${dir##*/}" = "scripts" ] && [ -e "$root/.git" ] &&
-        [ "$(find "$root/" -maxdepth 0 ! -perm -0002 ! -perm -0020 -print 2>/dev/null)" = "$root/" ]; then
+    if [ "${dir##*/}" = "scripts" ] && [ -e "$root/.git" ] && only_user_can_write "$root"; then
         printf '%s' "$root"
     fi
+}
+
+# Other users can never write to the folder. Its group can only when the group is the user's own:
+# Ubuntu gives each user one and a umask of 0002, so a clone there is group-writable, while a
+# shared group (macOS's staff holds every local user) or a project group holds other users. find
+# prints the folder only when it is safe, so a failed check, or a failed id, falls back to the fetch.
+function only_user_can_write() {
+    local group_ok
+    group_ok=(! -perm -0020)
+    if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
+        group_ok=("(" ! -perm -0020 -o -group "$(id -g)" ")")
+    fi
+    [ "$(find "$1/" -maxdepth 0 ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1/" ]
 }
 
 OWN_CLONE=$(find_own_clone)

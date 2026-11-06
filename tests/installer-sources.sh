@@ -3,8 +3,9 @@
 # clone's vendored toolbox, otherwise from the commit dependencies/bash-toolbox pins, fetched with
 # curl -fsSL over HTTPS only; the Docker installer from its own clone, otherwise from GitHub; never a
 # file from the current directory, and a stop with one error line on a failed, empty or partial
-# load. A stub curl first on PATH serves fixtures and records each call; the installer only ever
-# runs with --help or --docker, whose fixture prints its arguments. No network, nothing installed.
+# load. A stub curl first on PATH serves fixtures and records each call, and a stub id names the
+# user's group; the installer only ever runs with --help or --docker, whose fixture prints its
+# arguments. No network, nothing installed.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -12,6 +13,7 @@ pin=$(git ls-tree HEAD dependencies/bash-toolbox | awk '{print $3}')
 [ "${#pin}" -eq 40 ] || { echo "FAIL no pinned commit for dependencies/bash-toolbox"; exit 1; }
 tb_url="https://raw.githubusercontent.com/MorganKryze/bash-toolbox/$pin/src/prefix.sh"
 dk_url="https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh"
+gid=$(id -g) real_id=$(command -v id)
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P) # the installer names its clone by its physical path (macOS: /private/var)
@@ -43,7 +45,19 @@ esac
 if [ -n "\${body:-}" ]; then echo "\$body" > "\${out:-/dev/stdout}"; else cat "\$f" > "\${out:-/dev/stdout}"; fi
 STUB
 printf '#!/bin/sh\nexit 0\n' > "$w/bin/sleep"
-chmod +x "$w/bin/curl" "$w/bin/sleep"
+# ID_MODE: shared (the default) names a primary group other users are in, like macOS's staff;
+# private names one of the user's own, as Ubuntu gives each user. -g prints the user's real
+# group, the one the private fixture is given, unless ID_GID names another, like a project group.
+cat > "$w/bin/id" <<STUB
+#!/bin/bash
+case \$* in
+  -un) echo tester ;;
+  -gn) if [ "\${ID_MODE:-shared}" = private ]; then echo tester; else echo staff; fi ;;
+  -g) echo "\${ID_GID:-$gid}" ;;
+  *) exec "$real_id" "\$@" ;;
+esac
+STUB
+chmod +x "$w/bin/curl" "$w/bin/sleep" "$w/bin/id"
 
 # A clone (scripts/, .git, a checked-out toolbox), the same clone without its toolbox, a copy of
 # the installer saved outside any clone next to a planted docker_setup.sh, and a current directory
@@ -52,7 +66,9 @@ chmod +x "$w/bin/curl" "$w/bin/sleep"
 # not named scripts, directly under that planted clone, still has no clone of its own. Nor has a
 # copy saved as scripts/install.sh in a folder others can write to, like /tmp (open), a folder
 # its group shares (group) or one only other users can write to (other): anyone may plant a .git
-# and a toolbox there.
+# and a toolbox there. A clone its group can write to (private) is still the installer's own when
+# that group is the user's own, as a umask of 0002 makes it on Ubuntu. Each mode is set, not left
+# to the umask.
 mkclone() { # dir, with-toolbox
   mkdir -p "$1/scripts" "$1/.git" "$1/dependencies/bash-toolbox/src"
   cp "$root/scripts/install.sh" "$1/scripts/install.sh"
@@ -62,6 +78,9 @@ mkclone() { # dir, with-toolbox
 }
 mkclone "$w/clone" yes
 mkclone "$w/bare" no
+mkclone "$w/private" yes
+chmod 755 "$w/clone" "$w/clone/scripts" "$w/bare" "$w/bare/scripts" "$w/private/scripts"
+chgrp "$gid" "$w/private" && chmod 775 "$w/private"
 mkdir -p "$w/loose" "$w/shared/scripts" "$w/cwd/scripts" "$w/cwd/.git" "$w/cwd/dependencies/bash-toolbox/src"
 cp "$root/scripts/install.sh" "$w/loose/install.sh"
 printf 'echo "DECOY ran"\n' > "$w/loose/docker_setup.sh"
@@ -106,6 +125,18 @@ want vendored exit 0 "$code"
 want vendored "curl calls" "" "$calls"
 printf '%s\n' "$out" | grep -qx 'TOOLBOX vendored' || { echo "FAIL vendored: the vendored toolbox was not loaded"; rc=1; }
 printf '%s\n' "$out" | grep -qx "Usage: $w/clone/scripts/install.sh \[OPTIONS\]" || { echo "FAIL vendored: no usage line"; rc=1; }
+# From a clone only its user's own group can also write to, the same; under another group, as
+# under sudo or in a project folder, the fetched one.
+ID_MODE=private run private "file:$w/private/scripts/install.sh" --help
+want private exit 0 "$code"
+want private "curl calls" "" "$calls"
+printf '%s\n' "$out" | grep -qx 'TOOLBOX vendored' || { echo "FAIL private: the vendored toolbox was not loaded"; rc=1; }
+ID_MODE=private run docker-private "file:$w/private/scripts/install.sh" --docker -y
+want docker-private output "Dispatching to $w/private/scripts/docker_setup.sh..."$'\n'"DOCKER clone -y" "$out"
+want docker-private "curl calls" "" "$calls"
+ID_MODE=private ID_GID=9999901 run private-other-group "file:$w/private/scripts/install.sh" --help
+want private-other-group "curl calls" "$toolbox_call" "$calls"
+printf '%s\n' "$out" | grep -qx 'TOOLBOX fetched' || { echo "FAIL private-other-group: the fetched toolbox was not loaded"; rc=1; }
 # Without a checked-out toolbox, from a loose copy and from each stream form, one fetch
 # of the pinned commit, silent about locating itself (stderr empty).
 for how in "file:$w/bare/scripts/install.sh" "file:$w/loose/install.sh" "file:$w/cwd/loose/install.sh" "file:$w/shared/scripts/install.sh" "file:$w/open/scripts/install.sh" "file:$w/group/scripts/install.sh" "file:$w/other/scripts/install.sh" pipe procsub dashc; do
