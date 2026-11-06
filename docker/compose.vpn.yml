@@ -17,7 +17,9 @@
 
 services:
   gluetun:
-    image: qmcgaw/gluetun:latest
+    # Pinned to a release: Gluetun's latest tag is built from its master branch.
+    # Dependabot opens a pull request for each new release, which waits for your review.
+    image: qmcgaw/gluetun:v3.41.3
     container_name: monero_xmrig_gluetun
     cap_add:
       - NET_ADMIN

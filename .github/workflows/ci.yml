@@ -29,6 +29,9 @@ jobs:
         with:
           severity: error
           ignore_paths: dependencies
+          # Same release as the local gate; the default, stable, moves under us.
+          # Dependabot doesn't see this input, so bump it by hand.
+          version: v0.11.0
 
   hadolint:
     name: Hadolint
@@ -57,6 +60,21 @@ jobs:
 
       - name: make -n update (dry-run)
         run: make -n update
+
+  checks:
+    name: Regression checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # No submodules: the checks build their own fixtures and need no network.
+      # make check runs this one too, but a runner that ignored failures would
+      # pass it, so it runs on its own first.
+      - name: make check fails when a check fails
+        run: bash tests/make-check.sh
+
+      - name: make check
+        run: make check
 
   docker-build:
     name: Docker build smoke test (${{ matrix.arch }})
@@ -93,6 +111,14 @@ jobs:
       - name: xmrig --version
         run: docker run --rm --entrypoint /app/xmrig monero-miner-setup:ci --version
 
+      # xmrig's cmake takes a static libuv.a when one is installed; the miner must load the
+      # runtime's libuv1t64 instead, so the image's package updates reach it.
+      - name: xmrig loads libuv from the runtime package
+        run: |
+          libs=$(docker run --rm --entrypoint ldd monero-miner-setup:ci /app/xmrig)
+          echo "$libs"
+          printf '%s\n' "$libs" | grep -qxE '[[:space:]]libuv[.]so[.]1 => /usr/lib/[a-z0-9_]+-linux-gnu/libuv[.]so[.]1 [(]0x[0-9a-f]+[)]'
+
       - name: Entrypoint rejects missing wallet
         run: |
           set +e
@@ -104,3 +130,9 @@ jobs:
             exit 1
           fi
           echo "$output" | grep -q "WALLET_ADDRESS environment variable is required"
+
+      - name: Container runs as non-root (uid 999)
+        run: |
+          ids=$(docker run --rm --entrypoint id monero-miner-setup:ci)
+          echo "$ids"
+          [ "$ids" = "uid=999(xmrig) gid=999(xmrig) groups=999(xmrig)" ]

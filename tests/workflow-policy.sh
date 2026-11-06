@@ -1,0 +1,173 @@
+#!/bin/bash
+# What may reach main and :latest without the owner: the Dependabot auto-merge workflow merges
+# Actions patch and minor bumps only, from a pull_request run with no default permissions; a
+# manual publish refuses the tag names the push and release rules own, and runs that check
+# before the tags are computed. CI keeps the job names main's protection requires.
+# Run from the repository root. Prints FAIL lines, exits 1 on any miss.
+rc=0
+a=.github/workflows/dependabot-automerge.yml
+p=.github/workflows/publish.yml
+# YAML breaks lines at a carriage return too, and libyaml at U+0085 and U+2028, where awk and
+# grep see one line: a scope or a condition hidden behind one would pass every check below.
+! LC_ALL=C grep -q '[^ -~]' "$a" "$p" .github/workflows/ci.yml \
+  || { echo "FAIL a byte other than printable ASCII in a guarded workflow"; rc=1; }
+block() { # file, first line: from that whole line to the next line indented as little or less
+  # YAML reads past comment and whitespace-only lines whatever their indent, so neither ends the
+  # block: a comment indented as little or less is skipped, a whitespace-only line is compared.
+  awk -v first="$2" '
+    !on && $0 == first { on = 1; match($0, /^ */); ind = RLENGTH; print; next }
+    on { match($0, /^ */); if (RLENGTH <= ind && /^ *#/) next
+      if (RLENGTH <= ind && !/^ *$/) exit; print }' "$1"
+}
+major() { sed -E 's/^( *(- )?uses: [^@ ]+@v)[0-9]+$/\1N/'; } # stdin: a workflow, majors as @vN
+grep -qx 'on: pull_request' "$a" || { echo "FAIL automerge trigger"; rc=1; }
+grep -qx 'permissions: {}' "$a" || { echo "FAIL automerge default permissions"; rc=1; }
+[ "$(grep -cxF "    if: github.event.pull_request.user.login == 'dependabot[bot]'" "$a")" -eq 2 ] \
+  || { echo "FAIL automerge jobs not limited to Dependabot's pull requests"; rc=1; }
+# The whole auto-merge workflow, line for line: an extra merge step, a meta output set to a
+# constant or a scope added anywhere fails here. Only an action's major version may move
+# (Dependabot bumps it), so `uses:` lines are compared with @v<major> read as @vN.
+want=$(cat <<'YML'
+name: Dependabot auto-merge
+
+on: pull_request
+
+# Nothing by default; each job below gets only what it needs.
+permissions: {}
+
+jobs:
+  meta:
+    name: Read Dependabot metadata
+    # Check who opened the PR, not who triggered the run: github.actor is
+    # whoever re-ran the job or pushed last, which must not count as Dependabot.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    # The third-party action runs apart from the write token: compromised, it
+    # could only misreport this PR's metadata, not merge or push anything.
+    permissions:
+      pull-requests: read
+    outputs:
+      package-ecosystem: ${{ steps.meta.outputs.package-ecosystem }}
+      update-type: ${{ steps.meta.outputs.update-type }}
+    steps:
+      - name: Read Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+
+  automerge:
+    name: Auto-merge Dependabot PRs
+    needs: meta
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    # The merge step waits up to 60 minutes for the required checks.
+    timeout-minutes: 70
+    # A newer push to the same PR restarts the wait; the older run's view is stale.
+    concurrency:
+      group: automerge-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge once CI is green, then publish main
+        # Only Actions patch and minor bumps merge on their own. A submodule bump
+        # pulls in upstream XMRig source and a major bump can break the workflows,
+        # so both wait for the owner to review.
+        if: >-
+          needs.meta.outputs.package-ecosystem == 'github_actions' &&
+          (needs.meta.outputs.update-type == 'version-update:semver-patch' ||
+          needs.meta.outputs.update-type == 'version-update:semver-minor')
+        # --auto queues the merge; GitHub waits for required status checks
+        # (configured in branch protection) before merging.
+        # A merge made with the workflow token fires no push event, so neither CI
+        # nor the publish workflow would see it. repository_dispatch is one of the
+        # two events that token may still trigger, so we wait for the merge and
+        # send it ourselves.
+        run: |
+          gh pr merge --auto --squash "$PR_URL"
+          for _ in $(seq 1 120); do
+            # The runner uses bash -e: one failed API call must not end the wait.
+            state=$(gh pr view "$PR_URL" --json state --jq .state) || state=""
+            case "$state" in
+              MERGED)
+                gh api "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=main-merged
+                exit 0
+                ;;
+              CLOSED)
+                echo "PR closed without merging; nothing to publish."
+                exit 0
+                ;;
+            esac
+            sleep 30
+          done
+          # Disarm the queued merge: a later one made with this token would send no
+          # signal, while the owner's own merge pushes to main and publishes.
+          gh pr merge --disable-auto "$PR_URL"
+          echo "::error::Not merged after 60 minutes; check the required CI checks, then merge by hand."
+          exit 1
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+YML
+)
+want=$(printf '%s\n' "$want" | major); got=$(major < "$a")
+[ "$got" = "$want" ] || { echo "FAIL automerge workflow"; diff <(echo "$want") <(echo "$got"); rc=1; }
+! grep -n 'continue-on-error' "$a" "$p" || { echo "FAIL continue-on-error in a guarded workflow"; rc=1; }
+
+# The manual publish input: its step runs first, on dispatch only, and refuses what it must.
+step='      - name: Validate dispatch input (allowed characters, no reserved name)'
+order=$(grep -nxF -e "$step" -e '      - name: Compute tags' -e '      - name: Create multi-arch manifest' "$p" | cut -d: -f2- | sed 's/^      - name: //')
+[ "$order" = "$(printf '%s\n' 'Validate dispatch input (allowed characters, no reserved name)' 'Compute tags' 'Create multi-arch manifest')" ] \
+  || { echo "FAIL the dispatch check does not run before the tags"; rc=1; }
+[ "$(block "$p" "$step" | sed -n 2p)" = "        if: \${{ github.event_name == 'workflow_dispatch' }}" ] \
+  || { echo "FAIL the dispatch check's condition"; rc=1; }
+d=$(mktemp -d) && [ -d "$d" ] || { echo "FAIL mktemp -d"; exit 1; }
+trap 'rm -rf -- "$d"' EXIT
+block "$p" "$step" | sed -n '/^        run: |$/,$p' | sed '1d;s/^          //' > "$d/validate.sh"
+for tag in latest main-0ce9664 buildcache-amd64 v1.2.3 v1 1.2.3 1.2 '' 'dev latest' "$(printf 'dev\nlatest')" 'a/b' '../x'; do
+  INPUT_TAG=$tag bash -e "$d/validate.sh" >/dev/null 2>&1 && { echo "FAIL dispatch tag accepted: '$tag'"; rc=1; }
+done
+for tag in dev nightly test_1 rc.2; do
+  INPUT_TAG=$tag bash -e "$d/validate.sh" >/dev/null 2>&1 || { echo "FAIL dispatch tag refused: '$tag'"; rc=1; }
+done
+# Only push and the main-merged signal may add :latest or :main-<sha>; versions on a tag push.
+want=$(cat <<'YML'
+          flavor: latest=false
+            type=raw,value=latest,enable=${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && github.ref == 'refs/heads/main' }}
+            type=sha,prefix=main-,enable=${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=${{ env.DISPATCH_TAG }},enable=${{ github.event_name == 'workflow_dispatch' }}
+YML
+)
+got=$(grep -E '^ +(flavor: |type=(raw|sha|semver),)' "$p")
+[ "$got" = "$want" ] || { echo "FAIL publish tag rules"; diff <(echo "$want") <(echo "$got"); rc=1; }
+
+# main's protection requires these check names; a renamed job would block every pull request.
+want=$(printf '    name: %s\n' 'ShellCheck' 'Hadolint' 'Makefile dry-run' 'Regression checks' 'Docker build smoke test (${{ matrix.arch }})')
+[ "$(grep -E '^    name: ' .github/workflows/ci.yml)" = "$want" ] || { echo "FAIL ci job names"; rc=1; }
+# The Regression checks job runs the runner's own check outside the runner, then make check,
+# and only those: a make check that ignored failures would ignore that check failing too.
+want=$(cat <<'YML'
+  checks:
+    name: Regression checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # No submodules: the checks build their own fixtures and need no network.
+      # make check runs this one too, but a runner that ignored failures would
+      # pass it, so it runs on its own first.
+      - name: make check fails when a check fails
+        run: bash tests/make-check.sh
+
+      - name: make check
+        run: make check
+YML
+)
+got=$(block .github/workflows/ci.yml '  checks:' | major)
+want=$(printf '%s\n' "$want" | major)
+[ "$got" = "$want" ] || { echo "FAIL ci regression checks job"; diff <(echo "$want") <(echo "$got"); rc=1; }
+[ "$rc" -eq 0 ] && echo "PASS workflow-policy"
+exit "$rc"

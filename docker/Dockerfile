@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6
 
 # -------- Stage 1: builder --------
-FROM ubuntu:22.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -19,20 +19,22 @@ WORKDIR /src
 
 COPY dependencies/xmrig ./xmrig
 
-RUN cmake -S xmrig -B build \
+# FindUV in xmrig takes libuv.a first, and libuv1-dev on 26.04 ships one: link the
+# shared libuv instead, so the miner loads the runtime libuv1t64 and gets its updates.
+RUN cmake -S xmrig -B build -DUV_LIBRARY="/usr/lib/$(gcc -dumpmachine)/libuv.so" \
     && cmake --build build -j"$(nproc)" \
     && strip build/xmrig
 
 # -------- Stage 2: runtime --------
-FROM ubuntu:22.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        libuv1 \
-        libssl3 \
+        libuv1t64 \
+        libssl3t64 \
         libhwloc15 \
         procps \
         jq \

@@ -563,12 +563,14 @@ function build_project() {
         return 1
     }
 
-    info "Updating Git submodules to ensure all dependencies are up-to-date..."
-    if ! git submodule update --remote; then
-        error "Failed to update submodules."
+    # Build the commits this repository pins, never the upstream tip: that would build
+    # whatever xmrig's master holds today, unreviewed.
+    info "Checking out the pinned submodule commits..."
+    if ! git submodule update --init --recursive; then
+        error "Failed to check out the pinned submodules."
         return 1
     fi
-    success "Submodules are up-to-date."
+    success "Submodules match the pinned commits."
 
     # Select the appropriate build command based on OS
     case "$OS_TYPE" in
