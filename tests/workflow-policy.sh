@@ -7,6 +7,10 @@
 rc=0
 a=.github/workflows/dependabot-automerge.yml
 p=.github/workflows/publish.yml
+# YAML breaks lines at a carriage return too, and libyaml at U+0085 and U+2028, where awk and
+# grep see one line: a scope or a condition hidden behind one would pass every check below.
+! LC_ALL=C grep -q '[^ -~]' "$a" "$p" .github/workflows/ci.yml \
+  || { echo "FAIL a byte other than printable ASCII in a guarded workflow"; rc=1; }
 block() { # file, first line: from that whole line to the next line indented as little or less
   awk -v first="$2" '
     !on && $0 == first { on = 1; match($0, /^ */); ind = RLENGTH; print; next }
