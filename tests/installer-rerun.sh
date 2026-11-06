@@ -22,6 +22,16 @@ wallet=4AdUndXHHZ6cfufTMvppY6JwXNouMBzSkbLYfpAV5Usx3skxNgYeYTRj5UzqtReoS44qo9mtm
 for f in check_repo_exists check_if_built configs_exist generate_config_files service_is_set_up install_project; do
   grep -qx "function $f() {" "$w/functions.sh" || fail "no function $f in scripts/install.sh"
 done
+# The runs below put the unit and the plist in the fixture, so the paths the installer looks for
+# are checked here: each is the one path its service script writes.
+same_path() { # constant, service script, pattern of the paths it names
+  local looked written
+  looked=$(sed -n "s/^$1=\"\(.*\)\"\$/\1/p" "$root/scripts/install.sh")
+  written=$(grep -oE "$3" "$root/$2" | LC_ALL=C sort -u)
+  [ -n "$looked" ] && [ "$looked" = "$written" ] || fail "$1 is '$looked', $2 writes '$written'"
+}
+same_path SYSTEMD_UNIT scripts/setup_service_debian.sh '/etc/systemd/system/[A-Za-z0-9_.@-]+'
+same_path LAUNCHD_PLIST scripts/setup_service_macos.sh '\$HOME/Library/LaunchAgents/[A-Za-z0-9_.-]+'
 
 # run <mode> [build-fails]: install_project for a host at $w/home, in a subshell.
 run() {
