@@ -137,7 +137,17 @@ status:
 	@echo "[$(BLUE)  INFO   $(RESET)] $(BLUE)Checking XMRig service status...$(RESET)"
 	@bash -c ' \
 		if [ -f "$(SYSTEMD_UNIT)" ]; then \
-			sudo systemctl status xmrig; \
+			sudo systemctl status xmrig.service; \
+			user=$$(systemctl show -p User --value xmrig.service); \
+			if [ -n "$$user" ]; then \
+				echo -e "\nLast 5 lines of the service log:"; \
+				log="/var/log/xmrig/$$user/xmrig.log"; \
+				if sudo -u "$$user" test -f "$$log"; then \
+					sudo -u "$$user" tail -n 5 -- "$$log" | cat -v; \
+				else \
+					echo "No service log yet."; \
+				fi; \
+			fi; \
 		elif [ -f "$(LAUNCHD_PLIST)" ]; then \
 			echo "LaunchAgent status:"; \
 			launchctl list | grep com.moneroocean.xmrig || echo "XMRig service is not registered."; \
@@ -198,8 +208,12 @@ service-setup:
 service-disable:
 	@$(call log-info,"Disabling and removing XMRig service...")
 	@if [ -f "$(SYSTEMD_UNIT)" ]; then \
-		sudo systemctl stop xmrig 2>/dev/null || true; \
-		sudo systemctl disable xmrig 2>/dev/null || true; \
+		sudo systemctl stop xmrig.service 2>/dev/null || true; \
+		sudo systemctl disable xmrig.service 2>/dev/null || true; \
+		sudo systemctl clean --what=configuration --what=state --what=logs xmrig.service || { \
+			$(call log-error,"systemctl clean failed. The unit is kept so make service-disable can retry once the error is fixed"); \
+			exit 1; \
+		}; \
 		sudo rm -f "$(SYSTEMD_UNIT)"; \
 		sudo systemctl daemon-reload; \
 		$(call log-success,"XMRig systemd service disabled and removed."); \
