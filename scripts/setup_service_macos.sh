@@ -11,6 +11,17 @@ TARGET_FILE="$HOME/Library/LaunchAgents/com.moneroocean.xmrig.plist"
 # shellcheck source=setup_service_common.sh
 source "$SCRIPT_DIR/setup_service_common.sh" || { echo "Error: $SCRIPT_DIR/setup_service_common.sh not found."; exit 1; }
 
+# A LaunchAgent runs as the user who loads it: loaded by root, launchd would run the miner as root.
+# SERVICE_AS_ROOT exists for the RandomX MSR boost, which XMRig applies on Linux only.
+if [ "$(id -u)" = 0 ]; then
+    echo "Error: Run the macOS service setup as your own user, not root: launchd would run the miner as root."
+    exit 1
+fi
+if [ "${SERVICE_AS_ROOT:-}" = yes ]; then
+    echo "Error: SERVICE_AS_ROOT=yes applies to the systemd service only; the macOS service runs as your user."
+    exit 1
+fi
+
 # Ensure XMRig is executable
 if [ ! -x "$BASE_DIR/xmrig" ]; then
     echo "Making XMRig executable..."

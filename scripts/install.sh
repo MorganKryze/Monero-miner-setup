@@ -19,6 +19,9 @@ DEFAULT_PAUSE_ON_ACTIVE=false
 DEFAULT_PAUSE_ON_BATTERY=false
 DEFAULT_SERVICE_MODE="setup" # Options: "setup", "manual", "autostart"
 DEFAULT_NON_INTERACTIVE=false
+# Base directory as root on Linux: the service then runs the miner as another account, which can
+# enter /opt but not root's home (mode 700).
+ROOT_BASE_DIR="/opt"
 # Where the service setup (scripts/setup_service_*.sh) installs the service: a re-run that finds
 # it there leaves the service as it is.
 SYSTEMD_UNIT="/etc/systemd/system/xmrig.service"
@@ -185,7 +188,7 @@ function usage() {
     echo "  -w, --wallet WALLET   Your Monero wallet address"
     echo
     echo "Installation Options:"
-    echo "  -d, --dir DIR         Base directory for installation (defaults to HOME)"
+    echo "  -d, --dir DIR         Base directory for installation (defaults to HOME; as root on Linux, /opt)"
     echo
     echo "Mining Configuration Options:"
     echo "  -t, --threads PERCENT Max CPU threads hint (1-100, default: $DEFAULT_MAX_THREADS)"
@@ -199,6 +202,9 @@ function usage() {
     echo "Service Configuration Options:"
     echo "  --only-manual        Do not set up any service, only manual operation"
     echo "  --autostart          Start mining service immediately after installation"
+    echo "  --service-as-root    Run the systemd service as root. Only for the x86 RandomX MSR boost, which"
+    echo "                       needs root; without it, a root install runs the miner as the user who ran"
+    echo "                       sudo, or as the system account xmrig"
     echo
     echo "Automation Options:"
     echo "  -y, --yes, --non-interactive"
@@ -262,7 +268,15 @@ function validate_wallet() {
 function validate_directory() {
     local dir="$1"
 
-    if [ -z "$dir" ]; then
+    # As root on Linux, the service runs the miner as another account (setup_service_debian.sh),
+    # which root's home keeps out: the default is then /opt, unless an earlier install left its
+    # clone in HOME, where a re-run finds it.
+    if [ -z "$dir" ] && [ "$(id -u)" == "0" ] && [ "$(uname -s)" == "Linux" ] && [ -d "$ROOT_BASE_DIR" ] &&
+        [ ! -d "${HOME:-}/$REPO_NAME" ]; then
+        dir="$ROOT_BASE_DIR"
+        # Redirect info message to stderr so it doesn't get captured by $()
+        info "Running as root, no base directory provided: using $dir, which the account running the miner can enter." >&2
+    elif [ -z "$dir" ]; then
         if [ -z "$HOME" ]; then
             error "Please define HOME environment variable to your home directory."
             return 1
@@ -372,6 +386,7 @@ function parse_arguments() {
     PAUSE_ON_BATTERY=$DEFAULT_PAUSE_ON_BATTERY
     SERVICE_MODE=$DEFAULT_SERVICE_MODE
     NON_INTERACTIVE=$DEFAULT_NON_INTERACTIVE
+    SERVICE_AS_ROOT=no
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -424,6 +439,10 @@ function parse_arguments() {
             SERVICE_MODE="autostart"
             shift 1
             ;;
+        --service-as-root)
+            SERVICE_AS_ROOT=yes
+            shift 1
+            ;;
         -y | --yes | --non-interactive)
             NON_INTERACTIVE=true
             shift 1
@@ -457,6 +476,8 @@ function parse_arguments() {
     export PAUSE_ON_BATTERY
     export SERVICE_MODE
     export NON_INTERACTIVE
+    # Read by scripts/setup_service_debian.sh: only this flag makes the service run as root.
+    export SERVICE_AS_ROOT
 }
 
 # ===== MoneroOcean Miner Setup Functions =====
