@@ -205,7 +205,10 @@ service-disable:
 	@if [ -f "$(SYSTEMD_UNIT)" ]; then \
 		sudo systemctl stop xmrig.service 2>/dev/null || true; \
 		sudo systemctl disable xmrig.service 2>/dev/null || true; \
-		sudo systemctl clean --what=configuration --what=state --what=logs xmrig.service; \
+		sudo systemctl clean --what=configuration --what=state --what=logs xmrig.service || { \
+			$(call log-error,"systemctl clean failed. The unit is kept so make service-disable can retry once the error is fixed"); \
+			exit 1; \
+		}; \
 		sudo rm -f "$(SYSTEMD_UNIT)"; \
 		sudo systemctl daemon-reload; \
 		$(call log-success,"XMRig systemd service disabled and removed."); \
