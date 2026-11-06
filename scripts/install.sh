@@ -265,8 +265,17 @@ function validate_wallet() {
     return 0
 }
 
+# Root owns the path and neither its group nor others can write it (GNU stat, Linux only). stat
+# drops a mode's leading zeros (0007 comes out as 7), so the mode is read as a whole octal number.
+function only_root_can_change() {
+    local info mode
+    info=$(stat -c '%U %a' "$1") || return 1
+    mode=${info#* }
+    [[ "$mode" =~ ^[0-7]+$ ]] && [ "${info%% *}" = root ] && (( (8#$mode & 8#022) == 0 ))
+}
+
 function validate_directory() {
-    local dir="$1"
+    local dir="$1" path
 
     # As root on Linux, the service runs the miner as another account (setup_service_debian.sh),
     # which root's home keeps out: the default is then /opt, unless an earlier install left its
@@ -274,6 +283,14 @@ function validate_directory() {
     if [ -z "$dir" ] && [ "$(id -u)" == "0" ] && [ "$(uname -s)" == "Linux" ] && [ -d "$ROOT_BASE_DIR" ] &&
         [ ! -d "${HOME:-}/$REPO_NAME" ]; then
         dir="$ROOT_BASE_DIR"
+        # Root goes on to run the clone's scripts: a user who can change /opt, or a clone already
+        # there, would choose what root runs, as with the installer's own clone above.
+        for path in "$dir" "$dir/$REPO_NAME"; do
+            if [ -e "$path" ] && ! only_root_can_change "$path"; then
+                error "$path is not root's alone: a user other than root owns it or can write to it. Pass -d with the base directory to install in." >&2
+                return 1
+            fi
+        done
         # Redirect info message to stderr so it doesn't get captured by $()
         info "Running as root, no base directory provided: using $dir, which the account running the miner can enter." >&2
     elif [ -z "$dir" ]; then

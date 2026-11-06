@@ -2,9 +2,10 @@
 # What a root install changes about who runs the miner. The installer's --service-as-root, whose
 # help line names the x86 RandomX MSR boost, reaches the service setup as SERVICE_AS_ROOT=yes, and
 # nothing else does; as root on Linux, with no -d and no earlier clone in HOME, the base directory
-# is /opt, which the account running the miner can enter. The launchd setup refuses to run as root
+# is /opt, which the account running the miner can enter, and only while root alone can change
+# /opt and a clone already there: else the installer stops and asks for -d. The launchd setup refuses to run as root
 # or with SERVICE_AS_ROOT=yes, and then writes, changes and loads nothing. The installer's
-# constants and functions are taken from scripts/install.sh and run with stub id and uname; the
+# constants and functions are taken from scripts/install.sh and run with stub id, uname and stat; the
 # launchd setup runs in a fixture clone with stub id and launchctl. PATH holds the stub dirs and a
 # tools dir of links to the plain tools the code needs, no host directory: nothing run here can
 # reach the host's sudo, chown or useradd (checked first).
@@ -18,7 +19,7 @@ same() { # label, expected, got
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
-fns="usage validate_directory parse_arguments"
+fns="usage only_root_can_change validate_directory parse_arguments"
 {
   sed -n '/^# ===== Constants =====$/,/^DOCKER_SCRIPT_URL=/p' "$root/scripts/install.sh"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done
@@ -56,9 +57,29 @@ base() { # host, -d value: sets got (the directory), err (its info lines)
   got=$(on "$1" validate_directory "$2" 2> "$w/err"); err=$(cat "$w/err")
 }
 mkdir -p "$w/opt" "$w/home" "$w/given"
+# stat: owner and mode from the fixture table (path, owner, mode), root 755 for any path it does
+# not list.
+mkdir -p "$w/bin"
+: > "$w/stat"
+printf '#!/bin/sh\n[ "$1" = -c ] && [ "$2" = "%%U %%a" ] || exit 1\nwhile read -r p o m; do [ "$p" = "$3" ] && { echo "$o $m"; exit 0; }; done < "%s/stat"\necho "root 755"\n' "$w" > "$w/bin/stat"
+chmod +x "$w/bin/stat"
 base root ""
 same "root, no -d: directory" "$w/opt" "$got"
 same "root, no -d: line" "[INFO] Running as root, no base directory provided: using $w/opt, which the account running the miner can enter." "$err"
+# /opt, or a clone in it, that a user other than root owns or can write: root would run that
+# user's scripts. An error naming the path and -d, no directory.
+for bad in "$w/opt root 777" "$w/opt root 775" "$w/opt alice 755" "$w/opt root 7" "$w/opt/Monero-miner-setup alice 755"; do
+  mkdir -p "$w/opt/Monero-miner-setup"
+  printf '%s\n' "$bad" > "$w/stat"
+  base root ""
+  same "root, no -d, $bad: directory" "" "$got"
+  same "root, no -d, $bad: line" "[ERROR] ${bad%% *} is not root's alone: a user other than root owns it or can write to it. Pass -d with the base directory to install in." "$err"
+done
+# A clone in /opt that only root can change: a re-run there goes on.
+: > "$w/stat"
+base root ""
+same "root, no -d, root's clone in /opt: directory" "$w/opt" "$got"
+rmdir "$w/opt/Monero-miner-setup"
 base root "$w/given"
 same "root, -d: directory" "$w/given" "$got"
 base user ""
