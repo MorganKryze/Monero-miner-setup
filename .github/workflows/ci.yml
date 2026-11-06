@@ -68,6 +68,11 @@ jobs:
       - uses: actions/checkout@v7
 
       # No submodules: the checks build their own fixtures and need no network.
+      # make check runs this one too, but a runner that ignored failures would
+      # pass it, so it runs on its own first.
+      - name: make check fails when a check fails
+        run: bash tests/make-check.sh
+
       - name: make check
         run: make check
 

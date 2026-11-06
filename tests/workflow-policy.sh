@@ -67,7 +67,8 @@ got=$(grep -E '^ +(flavor: |type=(raw|sha|semver),)' "$p")
 # main's protection requires these check names; a renamed job would block every pull request.
 want=$(printf '    name: %s\n' 'ShellCheck' 'Hadolint' 'Makefile dry-run' 'Regression checks' 'Docker build smoke test (${{ matrix.arch }})')
 [ "$(grep -E '^    name: ' .github/workflows/ci.yml)" = "$want" ] || { echo "FAIL ci job names"; rc=1; }
-# The Regression checks job runs make check, and only that.
+# The Regression checks job runs the runner's own check outside the runner, then make check,
+# and only those: a make check that ignored failures would ignore that check failing too.
 want=$(cat <<'YML'
   checks:
     name: Regression checks
@@ -76,6 +77,11 @@ want=$(cat <<'YML'
       - uses: actions/checkout@v7
 
       # No submodules: the checks build their own fixtures and need no network.
+      # make check runs this one too, but a runner that ignored failures would
+      # pass it, so it runs on its own first.
+      - name: make check fails when a check fails
+        run: bash tests/make-check.sh
+
       - name: make check
         run: make check
 YML
