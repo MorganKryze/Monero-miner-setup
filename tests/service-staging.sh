@@ -2,7 +2,8 @@
 # How the systemd setup reaches /etc and who the service runs the miner as. The account is the user
 # running the setup, the user who ran sudo when that is root, else the system account xmrig
 # (created once, then reused), or root when SERVICE_AS_ROOT=yes asks; the setup stops when that
-# account cannot run the binary. The unit, the logrotate file and the service config are staged in
+# account cannot run the binary, or when it is root or not the binary's owner and a user other than
+# root could change the binary, the link to it or a directory above them. The unit, the logrotate file and the service config are staged in
 # files mktemp creates for this user alone (TMPDIR points at a fixture here, holding files planted
 # at the old fixed names), each write checked, the config read as this user, then installed by
 # root: the config under /etc/xmrig with the account's group, the logrotate file before the unit,
@@ -13,7 +14,8 @@
 # Runs a fixture clone's copy of scripts/setup_service_debian.sh with PATH set to one fixture
 # directory of stubs and links to plain tools: sudo records each call and the mode and owner of
 # what it was asked to install, runs install into a fixture root and useradd into a fixture
-# account list, never anything of the host's; id plays the caller and the accounts.
+# account list, never anything of the host's; id plays the caller and the accounts, stat the owners
+# and modes of the clone.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -42,7 +44,10 @@ for t in bash sh sed cat mktemp dirname readlink rm ls cut awk cp mv mkdir basen
 done
 cp "$root/$script" "$c/$script"
 cp "$root/templates/xmrig.service.template" "$root/templates/logrotate.xmrig.template" "$c/templates/"
-printf '#!/bin/sh\n' > "$c/xmrig"
+# The binary sits in the build directory behind a link in the clone, as make build leaves it.
+mkdir "$c/build-xmrig"
+printf '#!/bin/sh\n' > "$c/build-xmrig/xmrig"
+ln -s build-xmrig/xmrig "$c/xmrig"
 printf '{"pool":"seed"}\n' > "$c/configs.json"
 ln -s configs.json "$c/config_background.json"
 me=$(id -un)
@@ -89,6 +94,18 @@ cat > "$b/systemctl" <<STUB
 [ "\$1" = show ] && echo "\${OLD_USER:-}"
 exit 0
 STUB
+# stat: owner and mode from the fixture table (path, owner, mode; owner - fails), root 755 for any
+# path it does not list; each path asked is recorded.
+cat > "$b/stat" <<STUB
+#!$b/bash
+PATH="$b"
+[ "\$1" = -c ] && [ "\$2" = '%U %a' ] && [ \$# -eq 3 ] || exit 1
+echo "\$3" >> "$w/stat.log"
+line=\$(awk -v p="\$3" '\$1 == p { l = \$0 } END { print l }' "$w/stat")
+set -- \${line:-\$3 root 755}
+[ "\$2" = - ] && { echo "stat: cannot stat '\$1'" >&2; exit 1; }
+echo "\$2 \$3"
+STUB
 printf '#!%s/bash\necho "useradd run without sudo" >> "%s/sudo.log"; exit 1\n' "$b" "$w" > "$b/useradd"
 printf '#!%s/sh\nexit 0\n' "$b" > "$b/logrotate"
 # mktemp that fails on its Nth call only (FAIL_AT); sed and cat that write a cut line and fail when
@@ -105,11 +122,11 @@ for t in sed cat; do
   printf '#!%s/bash\nPATH="%s"\nfor a; do [ "$a" = "${%s:-}" ] && { echo PARTIAL; exit 4; }; done\nexec "%s/%s.real" "$@"\n' \
     "$b" "$b" "$v" "$b" "$t" > "$b/$t"
 done
-chmod +x "$b/sudo" "$b/install" "$b/id" "$b/systemctl" "$b/useradd" "$b/logrotate" "$b/mktemp" "$b/sed" "$b/cat" "$c/xmrig"
+chmod +x "$b/stat" "$b/sudo" "$b/install" "$b/id" "$b/systemctl" "$b/useradd" "$b/logrotate" "$b/mktemp" "$b/sed" "$b/cat" "$c/xmrig"
 [ "$(PATH="$b" command -v sudo)" = "$b/sudo" ] || { echo "FAIL sudo resolves outside the stub dir"; exit 1; }
 
 setup() { # runs the copy, sets out, code, calls, staged, installs; keeps the fixture account list
-  rm -rf "${w:?}/tmp" "${SERVICE_ROOT:?}" "${w:?}/sudo.log" "${w:?}/staged.log" "${w:?}/install.log" "${w:?}/mktemp.n"
+  rm -rf "${w:?}/tmp" "${SERVICE_ROOT:?}" "${w:?}/sudo.log" "${w:?}/staged.log" "${w:?}/install.log" "${w:?}/mktemp.n" "${w:?}/stat.log"
   mkdir "$w/tmp"
   printf 'PLANTED\n' > "$w/tmp/xmrig.service"
   printf 'PLANTED\n' > "$w/tmp/xmrig.logrotate"
@@ -118,7 +135,15 @@ setup() { # runs the copy, sets out, code, calls, staged, installs; keeps the fi
   staged=$(cat "$w/staged.log" 2>/dev/null)
   installs=$(cat "$w/install.log" 2>/dev/null)
 }
-accounts() { printf '%s\n' "alice alice" "bob staff" "root root" > "$w/accounts"; }
+accounts() { printf '%s\n' "alice alice" "bob staff" "root root" > "$w/accounts"; owners alice; }
+owners() { # owner of the clone, its build directory and the binary, then extra table lines
+  local o=$1; shift
+  printf '%s\n' "$c $o 755" "$c/build-xmrig $o 755" "$c/build-xmrig/xmrig $o 755" "$@" > "$w/stat"
+}
+chain() { # the path and every directory above it
+  local p=$1
+  while echo "$p"; [ "$p" != / ]; do p=$(dirname "$p"); done
+}
 left() { # what is left in the fixture TMPDIR besides the planted files
   (cd "$w/tmp" && ls -A | grep -vx -e xmrig.service -e xmrig.logrotate)
 }
@@ -187,7 +212,9 @@ accounts
 SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
 ends_well "sudo by alice" alice alice
 # Root with no sudo user: the system account xmrig, created on the first run, reused on the next.
+# The clone is root's, and only root can change it.
 accounts
+owners root
 FAKE_UID=0 FAKE_USER=root setup
 [ "$code" -eq 0 ] || fail "root: exit $code"
 same "root: output" "Created the system account xmrig to run the miner.
@@ -197,10 +224,14 @@ $(calls_for xmrig xmrig)" "$calls"
 same "root: the unit root installed" "$(want_unit xmrig xmrig)" "$(cat "$SERVICE_ROOT/etc/systemd/system/xmrig.service" 2>/dev/null)"
 SUDO_USER=root FAKE_UID=0 FAKE_USER=root setup
 ends_well "root again, sudo user root" xmrig xmrig
-# SERVICE_AS_ROOT=yes: root, whoever runs the setup.
+# SERVICE_AS_ROOT=yes: root, whoever runs the setup, on a clone only root can change: the binary,
+# the clone and every directory above them were looked at.
 accounts
+owners root
 SERVICE_AS_ROOT=yes SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
 ends_well "SERVICE_AS_ROOT=yes" root root
+same "SERVICE_AS_ROOT=yes: paths looked at" "$( (chain "$c/build-xmrig/xmrig"; chain "$c") | sort -u)" \
+  "$(sort -u "$w/stat.log" 2>/dev/null)"
 # The installed unit runs the miner as bob: his directories are named with the command that
 # removes them, and left alone. The same account again: no such line.
 accounts
@@ -218,6 +249,60 @@ chmod +x "$c/xmrig"
 same "unreachable binary: output" "ERROR: The account alice cannot run $c/xmrig; move the clone where it can, such as /opt." "$out"
 same "unreachable binary: sudo calls" "$(reach alice)" "$calls"
 nothing "unreachable binary"
+
+# An account other than the binary's owner, or root, would run what a user other than root can
+# change: one error line naming the binary, the account and /opt, nothing installed.
+refused() { # label, account, sudo calls, a line before the error if any
+  [ "$code" -ne 0 ] || fail "$1: exit 0"
+  same "$1: output" "${4:+$4
+}ERROR: A user other than root can change $c/xmrig, which the service would run as $2; move the clone where only root can change it, such as /opt." "$out"
+  same "$1: sudo calls" "$3" "$calls"
+  nothing "$1"
+}
+accounts
+FAKE_UID=0 FAKE_USER=root setup
+refused "xmrig on alice's clone" xmrig "sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin xmrig
+$(reach xmrig)" "Created the system account xmrig to run the miner."
+accounts
+SERVICE_AS_ROOT=yes SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
+refused "root on alice's clone" root "$(reach root)"
+accounts
+owners bob
+setup
+refused "alice on bob's binary" alice "$(reach alice)"
+accounts
+owners root "$c/build-xmrig/xmrig root 775"
+SERVICE_AS_ROOT=yes setup
+refused "binary writable by its group" root "$(reach root)"
+accounts
+owners root "$w root 1777"
+SERVICE_AS_ROOT=yes setup
+refused "a directory above writable by others" root "$(reach root)"
+accounts
+owners root "/ alice 755"
+SERVICE_AS_ROOT=yes setup
+refused "/ not root's" root "$(reach root)"
+# The binary elsewhere, root's alone, behind a link in a clone others can write: the link can be
+# replaced.
+mkdir "$w/opt"
+mv "$c/build-xmrig/xmrig" "$w/opt/xmrig"
+ln -sf "$w/opt/xmrig" "$c/xmrig"
+accounts
+owners root "$c root 757"
+SERVICE_AS_ROOT=yes setup
+refused "link in a clone others can write" root "$(reach root)"
+mv "$w/opt/xmrig" "$c/build-xmrig/xmrig"
+ln -sf build-xmrig/xmrig "$c/xmrig"
+# The binary's owner cannot be read: an error line, nothing installed.
+accounts
+owners root "$c/build-xmrig/xmrig - -"
+SERVICE_AS_ROOT=yes setup
+[ "$code" -ne 0 ] || fail "unreadable owner: exit 0"
+same "unreadable owner: output" "stat: cannot stat '$c/build-xmrig/xmrig'
+ERROR: Failed to read the owner of $c/xmrig." "$out"
+same "unreadable owner: sudo calls" "$(reach root)" "$calls"
+nothing "unreadable owner"
+accounts
 
 # No staging file for the unit, the config, then logrotate: an error line, a non-zero exit, nothing
 # installed, nothing left.

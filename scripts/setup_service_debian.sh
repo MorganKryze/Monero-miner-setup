@@ -59,6 +59,31 @@ if ! sudo -u "$ACCOUNT" test -x "$BASE_DIR/xmrig"; then
     echo "ERROR: The account $ACCOUNT cannot run $BASE_DIR/xmrig; move the clone where it can, such as /opt."
     exit 1
 fi
+# Fails when a user other than root owns the path or a directory above it, or its group or others
+# can write one of them.
+function only_root_can_change() {
+    local p="$1" info mode
+    while :; do
+        info=$(stat -c '%U %a' "$p") || return 1
+        mode=${info#* }
+        [ "${info%% *}" = root ] && [ $(( ${mode: -2:1} & 2 | ${mode: -1} & 2 )) -eq 0 ] || return 1
+        [ "$p" = / ] && return 0
+        p=$(dirname "$p")
+    done
+}
+# The unit runs the clone's binary through the link make build leaves. Root, or an account that does
+# not own the binary, would run whatever its owner or anyone who can write a directory above it puts
+# there, so only root may be able to change the binary, the link or the directories above them.
+if ! BINARY=$(readlink -f "$BASE_DIR/xmrig") || ! BINARY_INFO=$(stat -c '%U %a' "$BINARY"); then
+    echo "ERROR: Failed to read the owner of $BASE_DIR/xmrig."
+    exit 1
+fi
+if [ "$ACCOUNT" = root ] || [ "${BINARY_INFO%% *}" != "$ACCOUNT" ]; then
+    if ! only_root_can_change "$BINARY" || ! only_root_can_change "$BASE_DIR"; then
+        echo "ERROR: A user other than root can change $BASE_DIR/xmrig, which the service would run as $ACCOUNT; move the clone where only root can change it, such as /opt."
+        exit 1
+    fi
+fi
 # The account the installed unit names, if any: asked of systemd, so nothing reads /etc here.
 OLD_ACCOUNT=$(systemctl show -p User --value xmrig.service 2>/dev/null)
 
