@@ -133,9 +133,13 @@ if ! sed -e "s|%%USER%%|${ACCOUNT}|g" -e "s|%%GROUP%%|${GROUP}|g" -e "s|%%WORKIN
     echo "ERROR: Failed to write the unit from $TEMPLATE_FILE."
     exit 1
 fi
-# Read as this user, never as root: root would follow any link in the clone to a file it alone can
-# read.
-if ! cat "$SEED_SOURCE" > "$SEED_STAGED"; then
+# Read as this user, or, when that is root, as the account: root itself would follow any link in
+# the clone to a file it alone can read.
+SEED_READ=(cat "$SEED_SOURCE")
+if [ "$(id -u)" = 0 ]; then
+    SEED_READ=(sudo -u "$ACCOUNT" cat "$SEED_SOURCE")
+fi
+if ! "${SEED_READ[@]}" > "$SEED_STAGED"; then
     echo "ERROR: Failed to write the service config from $SEED_SOURCE."
     exit 1
 fi

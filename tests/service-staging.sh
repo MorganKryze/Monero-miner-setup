@@ -5,7 +5,8 @@
 # account cannot run the binary, or when it is root or not the binary's owner and a user other than
 # root could change the binary, the link to it or a directory above them. The unit, the logrotate file and the service config are staged in
 # files mktemp creates for this user alone (TMPDIR points at a fixture here, holding files planted
-# at the old fixed names), each write checked, the config read as this user, then installed by
+# at the old fixed names), each write checked, the config read as this user (as the account when
+# that is root, so a link in the clone gets only what the account can read), then installed by
 # root: the config under /etc/xmrig with the account's group, the logrotate file before the unit,
 # the staged files gone afterwards, and nothing installed or enabled when a step fails. The unit
 # keeps the miner's config and log in directories systemd creates for that account, and its
@@ -51,15 +52,15 @@ ln -s build-xmrig/xmrig "$c/xmrig"
 printf '{"pool":"seed"}\n' > "$c/configs.json"
 ln -s configs.json "$c/config_background.json"
 me=$(id -un)
-# sudo: SUDO_FAIL names the target of the one call that fails. Only install, useradd and a test
-# run as another account do anything; every other command is recorded and does nothing.
+# sudo: SUDO_FAIL names the target of the one call that fails. Only install, useradd and a test or
+# a cat run as another account do anything; every other command is recorded and does nothing.
 cat > "$b/sudo" <<STUB
 #!$b/bash
 PATH="$b"
 echo "sudo \$*" >> "$w/sudo.log"
 [ -n "\${SUDO_FAIL:-}" ] && [ "\${SUDO_FAIL:-}" = "\${*: -1}" ] && exit 1
 case \$1 in
-  -u) shift 2; [ "\$1" = test ] && "\$@" ;;
+  -u) shift 2; case \$1 in test|cat) "\$@" ;; esac ;;
   install)
     [ "\$2" = -d ] || echo "\$(ls -l "\${@: -2:1}" | cut -c1-10) \$(ls -l "\${@: -2:1}" | awk '{print \$3}') \${*: -1}" >> "$w/staged.log"
     shift; exec "$b/install" "\$@" ;;
@@ -132,6 +133,7 @@ setup() { # runs the copy, sets out, code, calls, staged, installs; keeps the fi
   mkdir "$w/tmp"
   printf 'PLANTED\n' > "$w/tmp/xmrig.service"
   printf 'PLANTED\n' > "$w/tmp/xmrig.logrotate"
+  caller_uid=${FAKE_UID:-1000}
   out=$(cd "$w" && TMPDIR="$w/tmp" PATH="$b" "$b/bash" "$c/$script" 2>&1); code=$?
   calls=$(sed -E "s#$w/tmp/[^ /]+#STAGED#g" "$w/sudo.log" 2>/dev/null)
   staged=$(cat "$w/staged.log" 2>/dev/null)
@@ -155,8 +157,11 @@ seed_install() { # group
 }
 lr_install="sudo install -o root -g root -m 644 STAGED /etc/logrotate.d/xmrig"
 unit_install="sudo install -o root -g root -m 644 STAGED /etc/systemd/system/xmrig.service"
-calls_for() { # account, group: every sudo call of a setup that ends well
-  reach "$1"; seed_install "$2"
+read_seed() { echo "sudo -u $1 cat $c/config_background.json"; }
+calls_for() { # account, group: every sudo call of a setup that ends well; root reads the seed as the account
+  reach "$1"
+  [ "$caller_uid" != 0 ] || read_seed "$1"
+  seed_install "$2"
   printf '%s\n' "$lr_install" "$unit_install" "sudo systemctl daemon-reload" "sudo systemctl enable xmrig.service"
 }
 staged_for() {
@@ -400,6 +405,13 @@ SED_FAIL="$c/templates/xmrig.service.template" setup
 same "unit write fails: output" "ERROR: Failed to write the unit from $c/templates/xmrig.service.template." "$out"
 same "unit write fails: sudo calls" "$(reach alice)" "$calls"
 nothing "unit write fails"
+# Root, and a seed the account cannot read (a link in the clone to a file of root's, say): the
+# read fails as the account, and root reads nothing itself.
+SUDO_FAIL="$c/config_background.json" SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
+[ "$code" -ne 0 ] || fail "seed the account cannot read: exit 0"
+same "seed the account cannot read: output" "ERROR: Failed to write the service config from $c/config_background.json." "$out"
+same "seed the account cannot read: sudo calls" "$(reach alice; read_seed alice)" "$calls"
+nothing "seed the account cannot read"
 CAT_FAIL="$c/config_background.json" setup
 [ "$code" -ne 0 ] || fail "config write fails: exit 0"
 same "config write fails: output" "ERROR: Failed to write the service config from $c/config_background.json." "$out"
