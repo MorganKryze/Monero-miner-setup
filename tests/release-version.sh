@@ -60,13 +60,14 @@ else
 fi
 
 # The security notes claim only what the scripts do. The root refusal of a directory others can
-# change runs in the native installer on Linux alone (the gate below), and only the toolbox load
-# avoids the current directory: the Docker installer adopts a checkout found above it.
+# change runs in the native installer on Linux alone (the gate below); the Docker installer uses
+# only its own clone or one in its base directory, never a folder found above the current one.
 gate='    if [ "$(id -u)" == "0" ] && [ "$(uname -s)" == "Linux" ]; then'
 grep -qxF -- "$gate" scripts/install.sh || fail "scripts/install.sh: the root directory check is no longer gated on Linux alone"
 for line in \
     '- The native installer loads bash-toolbox from its own clone'"'"'s submodule, when only you can write to that clone, or from the commit it pins, with `curl -fsSL`; a failed or empty fetch stops the install. It never loads the toolbox from the current directory.' \
-    '- As root on Linux, the native installer refuses a base directory, a clone or a directory above them that a user other than root or the one who ran sudo can change, and the service setup refuses to run, as another account, a binary anyone but root can change.'; do
+    '- As root on Linux, the native installer refuses a base directory, a clone or a directory above them that a user other than root or the one who ran sudo can change, and the service setup refuses to run, as another account, a binary anyone but root can change.' \
+    '- The Docker installer uses only the clone it runs from or the `Monero-miner-setup` clone in its base directory, cloned there when missing, and only a git clone owned by you or root (as root, also by the user who ran `sudo`) that no other user can write to, nor to its `docker/` folder. It no longer adopts a folder above the current directory because it holds the project'"'"'s Docker files: it stops with an error line instead.'; do
     grep -qxF -- "$line" CHANGELOG.md 2>/dev/null || fail "CHANGELOG.md: no security line: $line"
 done
 

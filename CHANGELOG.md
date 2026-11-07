@@ -51,6 +51,7 @@ some steps are yours to run.
 
 - The native installer loads bash-toolbox from its own clone's submodule, when only you can write to that clone, or from the commit it pins, with `curl -fsSL`; a failed or empty fetch stops the install. It never loads the toolbox from the current directory.
 - As root on Linux, the native installer refuses a base directory, a clone or a directory above them that a user other than root or the one who ran sudo can change, and the service setup refuses to run, as another account, a binary anyone but root can change.
+- The Docker installer uses only the clone it runs from or the `Monero-miner-setup` clone in its base directory, cloned there when missing, and only a git clone owned by you or root (as root, also by the user who ran `sudo`) that no other user can write to, nor to its `docker/` folder. It no longer adopts a folder above the current directory because it holds the project's Docker files: it stops with an error line instead.
 - Wallet, worker name, pool and every number and flag are checked on both install paths, and every value that reaches the miner's config is written as a value, never as code: a crafted `--pool` or `--name` can no longer make sed run a command.
 - `docker/.env` and `docker/.env.vpn` are created mode 600 before their first byte; a kept file with a looser mode gets a warning. No `docker/.env*` file reaches the image's build context.
 - The image's miner and scripts belong to root, so the account that runs them cannot replace them.
