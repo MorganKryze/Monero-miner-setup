@@ -104,6 +104,15 @@ for bad in "$w/given/Monero-miner-setup alice 755" "$w/given/Monero-miner-setup 
   same "root, -d, $bad: line" "$given_line
 $(refused "${bad%% *}" "$w/given/Monero-miner-setup")" "$err"
 done
+# -d through a link: root goes on with the directory it checked, so retargeting the link later
+# changes nothing.
+: > "$w/stat"
+ln -s "$w/given" "$w/link"
+base root "$w/link"
+same "root, -d through a link: directory" "$w/given" "$got"
+same "root, -d through a link: line" "[INFO] Using base directory: $w/link.
+[INFO] Resolved to $w/given." "$err"
+rm "$w/link"
 printf '%s\n' "$w/given/Monero-miner-setup alice 755" > "$w/stat"
 SUDO_USER=alice base root "$w/given"
 same "root by sudo, -d, the sudoer's clone: directory" "$w/given" "$got"
