@@ -3,7 +3,11 @@
 # below, by curl, wget or git clone (a submodule comes from .gitmodules, an image from the compose
 # files), and the README names each of them. Versions are left out (the toolbox commit, image tags),
 # so a Dependabot bump stays green; a new source, in a script or in the README's absence, fails.
+# Reads the repository root, or the directory given as $1 (tests/readme-sources-fixtures.sh
+# points it at a copy with a change planted).
 set -u
+
+cd -- "${1:-.}" || { echo "FAIL readme-sources: no directory ${1:-.}"; exit 1; }
 
 README=README.md
 failed=0
