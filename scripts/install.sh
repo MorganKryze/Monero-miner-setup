@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ===== Constants =====
-VERSION="0.0.1"
+VERSION="0.1.0"
 LOW_DELAY=0.5
 HIGH_DELAY=15
 # The commit dependencies/bash-toolbox pins: a fetch by commit cannot change under a running
@@ -194,7 +194,7 @@ function usage() {
     echo "  -t, --threads PERCENT Max CPU threads hint (1-100, default: $DEFAULT_MAX_THREADS)"
     echo "  --donate PERCENT      Donation level (0-5, default: $DEFAULT_DONATE_LEVEL)"
     echo "  -p, --pool URL        Mining pool URL (default: $DEFAULT_POOL_URL)"
-    echo "  --name STRING         Display name for the mining worker (default: hostname)"
+    echo "  --name STRING         Display name for the mining worker (default: random adjective_noun_NNN)"
     echo "  --pause-active        Pause mining when computer is in active use (default: off)"
     echo "  --pause-battery       Pause mining when computer is on battery (default: off)"
     echo "  -h, --help            Display this help message"
