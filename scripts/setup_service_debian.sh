@@ -25,18 +25,43 @@ if [ ! -f "$TEMPLATE_FILE" ]; then
     exit 1
 fi
 
-# Fails when a user other than root owns the path or a directory above it, or its group or others
-# can write one of them. stat drops a mode's leading zeros (0007 comes out as 7), so the mode is read
-# as a whole octal number, and anything else stat prints counts as a no.
+# Fails unless root owns the path and neither its group nor others can write it. stat drops a mode's
+# leading zeros (0007 comes out as 7), so the mode is read as a whole octal number, and anything
+# else stat prints counts as a no.
+function root_alone() {
+    local info mode
+    info=$(stat -c '%U %a' "$1") || return 1
+    mode=${info#* }
+    [[ "$mode" =~ ^[0-7]+$ ]] || return 1
+    [ "${info%% *}" = root ] && (( (8#$mode & 8#022) == 0 ))
+}
+
+# Follows an absolute path from / one name at a time, as the kernel does each time it opens it, and
+# fails unless only root can change everything on the way: each directory, the file at the end and
+# each link, which must be root's (a link's own mode means nothing). A link met halfway can be
+# pointed elsewhere later, so checking only where the path ends today is not enough. Gives up
+# after 40 links, as the kernel does, in case one changes into a loop meanwhile.
 function only_root_can_change() {
-    local p="$1" info mode
-    while :; do
-        info=$(stat -c '%U %a' "$p") || return 1
-        mode=${info#* }
-        [[ "$mode" =~ ^[0-7]+$ ]] || return 1
-        [ "${info%% *}" = root ] && (( (8#$mode & 8#022) == 0 )) || return 1
-        [ "$p" = / ] && return 0
-        p=$(dirname "$p")
+    local rest="$1" at=/ name next info target links=0
+    [ "${rest#/}" != "$rest" ] && root_alone / || return 1
+    while [ -n "$rest" ]; do
+        name=${rest%%/*}
+        if [ "$name" = "$rest" ]; then rest=; else rest=${rest#*/}; fi
+        case $name in
+            '' | .) continue ;;
+            ..) at=$(dirname "$at"); continue ;;
+        esac
+        next=${at%/}/$name
+        if [ -L "$next" ]; then
+            links=$((links + 1))
+            [ "$links" -le 40 ] && info=$(stat -c '%U %a' "$next") && [ "${info%% *}" = root ] &&
+                target=$(readlink "$next") && [ -n "$target" ] || return 1
+            [ "${target#/}" = "$target" ] || at=/
+            rest=$target${rest:+/$rest}
+        else
+            root_alone "$next" || return 1
+            at=$next
+        fi
     done
 }
 
@@ -93,15 +118,16 @@ if ! sudo -u "$ACCOUNT" test -x "$BASE_DIR/xmrig"; then
     echo "ERROR: The account $ACCOUNT cannot run $BASE_DIR/xmrig; move the clone where it can, such as /opt."
     exit 1
 fi
-# The unit runs the clone's binary through the link make build leaves. Root, or an account that does
-# not own the binary, would run whatever its owner or anyone who can write a directory above it puts
-# there, so only root may be able to change the binary, the link or the directories above them.
+# The unit runs the clone's binary through the link make build leaves, and systemd follows that
+# path again at every start. Root, or an account that does not own the binary, would run whatever
+# its owner, or anyone who can change a link or a directory on the way, puts there, so only root
+# may be able to change the binary, each link on the way or a directory above any of them.
 if ! BINARY=$(readlink -f "$BASE_DIR/xmrig") || ! BINARY_INFO=$(stat -c '%U %a' "$BINARY"); then
     echo "ERROR: Failed to read the owner of $BASE_DIR/xmrig."
     exit 1
 fi
 if [ "$ACCOUNT" = root ] || [ "${BINARY_INFO%% *}" != "$ACCOUNT" ]; then
-    if ! only_root_can_change "$BINARY" || ! only_root_can_change "$BASE_DIR"; then
+    if ! only_root_can_change "$BASE_DIR/xmrig"; then
         echo "ERROR: A user other than root can change $BASE_DIR/xmrig, which the service would run as $ACCOUNT; move the clone where only root can change it, such as /opt."
         exit 1
     fi

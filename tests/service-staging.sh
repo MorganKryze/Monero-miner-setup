@@ -3,7 +3,8 @@
 # running the setup, the user who ran sudo when that is root, else the system account xmrig
 # (created once, then reused), or root when SERVICE_AS_ROOT=yes asks; the setup stops when that
 # account cannot run the binary, or when it is root or not the binary's owner and a user other than
-# root could change the binary, the link to it or a directory above them. The unit, the logrotate file and the service config are staged in
+# root could change the binary, a link on the way to it or a directory above any of them. The unit,
+# the logrotate file and the service config are staged in
 # files mktemp creates for this user alone (TMPDIR points at a fixture here, holding files planted
 # at the old fixed names), each write checked, the config read as this user (as the account when
 # that is root, so a link in the clone gets only what the account can read), then installed by
@@ -232,13 +233,13 @@ $(calls_for xmrig xmrig)" "$calls"
 same "root: the unit root installed" "$(want_unit xmrig xmrig)" "$(cat "$SERVICE_ROOT/etc/systemd/system/xmrig.service" 2>/dev/null)"
 SUDO_USER=root FAKE_UID=0 FAKE_USER=root setup
 ends_well "root again, sudo user root" xmrig xmrig
-# SERVICE_AS_ROOT=yes: root, whoever runs the setup, on a clone only root can change: the binary,
-# the clone, the config and every directory above them were looked at.
+# SERVICE_AS_ROOT=yes: root, whoever runs the setup, on a clone only root can change: the link,
+# the binary, the clone, the config and every directory above them were looked at.
 accounts
 owners root
 SERVICE_AS_ROOT=yes SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
 ends_well "SERVICE_AS_ROOT=yes" root root
-same "SERVICE_AS_ROOT=yes: paths looked at" "$( (chain "$c/build-xmrig/xmrig"; chain "$c"; chain "$c/configs.json") | sort -u)" \
+same "SERVICE_AS_ROOT=yes: paths looked at" "$( (chain "$c/xmrig"; chain "$c/build-xmrig/xmrig"; chain "$c/configs.json") | sort -u)" \
   "$(sort -u "$w/stat.log" 2>/dev/null)"
 # SERVICE_AS_ROOT=no, which the installer passes unless asked otherwise: the caller, or the user who
 # ran sudo, as with no value at all.
@@ -325,6 +326,33 @@ SERVICE_AS_ROOT=yes setup
 refused "link in a clone others can write" root "$(reach root)"
 mv "$w/opt/xmrig" "$c/build-xmrig/xmrig"
 ln -sf build-xmrig/xmrig "$c/xmrig"
+accounts
+owners root "$w root 775"
+SERVICE_AS_ROOT=yes setup
+refused "a directory above writable by its group" root "$(reach root)"
+# The link reaches the binary through a second link outside the clone, relative and climbing out
+# with .., then through a link to a directory. Root's alone, every link and directory on the way
+# was looked at, the ones the links pass through included; each can be changed later, so another
+# user owning one, or able to write the directory holding one, is refused.
+mkdir "$w/hops"
+ln -s ../clone/build-xmrig "$w/hops/dir"
+ln -s dir/xmrig "$w/hops/hop"
+ln -sf "$w/hops/hop" "$c/xmrig"
+accounts
+owners root
+SERVICE_AS_ROOT=yes FAKE_UID=0 FAKE_USER=root setup
+ends_well "a chain of links, root's" root root
+same "a chain of links, root's: paths looked at" \
+  "$( (chain "$c/xmrig"; chain "$w/hops/hop"; chain "$w/hops/dir"; chain "$c/build-xmrig/xmrig"; chain "$c/configs.json") | sort -u)" \
+  "$(sort -u "$w/stat.log" 2>/dev/null)"
+for line in "$w/hops alice 755" "$w/hops root 775" "$w/hops/hop alice 777" "$w/hops/dir alice 777"; do
+  accounts
+  owners root "$line"
+  SERVICE_AS_ROOT=yes FAKE_UID=0 FAKE_USER=root setup
+  refused "a chain of links, ${line#"$w/"}" root "$(reach root)"
+done
+ln -sf build-xmrig/xmrig "$c/xmrig"
+rm -r "$w/hops"
 # Root and a config with background mode on. On alice's clone root writes nothing there: alice
 # could point the link at a file of root's. The refusal comes
 # alone and the file stays as it was; through sudo by alice, root turns off only the copy it
