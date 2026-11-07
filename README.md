@@ -14,6 +14,8 @@ Sets up [XMRig](https://xmrig.com) as a background service that mines Monero to 
 
 Both paths go through the same installer script. Pass `--docker` for the container path; omit it for the native path.
 
+The install commands below need a POSIX shell such as bash or zsh. In fish, run `bash` first, then paste them.
+
 | Pick       | Best when                                                        |
 | ---------- | ---------------------------------------------------------------- |
 | **Docker** | You want isolation, no system changes, easy teardown             |
@@ -22,7 +24,8 @@ Both paths go through the same installer script. Pass `--docker` for the contain
 ### Docker (prebuilt image, recommended)
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
+installer="$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" && \
+bash -c "${installer:?the download came back empty}" -- \
   --docker -w YOUR_MONERO_WALLET --autostart
 ```
 
@@ -49,7 +52,8 @@ Available image tags:
 Pass `--build` if you'd rather compile locally — useful when you've patched XMRig, when you don't want to pull from GHCR, or when a prebuilt image isn't available for your platform.
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
+installer="$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" && \
+bash -c "${installer:?the download came back empty}" -- \
   --docker --build -w YOUR_MONERO_WALLET --autostart
 ```
 
@@ -74,7 +78,8 @@ Tail logs: `docker logs -f monero_xmrig_miner`. Stop: `docker stop monero_xmrig_
 ### Native (Debian/Ubuntu, macOS)
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
+installer="$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" && \
+bash -c "${installer:?the download came back empty}" -- \
   -w YOUR_MONERO_WALLET
 ```
 
@@ -166,7 +171,8 @@ Drop the curl/bash prefix and your wallet in, then pick one block. All examples 
 **Mullvad (WireGuard).** Download a config from your Mullvad account page; copy `PrivateKey` and `Address` out of the `[Interface]` block.
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
+installer="$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" && \
+bash -c "${installer:?the download came back empty}" -- \
   --docker -w YOUR_MONERO_WALLET \
   --vpn mullvad \
   --wg-key-file ~/.secrets/mullvad.key \
@@ -178,7 +184,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner
 **ProtonVPN (WireGuard).** Generate a WireGuard config in the Proton dashboard (requires a paid plan). Copy `PrivateKey` and `Address` the same way.
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
+installer="$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" && \
+bash -c "${installer:?the download came back empty}" -- \
   --docker -w YOUR_MONERO_WALLET \
   --vpn protonvpn \
   --wg-key-file ~/.secrets/protonvpn.key \
@@ -190,7 +197,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner
 **PIA (OpenVPN).** Uses your regular PIA account username and password. PIA's location field is a **region**, not a country (`Swiss`, `US East`, `CA Toronto`, `UK London`, etc.) — see the [gluetun PIA docs](https://github.com/qdm12/gluetun-wiki/blob/main/setup/providers/private-internet-access.md) for the full list.
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
+installer="$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" && \
+bash -c "${installer:?the download came back empty}" -- \
   --docker -w YOUR_MONERO_WALLET \
   --vpn pia \
   --vpn-user-file ~/.secrets/pia.user \
@@ -202,8 +210,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner
 Fully non-interactive, credentials via env vars (useful for CI and Ansible):
 
 ```bash
-OPENVPN_USER='p1234567' OPENVPN_PASSWORD='xxxxx' \
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
+installer="$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" && \
+OPENVPN_USER='p1234567' OPENVPN_PASSWORD='xxxxx' bash -c "${installer:?the download came back empty}" -- \
   --docker -w YOUR_MONERO_WALLET \
   --vpn pia --vpn-location Swiss \
   -y --autostart
@@ -212,7 +220,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner
 **NordVPN (OpenVPN).** You must use NordVPN's **service credentials**, not your account login — grab them from the manual-setup page in the [nord account dashboard](https://my.nordaccount.com/dashboard/nordvpn/manual-setup/). NordVPN's ToS prohibits crypto-mining on some plans; verify yours before running long.
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
+installer="$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" && \
+bash -c "${installer:?the download came back empty}" -- \
   --docker -w YOUR_MONERO_WALLET \
   --vpn nordvpn \
   --vpn-user-file ~/.secrets/nord.user \
@@ -317,7 +326,7 @@ XMRig is legitimate open-source software. AV tools flag it because malware insta
 Expect 1–4 hits out of ~91 vendors on every file in this repo, and similar on any miner-adjacent project. Three things drive the verdict:
 
 1. **URL reputation.** Once any script under `raw.githubusercontent.com/.../Monero-miner-setup/...` is reported, it lands in shared block-lists (e.g. `Chong Lua Dao`). The contents stop mattering at that point.
-2. **Keyword heuristics.** Static scanners grep for `xmrig`, `moneroocean`, `wallet`, `hashrate`, `donate-level`, the base58 address regex, the `bash <(curl …)` install pattern. Any 3–4 of these in one file triggers a YARA rule from the `BAT.CoinMiner.*` family.
+2. **Keyword heuristics.** Static scanners grep for `xmrig`, `moneroocean`, `wallet`, `hashrate`, `donate-level`, the base58 address regex, the curl-into-bash install pattern. Any 3–4 of these in one file triggers a YARA rule from the `BAT.CoinMiner.*` family.
 3. **Behavioral patterns.** A bash script that clones a repo, builds a binary, registers a `systemd` / `launchd` unit with `Restart=on-failure`, and generates a randomised worker name matches the same template that real cryptojackers (TeamTNT, Kinsing, 8220 Mining Group) use. The pattern, not the intent, is what gets matched.
 
 ### What the verdicts mean
@@ -336,6 +345,8 @@ None of them claim the script does something it doesn't advertise. They're sayin
    ```bash
    curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh | less
    ```
+
+   To read the exact bytes you'll run, paste the first line of an install command alone, read them with `printf '%s\n' "$installer" | less`, then paste the second line.
 
 2. **Check the VirusTotal URL scans** for each entry point:
 
