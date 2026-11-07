@@ -206,7 +206,8 @@ function check_values() {
     if ! [[ $CPU_COUNT =~ ^[0-9]{1,4}([.][0-9]{1,3})?$ && $CPU_COUNT =~ [1-9] ]]; then
         error "--cpus must be a positive decimal number, such as 2 or 1.5."; return 1
     fi
-    if ! [[ $MEMORY_LIMIT =~ ^[0-9]{1,12}[bkmg]?$ ]]; then
+    # Compose reads a zero limit as no limit at all, so zero is refused like a malformed value.
+    if ! [[ $MEMORY_LIMIT =~ ^[0-9]{1,12}[bkmg]?$ && $MEMORY_LIMIT =~ [1-9] ]]; then
         error "--memory must be digits with an optional b, k, m or g, such as 3g."; return 1
     fi
     if ! [[ $XMRIG_IMAGE =~ ^[A-Za-z0-9._/:@-]{1,255}$ ]]; then

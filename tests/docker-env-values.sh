@@ -99,7 +99,7 @@ for bad in 6 -1 x 1.0; do refused "donate $bad" "--donate must be a whole number
 for bad in 0 101 x 75%; do refused "threads $bad" "--threads must be a whole number from 1 to 100." --threads "$bad"; done
 for bad in 0 1025 x ' 2'; do refused "force '$bad'" "--force-threads must be a whole number from 1 to 1024." --force-threads "$bad"; done
 for bad in 0 0.0 -1 1.2345 abc '' 2,0; do refused "cpus '$bad'" "--cpus must be a positive decimal number, such as 2 or 1.5." --cpus "$bad"; done
-for bad in 3G 1.5g x '' 3gb '1g;x'; do refused "memory '$bad'" "--memory must be digits with an optional b, k, m or g, such as 3g." --memory "$bad"; done
+for bad in 3G 1.5g x '' 3gb '1g;x' 0 0g 000m; do refused "memory '$bad'" "--memory must be digits with an optional b, k, m or g, such as 3g." --memory "$bad"; done
 for bad in 'a b' 'a;b' 'img$x' ''; do refused "image '$bad'" "--image must hold only letters, digits and . _ - / : @ characters." --image "$bad"; done
 refused location-newline "--vpn-location must be one line with no control character." --vpn mullvad --vpn-location $'Zurich\nFIREWALL=off'
 refused location-tab "--vpn-location must be one line with no control character." --vpn mullvad --vpn-location $'Zur\tich'
