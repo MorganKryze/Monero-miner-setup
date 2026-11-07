@@ -29,6 +29,48 @@ DEFAULT_XMRIG_IMAGE="ghcr.io/morgankryze/monero-miner-setup:latest"
 # it the container mines in light mode.
 FAST_MODE_MIB=2560
 
+# ===== Own clone =====
+# The same two functions as scripts/install.sh, byte for byte (tests/docker-own-clone.sh fails when
+# they differ). BASH_SOURCE is read here, at the top level: inside a function, bash 5 gives a script
+# read from a pipe its $0 ("bash", or the first argument of `bash -c`), which may name a file in the
+# current directory.
+SELF_PATH="${BASH_SOURCE[0]-}"
+
+# Prints the clone this file sits in (<clone>/scripts/docker_setup.sh), or nothing. Piped into
+# bash, fetched by install.sh --docker, or saved outside a clone, it has no clone of its own. Nor
+# has it one when someone else can write to the clone root, as in /tmp.
+function find_own_clone() {
+    local dir root
+    [ -n "$SELF_PATH" ] && [ -f "$SELF_PATH" ] || return 0
+    dir=$(cd -- "$(dirname -- "$SELF_PATH")" 2>/dev/null && pwd -P) || return 0
+    root="${dir%/*}"
+    if [ "${dir##*/}" = "scripts" ] && [ -e "$root/.git" ] && only_user_can_write "$root"; then
+        printf '%s' "$root"
+    fi
+}
+
+# Other users can never write to the folder. Its group can only when the group is the user's own
+# (Ubuntu's private group and umask 0002); a shared group, an ACL or a failed check is a no.
+function only_user_can_write() {
+    local group_ok listing
+    group_ok=(! -perm -0020)
+    if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
+        group_ok=("(" ! -perm -0020 -o -group "$(id -g)" ")")
+    fi
+    [ "$(find "$1/" -maxdepth 0 ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1/" ] || return 1
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        listing=$(ls -lde -- "$1/" 2>/dev/null) || return 1
+    else
+        listing=$(ls -ld -- "$1/" 2>/dev/null) || return 1
+    fi
+    case $listing in
+        *$'\n'*) return 1 ;;
+    esac
+    case ${listing%% *} in
+        *+) return 1 ;;
+    esac
+}
+
 set -o errexit
 set -o pipefail
 
@@ -368,20 +410,72 @@ function parse_args() {
 }
 
 # ===== Ensure repo checkout =====
-# Sets REPO_DIR to the absolute path of the repo root. Clones if not already inside one.
-function ensure_repo() {
-    local search="$PWD"
-    while [ "$search" != "/" ]; do
+# The nearest folder at or above the current directory holding this project's two Docker files,
+# by its physical path, or nothing.
+function nearest_lookalike() {
+    local search
+    search=$(pwd -P) || return 0
+    while true; do
         if [ -f "$search/docker/compose.yml" ] && [ -f "$search/docker/Dockerfile" ]; then
-            REPO_DIR="$search"
-            info "Using existing checkout at $REPO_DIR."
+            printf '%s' "$search"
             return 0
         fi
+        if [ "$search" = "/" ]; then return 0; fi
         search=$(dirname "$search")
     done
+}
 
-    REPO_DIR="$BASE_DIR/$REPO_NAME"
-    if [ -d "$REPO_DIR/.git" ]; then
+# A clone this run may write its settings into and start: a git clone owned by you or root (as
+# root, also by the user who ran sudo, who can become root anyway), that no other user can write
+# to, nor to its docker/ folder, where Compose reads its files.
+function check_clone() {
+    local dir="$1" f owners
+    if [ ! -d "$dir" ] || [ ! -e "$dir/.git" ]; then
+        error "$dir is not a git clone. Move it away, or pass -d with another base directory."
+        return 1
+    fi
+    owners=(-user "$(id -u 2>/dev/null)" -o -user 0)
+    if [ "$(id -u 2>/dev/null)" = "0" ] && [ -n "${SUDO_USER:-}" ]; then
+        owners+=(-o -user "$SUDO_USER")
+    fi
+    for f in "$dir" "$dir/docker"; do
+        if [ "$(find "$f/" -maxdepth 0 "(" "${owners[@]}" ")" -print 2>/dev/null)" != "$f/" ] || ! only_user_can_write "$f"; then
+            error "$f can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."
+            return 1
+        fi
+    done
+}
+
+# Sets REPO_DIR to the clone this run uses: the one this script sits in, else
+# $BASE_DIR/$REPO_NAME, cloned when missing. A folder that only looks like this project is never
+# adopted: when the nearest one at or above the current directory is not REPO_DIR, the run stops,
+# so a re-run from another copy never starts a fresh .env under the same Compose project.
+function ensure_repo() {
+    local own found base
+    own=$(find_own_clone)
+    if [ -n "$own" ]; then
+        REPO_DIR="$own"
+    else
+        base=$(cd -P -- "$BASE_DIR" 2>/dev/null && pwd -P) || base="$BASE_DIR"
+        REPO_DIR="$base/$REPO_NAME"
+        if [ -d "$REPO_DIR" ]; then
+            REPO_DIR=$(cd -P -- "$REPO_DIR" && pwd -P) || return 1
+        fi
+    fi
+
+    found=$(nearest_lookalike)
+    if [ -n "$found" ] && [ "$found" != "$REPO_DIR" ]; then
+        error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. Run again from outside $found, or, if it is your own clone, with its scripts/install.sh --docker."
+        return 1
+    fi
+
+    if [ -n "$own" ]; then
+        check_clone "$REPO_DIR" || return 1
+        info "Using this script's clone at $REPO_DIR."
+        return 0
+    fi
+    if [ -e "$REPO_DIR" ] || [ -L "$REPO_DIR" ]; then
+        check_clone "$REPO_DIR" || return 1
         info "Found existing clone at $REPO_DIR."
         return 0
     fi

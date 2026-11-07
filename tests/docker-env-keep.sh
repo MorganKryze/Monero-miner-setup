@@ -3,9 +3,9 @@
 # all, with one line each naming --overwrite-env, and asks for no VPN secret it does not need; a
 # kept file others can read gets a warning and stays as it is. --overwrite-env rewrites the files
 # this run writes, and only those. A new file is mode 600 from its first byte and replaces the old
-# one whole: a failed write leaves the old one, or none, and one error line. The installer runs from
-# a fixture checkout with a stub docker; PATH holds only the stub and tool-link directories.
-# Nothing is pulled, built or started.
+# one whole: a failed write leaves the old one, or none, and one error line. A copy of the installer
+# runs from its own scratch clone with a stub docker; PATH holds only the stub and tool-link
+# directories. Nothing is pulled, built or started, and the repository's docker/ stays as it was.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -13,10 +13,15 @@ fail() { echo "FAIL $*"; rc=1; }
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
-mkdir -p "$w/bin" "$w/tools" "$w/repo/docker"
+: > "$w/stamp"
+# The fixture clone holds a copy of this tree's installer: the installer uses only the clone it
+# sits in, so a run of the repository's own copy would write into the repository's docker/.
+mkdir -p "$w/bin" "$w/tools" "$w/repo/docker" "$w/repo/scripts" "$w/repo/.git"
 : > "$w/repo/docker/compose.yml"
 : > "$w/repo/docker/Dockerfile"
-for t in cat chmod cut date dirname head ls mktemp mv rm tr; do
+cp "$root/scripts/docker_setup.sh" "$w/repo/scripts/docker_setup.sh"
+chmod 755 "$w/repo" "$w/repo/docker"
+for t in cat chmod cut date dirname find head id ls mktemp mv rm tr uname; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
@@ -37,7 +42,7 @@ run() {
   local name=$1; shift
   rm -f "$w/docker.log"
   (cd "$w/repo" && env -i HOME="$w" PATH="$w/bin:$w/tools" ${KEY:+WIREGUARD_PRIVATE_KEY=$KEY} \
-    ${ADDR:+WIREGUARD_ADDRESSES=$ADDR} "$BASH" "$root/scripts/docker_setup.sh" "$@") > "$w/out" 2> "$w/err"
+    ${ADDR:+WIREGUARD_ADDRESSES=$ADDR} "$BASH" "$w/repo/scripts/docker_setup.sh" "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
   # Only the two availability checks may reach docker, or nothing when the run stops before them.
@@ -246,5 +251,8 @@ if git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
     git -C "$root" check-ignore -q "$f" && fail "gitignore: $f is ignored"
   done
 fi
+# Nothing above ran in the repository itself.
+changed=$(find "$root/docker" "$root/scripts" -newer "$w/stamp" 2>&1)
+[ -z "$changed" ] || fail "real tree: changed in the repository: $(printf '%s' "$changed" | tr '\n' ' ')"
 [ "$rc" -eq 0 ] && echo "PASS docker-env-keep"
 exit "$rc"
