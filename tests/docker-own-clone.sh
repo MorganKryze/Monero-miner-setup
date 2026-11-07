@@ -69,12 +69,13 @@ clone() {
 # lookalike <dir>: a folder holding the project's two Docker files and nothing else.
 lookalike() { mkdir -p "$1/docker"; : > "$1/docker/compose.yml"; : > "$1/docker/Dockerfile"; chmod 755 "$1" "$1/docker"; }
 
-# run <name> <dir> <script> <args...>: the installer from <dir>. Sets out, err, code.
+# run <name> <dir> <script> <args...>: the installer from <dir>. Sets out, err, code. LPWD: the
+# logical current directory the shell passes on, as when you cd through a link.
 run() {
   local dir=$2 script=$3; shift 3
   rm -f "$w/docker.log" "$w/git.log"
   (cd "$dir" && env -i HOME="$w/home" PATH="$w/bin:$w/tools" ${ID_UID:+ID_UID=$ID_UID} ${ID_MODE:+ID_MODE=$ID_MODE} \
-    ${SUDO:+SUDO_USER=$SUDO} "$BASH" "$script" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
+    ${SUDO:+SUDO_USER=$SUDO} ${LPWD:+PWD=$LPWD} "$BASH" "$script" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
 }
@@ -116,6 +117,11 @@ ID_MODE=private; chmod 775 "$w/own" "$w/own/docker"
 run own-private-group "$w/own" "$w/own/scripts/docker_setup.sh"
 used own-private-group "$w/own" "Using this script's clone at $w/own."
 unset ID_MODE; chmod 755 "$w/own" "$w/own/docker"
+# Reached through a link, with the shell's PWD naming the link: the current directory is matched by
+# its physical path, so the own clone is still the one in use.
+ln -s "$w/own" "$w/own-link"
+LPWD="$w/own-link" run own-via-link "$w/own-link" "$w/own/scripts/docker_setup.sh"
+used own-via-link "$w/own" "Using this script's clone at $w/own."
 
 # A folder that only looks like the project, at or above the current directory, is never adopted:
 # not by a fetched copy, nor by a script read from a pipe, nor by the own clone of another copy.
@@ -163,6 +169,9 @@ used dir-flag "$w/base/Monero-miner-setup" "Found existing clone at $w/base/Mone
 mkdir "$w/linked"; ln -s "$w/base/Monero-miner-setup" "$w/linked/Monero-miner-setup"
 run dir-link "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/linked"
 used dir-link "$w/base/Monero-miner-setup" "Found existing clone at $w/base/Monero-miner-setup."
+# Run from inside the base clone reached through that link, with the shell's PWD naming the link.
+LPWD="$w/linked/Monero-miner-setup" run base-via-link "$w/linked/Monero-miner-setup" "$w/fetched/docker_setup.sh" -d "$w/base"
+used base-via-link "$w/base/Monero-miner-setup" "Found existing clone at $w/base/Monero-miner-setup."
 
 # A clone in the base directory that is not a git clone, or that someone else can change.
 mkdir -p "$w/nogit/Monero-miner-setup/docker"
