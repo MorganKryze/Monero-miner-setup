@@ -497,12 +497,14 @@ function check_clone() {
         done
     fi
     if [ -z "$bad" ]; then return 0; fi
+    # Files others could change may already have been, and the checks above read only owners and
+    # modes: restricting the clone would let those changes through, so the remedy is a fresh clone.
     # A run in another base directory would start a fresh .env under the same Compose project and
     # replace the running miner's settings, so that remedy is offered only when there are none.
     if [ -e "$dir/docker/.env" ]; then
-        error "$bad can be changed by a user other than you, so this run does not use it. Restrict it to you, then run again."
+        error "$bad can be changed by a user other than you, so this run does not use it. The clone's files and settings may have been changed: move $dir away and clone this project again."
     else
-        error "$bad can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."
+        error "$bad can be changed by a user other than you, so this run does not use it. The clone's files may have been changed: move $dir away and clone this project again, or pass -d with another base directory."
     fi
     return 1
 }
@@ -527,7 +529,7 @@ function ensure_repo() {
     if [ -z "$own" ]; then
         open_own=$(open_own_clone)
         if [ -n "$open_own" ]; then
-            error "$open_own is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod -R go-w '$open_own', then run again."
+            error "$open_own is this script's clone, but a user other than you can change it, so this run does not use it. Its files may have been changed: move it away and clone this project again."
             return 1
         fi
     fi
@@ -537,10 +539,10 @@ function ensure_repo() {
         # A run from outside a folder holding settings would start a second set under the same
         # Compose project, so that remedy is offered only when there are none.
         # A git clone of yours that only the write check keeps from use would be refused by its
-        # own installer too, so the remedy then is to restrict it.
+        # own installer too, and may hold files others changed, so the remedy then is a fresh one.
         if [ -e "$found/docker/.env" ] && [ -e "$found/.git" ] && trusted_owner "$found/" &&
             { ! only_user_can_write "$found" || ! only_user_can_write "$found/docker"; }; then
-            error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. If it is your own clone, run chmod -R go-w '$found', then its scripts/install.sh --docker."
+            error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. If it is your own clone, a user other than you can change it: move it away and clone this project again."
         elif [ -e "$found/docker/.env" ]; then
             error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. If it is your own clone, run its scripts/install.sh --docker."
         else

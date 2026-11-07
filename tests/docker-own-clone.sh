@@ -113,14 +113,16 @@ look_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run use
 # With a docker/.env there, a run from outside it would start a second set of settings: only the
 # install.sh remedy is offered.
 kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. If it is your own clone, run its scripts/install.sh --docker."; }
-# A git clone there that only the write check keeps from use: the remedy is to restrict it, as
-# its own installer would refuse it too.
-open_kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. If it is your own clone, run chmod -R go-w '$1', then its scripts/install.sh --docker."; }
-mode_line() { echo "$1 is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod -R go-w '$1', then run again."; }
-open_line() { echo "$1 can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."; }
+# A clone others could change may hold files they changed, which a chmod would then let through:
+# every remedy is a fresh clone. A git clone of yours that only the write check keeps from use
+# gets that remedy too, as its own installer would refuse it.
+open_kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. If it is your own clone, a user other than you can change it: move it away and clone this project again."; }
+mode_line() { echo "$1 is this script's clone, but a user other than you can change it, so this run does not use it. Its files may have been changed: move it away and clone this project again."; }
+# open_line <checked path> <clone>
+open_line() { echo "$1 can be changed by a user other than you, so this run does not use it. The clone's files may have been changed: move $2 away and clone this project again, or pass -d with another base directory."; }
 # With settings in it, a run in another base directory would start a fresh set under the same
-# Compose project: only the restrict remedy is offered.
-settings_line() { echo "$1 can be changed by a user other than you, so this run does not use it. Restrict it to you, then run again."; }
+# Compose project: only the fresh clone is offered.
+settings_line() { echo "$1 can be changed by a user other than you, so this run does not use it. The clone's files and settings may have been changed: move $2 away and clone this project again."; }
 home_clone="$w/home/Monero-miner-setup"
 
 # The script's own clone, run from inside it or from elsewhere.
@@ -144,7 +146,7 @@ used own-via-link "$w/own" "Using this script's clone at $w/own."
 # Its docker/ folder, where Compose reads its files, open to others: refused, nothing written.
 chmod 777 "$w/own/docker"
 run own-docker-open "$w/own" "$w/own/scripts/docker_setup.sh"
-refused own-docker-open "$(open_line "$w/own/docker")" "$w/own"
+refused own-docker-open "$(open_line "$w/own/docker" "$w/own")" "$w/own"
 chmod 755 "$w/own/docker"
 
 # A folder that only looks like the project, at or above the current directory, is never adopted:
@@ -207,7 +209,7 @@ for case in fresh-open fresh-other-owner; do
   if [ "$case" = fresh-open ]; then GIT_MODE=777; else ID_UID=54321; fi
   run "$case" "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/$case" --autostart
   unset GIT_MODE ID_UID
-  CLONED=$c refused "$case" "$(open_line "$c")" "$c"
+  CLONED=$c refused "$case" "$(open_line "$c" "$c")" "$c"
 done
 # A base directory not made yet, under a link: the fresh clone is used by its physical path.
 mkdir "$w/real"; ln -s "$w/real" "$w/to-real"
@@ -231,11 +233,11 @@ c="$w/base/Monero-miner-setup"
 for m in 777 1777 775 757; do
   chmod "$m" "$c"
   run "root-$m" "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
-  refused "root-$m" "$(open_line "$c")" "$c"
+  refused "root-$m" "$(open_line "$c" "$c")" "$c"
   chmod 755 "$c"
   chmod "$m" "$c/docker"
   run "docker-$m" "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
-  refused "docker-$m" "$(open_line "$c/docker")" "$c"
+  refused "docker-$m" "$(open_line "$c/docker" "$c")" "$c"
   chmod 755 "$c/docker"
 done
 # The files the daemon reads, Compose's and the Dockerfile's, open to others in a clone whose
@@ -243,18 +245,18 @@ done
 for f in compose.yml compose.vpn.yml Dockerfile; do
   chmod 666 "$c/docker/$f"
   run "file-open-$f" "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
-  refused "file-open-$f" "$(open_line "$c/docker/$f")" "$c"
+  refused "file-open-$f" "$(open_line "$c/docker/$f" "$c")" "$c"
   chmod 644 "$c/docker/$f"
 done
 chmod 666 "$w/own/docker/compose.yml"
 run own-file-open "$w/own" "$w/own/scripts/docker_setup.sh" --autostart
-refused own-file-open "$(open_line "$w/own/docker/compose.yml")" "$w/own"
+refused own-file-open "$(open_line "$w/own/docker/compose.yml" "$w/own")" "$w/own"
 chmod 644 "$w/own/docker/compose.yml"
 # Through a link, the file Compose reads is the one checked, open or not.
 : > "$w/open.yml"; chmod 666 "$w/open.yml"
 mv "$c/docker/compose.yml" "$w/compose.yml.real"; ln -s "$w/open.yml" "$c/docker/compose.yml"
 run file-open-link "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
-refused file-open-link "$(open_line "$c/docker/compose.yml")" "$c"
+refused file-open-link "$(open_line "$c/docker/compose.yml" "$c")" "$c"
 chmod 644 "$w/open.yml"
 run file-closed-link "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
 used file-closed-link "$c" "Found existing clone at $c."
@@ -264,13 +266,13 @@ printf 'WORKER_NAME="rig7"\n' > "$c/docker/.env"
 cp -p "$c/docker/.env" "$w/settings.env"
 chmod 775 "$c/docker"
 run settings-docker-open "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
-KEPT=1 refused settings-docker-open "$(settings_line "$c/docker")" "$c"
+KEPT=1 refused settings-docker-open "$(settings_line "$c/docker" "$c")" "$c"
 chmod 755 "$c/docker"; chmod 777 "$c"
 run settings-root-open "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
-KEPT=1 refused settings-root-open "$(settings_line "$c")" "$c"
+KEPT=1 refused settings-root-open "$(settings_line "$c" "$c")" "$c"
 chmod 755 "$c"; chmod 666 "$c/docker/compose.yml"
 run settings-file-open "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
-KEPT=1 refused settings-file-open "$(settings_line "$c/docker/compose.yml")" "$c"
+KEPT=1 refused settings-file-open "$(settings_line "$c/docker/compose.yml" "$c")" "$c"
 chmod 644 "$c/docker/compose.yml"
 cmp -s "$c/docker/.env" "$w/settings.env" || fail "settings: the .env changed"
 rm "$c/docker/.env" "$w/settings.env"
@@ -282,19 +284,19 @@ unset ID_MODE; chmod 644 "$c/docker/compose.yml"
 # a dangling link, and (macOS) an ACL.
 chmod 664 "$c/docker/compose.yml"
 run file-group "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
-refused file-group "$(open_line "$c/docker/compose.yml")" "$c"
+refused file-group "$(open_line "$c/docker/compose.yml" "$c")" "$c"
 ID_MODE=private; chmod 666 "$c/docker/compose.yml"
 run file-world-private "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
-refused file-world-private "$(open_line "$c/docker/compose.yml")" "$c"
+refused file-world-private "$(open_line "$c/docker/compose.yml" "$c")" "$c"
 unset ID_MODE; chmod 644 "$c/docker/compose.yml"
 mv "$c/docker/compose.vpn.yml" "$w/vpn.real"; ln -s "$w/nowhere.yml" "$c/docker/compose.vpn.yml"
 run file-dangling "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
-refused file-dangling "$(open_line "$c/docker/compose.vpn.yml")" "$c"
+refused file-dangling "$(open_line "$c/docker/compose.vpn.yml" "$c")" "$c"
 rm "$c/docker/compose.vpn.yml"; mv "$w/vpn.real" "$c/docker/compose.vpn.yml"
 if [ "$(uname -s)" = Darwin ]; then
   chmod +a "everyone allow write" "$c/docker/Dockerfile"
   run file-acl "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
-  refused file-acl "$(open_line "$c/docker/Dockerfile")" "$c"
+  refused file-acl "$(open_line "$c/docker/Dockerfile" "$c")" "$c"
   chmod -N "$c/docker/Dockerfile"
 fi
 ID_MODE=private; chmod 775 "$c" "$c/docker"
@@ -304,16 +306,16 @@ unset ID_MODE; chmod 755 "$c" "$c/docker"
 # Owned by another user (id -u says 54321): refused, and the sudo user counts only for root.
 ID_UID=54321
 run other-owner "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
-refused other-owner "$(open_line "$c")" "$c"
+refused other-owner "$(open_line "$c" "$c")" "$c"
 SUDO=$me run other-owner-sudo-user "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
-refused other-owner-sudo-user "$(open_line "$c")" "$c"
+refused other-owner-sudo-user "$(open_line "$c" "$c")" "$c"
 ID_UID=0
 run root-no-sudo "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
-refused root-no-sudo "$(open_line "$c")" "$c"
+refused root-no-sudo "$(open_line "$c" "$c")" "$c"
 SUDO=$me run root-sudo "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
 used root-sudo "$c" "Found existing clone at $c."
 ID_UID=54321 run own-other-owner "$w/own" "$w/own/scripts/docker_setup.sh"
-refused own-other-owner "$(open_line "$w/own")" "$w/own"
+refused own-other-owner "$(open_line "$w/own" "$w/own")" "$w/own"
 unset ID_UID
 # An own clone others can write to is not used: the run names that cause and its remedy, from
 # inside it and from elsewhere, and clones nothing.
