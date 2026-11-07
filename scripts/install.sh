@@ -260,10 +260,38 @@ function validate_wallet() {
         return 1
     fi
 
+    if ! is_wallet "$wallet"; then
+        error "Invalid wallet: 95 or 106 base58 characters starting with 4 or 8, then optionally one '.' and 1 to 64 letters or digits."
+        return 1
+    fi
+
     info "Using wallet address: $wallet."
     info "Wallet format looks valid (length $len, leading char '${wallet_base:0:1}')."
     return 0
 }
+
+# The value rules, the same in docker/entrypoint.sh, scripts/docker_setup.sh and here. Every
+# value that reaches the miner's config passes one of them first.
+function is_wallet() {
+    local LC_ALL=C re='^[48]([1-9A-HJ-NP-Za-km-z]{94}|[1-9A-HJ-NP-Za-km-z]{105})([.][A-Za-z0-9]{1,64})?$'
+    [[ $1 =~ $re ]]
+}
+
+function is_worker_name() {
+    local LC_ALL=C re='^[A-Za-z0-9._@:+-]{1,64}$'
+    [[ $1 =~ $re ]]
+}
+
+function is_pool() {
+    local LC_ALL=C hostport re='^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(:([0-9]{1,5}))?$'
+    case $1 in
+        stratum+tcp://* | stratum+ssl://*) hostport=${1#stratum+???://} ;;
+        *) hostport=$1 ;;
+    esac
+    [[ $hostport =~ $re ]] || return 1
+    [ -z "${BASH_REMATCH[3]}" ] || { [ "$((10#${BASH_REMATCH[3]}))" -ge 1 ] && [ "$((10#${BASH_REMATCH[3]}))" -le 65535 ]; }
+}
+
 
 # Root, or the user who ran sudo (who holds root already), owns the path and neither its
 # group nor others can write it (GNU stat, Linux only). A link counts as its own path (stat does
@@ -456,10 +484,18 @@ function parse_arguments() {
             ;;
         -p | --pool)
             POOL_URL="$2"
+            if ! is_pool "$POOL_URL"; then
+                error "--pool must be a host name or IPv4 address, optionally after stratum+tcp:// or stratum+ssl:// and before a :port from 1 to 65535."
+                exit 1
+            fi
             shift 2
             ;;
         --pass | --name) # Accept both for backward compatibility
             DISPLAY_NAME="$2"
+            if ! is_worker_name "$DISPLAY_NAME"; then
+                error "--name must be 1 to 64 letters, digits or . _ - @ : + characters."
+                exit 1
+            fi
             shift 2
             ;;
         --pause-active)
@@ -723,6 +759,38 @@ function configs_exist() {
     [ -f "$dest_config_dir/config.json" ] && [ -f "$dest_config_dir/config_background.json" ]
 }
 
+# Writes a miner config from its template: each setting the installer fills in becomes one JSON
+# value holding exactly what was passed. The values reach awk through its environment, as data;
+# no command is built from them. Arguments: template, destination, log file, pool URL, worker name.
+function write_miner_config() {
+    XMRIG_HINT=$MAX_THREADS XMRIG_DONATE=$DONATE_LEVEL XMRIG_LOG=$3 XMRIG_URL=$4 XMRIG_USER=$WALLET \
+        XMRIG_PASS=$5 XMRIG_BATTERY=$PAUSE_ON_BATTERY XMRIG_ACTIVE=$PAUSE_ON_ACTIVE awk '
+        function str(v,   out, i, c) {
+            out = ""
+            for (i = 1; i <= length(v); i++) {
+                c = substr(v, i, 1)
+                if (c == "\\" || c == "\"") out = out "\\"
+                out = out c
+            }
+            return "\"" out "\""
+        }
+        function put(key, value,   comma) {
+            comma = ($0 ~ /,$/) ? "," : ""
+            match($0, /^[ \t]*/)
+            print substr($0, 1, RLENGTH) "\"" key "\": " value comma
+        }
+        /^[ \t]*"max-threads-hint": [0-9]*,$/ { put("max-threads-hint", ENVIRON["XMRIG_HINT"]); next }
+        /^[ \t]*"donate-level": [0-9]*,$/ { put("donate-level", ENVIRON["XMRIG_DONATE"]); next }
+        /^[ \t]*"log-file": null,$/ { put("log-file", str(ENVIRON["XMRIG_LOG"])); next }
+        /^[ \t]*"url": "[^"]*",$/ { put("url", str(ENVIRON["XMRIG_URL"])); next }
+        /^[ \t]*"user": "[^"]*",$/ { put("user", str(ENVIRON["XMRIG_USER"])); next }
+        /^[ \t]*"pass": "[^"]*",$/ { put("pass", str(ENVIRON["XMRIG_PASS"])); next }
+        /^[ \t]*"pause-on-battery": [a-z]*,?$/ { put("pause-on-battery", ENVIRON["XMRIG_BATTERY"]); next }
+        /^[ \t]*"pause-on-active": [a-z]*,?$/ { put("pause-on-active", ENVIRON["XMRIG_ACTIVE"]); next }
+        { print }
+    ' "$1" >"$2"
+}
+
 function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
@@ -760,7 +828,7 @@ function generate_config_files() {
     if [ ${#missing[@]} -gt 0 ]; then
         # Define full pool URL with port if needed
         local full_pool_url="$POOL_URL"
-        if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "$POOL_URL" != *":"* ]]; then
+        if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "${POOL_URL#stratum+???://}" != *":"* ]]; then
             full_pool_url="${POOL_URL}:${PORT}"
             info "Using MoneroOcean with optimized port: $full_pool_url"
         fi
@@ -786,29 +854,12 @@ function generate_config_files() {
             info "Generated random worker name: $worker_name"
         fi
 
-        # Cross-platform sed function
-        function sed_inplace() {
-            local pattern="$1"
-            local file="$2"
-
-            if [[ "$OS_TYPE" == "macos" ]]; then
-                sed -i '' "$pattern" "$file"
-            else
-                sed -i "$pattern" "$file"
-            fi
-        }
-
         # Each missing file from its template, with the same settings
         for name in "${missing[@]}"; do
-            cp "$source_config_dir/$name.template" "$dest_config_dir/$name"
-            sed_inplace 's/"max-threads-hint": [0-9]*,/"max-threads-hint": '$MAX_THREADS',/' "$dest_config_dir/$name"
-            sed_inplace 's/"donate-level": [0-9]*,/"donate-level": '$DONATE_LEVEL',/' "$dest_config_dir/$name"
-            sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/$name"
-            sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/$name"
-            sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/$name"
-            sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_name'",#' "$dest_config_dir/$name"
-            sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/$name"
-            sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/$name"
+            if ! write_miner_config "$source_config_dir/$name.template" "$dest_config_dir/$name" "$log_file" "$full_pool_url" "$worker_name"; then
+                error "Failed to write $dest_config_dir/$name."
+                return 1
+            fi
         done
         success "Configuration files generated successfully."
     fi
