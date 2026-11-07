@@ -87,7 +87,7 @@ Clones to `$HOME/Monero-miner-setup`, builds the XMRig commit the repository pin
 
 The service runs the miner as you. Installed with `sudo`, it runs as the user who ran `sudo`; installed as root with no `sudo` user, it runs as the system account `xmrig` (no login shell, no home), created once and reused. That account owns nothing in the clone. systemd creates `/etc/xmrig`, `/var/lib/xmrig/<account>` (its config and calibration) and `/var/log/xmrig/<account>`, and removes them on `make service-disable`.
 
-`--service-as-root` is for systemd only: the macOS service refuses it, and refuses to run as root. It exists for the x86 RandomX MSR boost, which needs root. Without it, the miner gets no MSR boost and can't reserve huge pages itself, so reserve them with `sysctl` (see [Tuning](#tuning-for-performance)).
+`--service-as-root` is for systemd only: the macOS service refuses it, and refuses to run as root. It exists for the x86 RandomX MSR boost, which needs root. With it, the miner runs as root on the host: a flaw in XMRig, a hostile pool, or anyone on the network path to the pool (the default connection has no TLS) reaches a root process. Without it, the miner gets no MSR boost and can't reserve huge pages itself, so reserve them with `sysctl` (see [Tuning](#tuning-for-performance)).
 
 Common flags (run `install.sh --help` for the complete list):
 
@@ -392,7 +392,7 @@ The Docker image runs as a non-root `xmrig` user with `no-new-privileges`. The i
 
 **Service won't start.** Run `make status`. It prints the tail of the error log. Common causes: wallet rejected by the validator (wrong length, wrong leading char, non-base58 character), missing executable bit on `./xmrig`, or XMRig exiting on a missing CPU feature.
 
-**Hashrate lower than expected.** Run `make doctor` and apply its recommendations. On Ryzen/EPYC, the `msr` kernel module is the single biggest lever.
+**Hashrate lower than expected.** Run `make doctor` and apply its recommendations. On Ryzen/EPYC, the `msr` kernel module is the single biggest lever for a service installed with `--service-as-root`.
 
 **Service keeps coming back after `make stop`.** Use `make service-disable`. `systemd` and `launchd` re-spawn stopped units; `stop` alone won't keep them down.
 
