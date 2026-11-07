@@ -147,6 +147,21 @@ want umask "mode .env.vpn" "-rw-------" "$(mode "$vpn")"
 cp -p "$vpn" "$w/vpn.second"
 cp -p "$env" "$w/env.second"
 
+# Only the .env.vpn rename fails: the run still stops, and the old .env.vpn stays byte for byte.
+cat > "$w/bin/mv" <<STUB
+#!/bin/bash
+PATH="$w/bin:$w/tools"
+case "\${!#}" in */.env.vpn) exit 1 ;; esac
+exec "$real_mv" "\$@"
+STUB
+chmod +x "$w/bin/mv"
+KEY=wgkey-fourth ADDR=10.64.0.4/32 run vpn-mv-fails -w "$wallet" -y --vpn mullvad --overwrite-env
+want vpn-mv-fails exit 1 "$code"
+cmp -s "$vpn" "$w/vpn.second" || fail "vpn-mv-fails: .env.vpn changed"
+want vpn-mv-fails stderr "[  ERROR  ] Could not write $vpn: it is left as it was." "$err"
+want vpn-mv-fails leftovers "" "$(leftovers)"
+cp -p "$env" "$w/env.second"
+
 # A failed write: the rename fails, the old file stays byte for byte, no temporary file is left,
 # one error line, exit 1. Then the same on a fresh host: no file at all.
 printf '#!/bin/bash\nexit 1\n' > "$w/bin/mv"
