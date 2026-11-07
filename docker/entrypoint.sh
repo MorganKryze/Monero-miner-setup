@@ -339,8 +339,9 @@ function main() {
     pick_thread_count
     pick_randomx_mode
 
-    # Handle pool URL and port
-    local hostport=${POOL_URL#stratum+???://}
+    # Handle pool URL and port. The computed port is a plain TCP one: only a bare or
+    # stratum+tcp:// URL gets it.
+    local hostport=${POOL_URL#stratum+tcp://}
     if [[ "$hostport" != *":"* ]]; then
         # No port specified, calculate optimal port for MoneroOcean
         if [[ "$POOL_URL" == *"moneroocean"* ]]; then

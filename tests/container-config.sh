@@ -91,6 +91,9 @@ want zeros-percent hint 8 "$(printf '%s\n' "$config" | jq -c '.cpu."max-threads-
 # A scheme before a pool without a port still gets the port.
 run scheme WALLET_ADDRESS="$wallet" POOL_URL="stratum+tcp://gulf.moneroocean.stream"
 want scheme url '"stratum+tcp://gulf.moneroocean.stream:10016"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
+# A TLS pool without a port is kept as given: the computed ports are plain TCP ones.
+run tls WALLET_ADDRESS="$wallet" POOL_URL="stratum+ssl://gulf.moneroocean.stream"
+want tls url '"stratum+ssl://gulf.moneroocean.stream"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
 # The wallet from the secret file, its final newline dropped.
 printf '%s\n' "$wallet" > "$w/secret"
 run secret
