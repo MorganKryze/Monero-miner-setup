@@ -456,7 +456,7 @@ The container runs as uid 999, `xmrig`. The compose file and the minimal run abo
 
 ## Development
 
-- CI (`.github/workflows/ci.yml`) runs `shellcheck`, `hadolint`, the `make -n` dry runs, `make check` and the Docker build smoke test on amd64 and arm64. It runs on pushes and pull requests to `main`, and after a Dependabot merge. `main` needs green CI to merge. First-time contributor PRs require maintainer approval before workflows run.
+- CI (`.github/workflows/ci.yml`) runs `shellcheck`, `hadolint`, the `make -n` dry runs, `make check` and the Docker build smoke test on amd64 and arm64. It runs on pushes and pull requests to `main`, and after a Dependabot merge. A pull request to `main` needs green CI to merge (the maintainer can still push directly). First-time contributor PRs require maintainer approval before workflows run.
 - Dependabot opens weekly PRs for the `xmrig` and `bash-toolbox` submodules, the GitHub Actions, the Dockerfile's base image and Gluetun. Only Actions patch and minor bumps merge on their own, once CI is green; the rest wait for review.
 - Pull requests welcome. Fork, branch, run `make check`, open a PR.
 
