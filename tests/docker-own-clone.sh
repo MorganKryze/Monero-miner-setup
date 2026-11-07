@@ -45,7 +45,8 @@ cat > "$w/bin/git" <<STUB
 echo "\$*" >> "$w/git.log"
 for last; do :; done
 "$(command -v mkdir)" -p "\$last/.git" "\$last/docker" "\$last/scripts" && : > "\$last/docker/compose.yml" && : > "\$last/docker/Dockerfile" &&
-  "$(command -v chmod)" "\${GIT_MODE:-755}" "\$last" "\$last/docker"
+  "$(command -v chmod)" "\${GIT_MODE:-755}" "\$last" "\$last/docker" &&
+  "$(command -v chmod)" 644 "\$last/docker/compose.yml" "\$last/docker/Dockerfile"
 STUB
 # ID_UID: the uid id -u gives (another user's, or root's); ID_MODE=private: the user's primary
 # group is their own, as Ubuntu gives each user.
@@ -67,9 +68,10 @@ clone() {
   : > "$1/docker/compose.yml"; : > "$1/docker/compose.vpn.yml"; : > "$1/docker/Dockerfile"
   cp "$root/scripts/docker_setup.sh" "$1/scripts/docker_setup.sh"
   chmod 755 "$1" "$1/docker"
+  chmod 644 "$1/docker/compose.yml" "$1/docker/compose.vpn.yml" "$1/docker/Dockerfile"
 }
 # lookalike <dir>: a folder holding the project's two Docker files and nothing else.
-lookalike() { mkdir -p "$1/docker"; : > "$1/docker/compose.yml"; : > "$1/docker/Dockerfile"; chmod 755 "$1" "$1/docker"; }
+lookalike() { mkdir -p "$1/docker"; : > "$1/docker/compose.yml"; : > "$1/docker/Dockerfile"; chmod 755 "$1" "$1/docker"; chmod 644 "$1/docker/compose.yml" "$1/docker/Dockerfile"; }
 
 # run <name> <dir> <script> <args...>: the installer from <dir>. Sets out, err, code. LPWD: the
 # logical current directory the shell passes on, as when you cd through a link.

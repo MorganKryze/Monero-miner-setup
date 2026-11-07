@@ -21,6 +21,7 @@ mkdir -p "$w/bin" "$w/tools" "$w/repo/docker" "$w/repo/scripts" "$w/repo/.git"
 : > "$w/repo/docker/Dockerfile"
 cp "$root/scripts/docker_setup.sh" "$w/repo/scripts/docker_setup.sh"
 chmod 755 "$w/repo" "$w/repo/docker"
+chmod 644 "$w/repo/docker/compose.yml" "$w/repo/docker/Dockerfile"
 for t in cat cut date dirname find head id ls mktemp mv rm tr uname; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
