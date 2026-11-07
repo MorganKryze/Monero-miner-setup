@@ -113,7 +113,8 @@ for m in 644:-rw-r--r-- 604:-rw----r-- 640:-rw-r-----; do
 done
 chmod 600 "$env"
 
-# refused <name> <file> <expected mode>: one error line, exit 1, nothing written or started, the
+# refused <name> <file> <expected mode>: one error line, exit 1, nothing written or started (the
+# cases pass --autostart, so a refusal after the start step reaches docker), the
 # file byte for byte and mode as it was.
 refused() {
   want "$1" exit 1 "$code"
@@ -123,23 +124,23 @@ refused() {
 }
 # A kept file another user owns or can change is refused: the run would start the miner on
 # settings someone else chose. Group write passes only for the user's private group.
-OTHER_OWNS=$env run env-other-owner -w "$wallet" -y
+OTHER_OWNS=$env run env-other-owner -w "$wallet" -y --autostart
 refused env-other-owner "$env" "-rw-------"
 cmp -s "$env" "$w/env.first" || fail "env-other-owner: .env changed"
 chmod 620 "$env"
-run env-group -w "$wallet" -y
+run env-group -w "$wallet" -y --autostart
 refused env-group "$env" "-rw--w----"
 cmp -s "$env" "$w/env.first" || fail "env-group: .env changed"
 ID_MODE=private run env-group-private -w "$wallet" -y
 want env-group-private exit 0 "$code"
 chmod 606 "$env"
-ID_MODE=private run env-world -w "$wallet" -y
+ID_MODE=private run env-world -w "$wallet" -y --autostart
 refused env-world "$env" "-rw----rw-"
 cmp -s "$env" "$w/env.first" || fail "env-world: .env changed"
 chmod 600 "$env"
 if [ "$(uname -s)" = Darwin ]; then
   chmod +a "everyone allow write" "$env"
-  run env-acl -w "$wallet" -y
+  run env-acl -w "$wallet" -y --autostart
   want env-acl exit 1 "$code"
   want env-acl stderr "$(refuse_line "$env")" "$err"
   cmp -s "$env" "$w/env.first" || fail "env-acl: .env changed"
@@ -192,7 +193,7 @@ cmp -s "$vpn" "$w/vpn.first" || fail "vpn-loose: .env.vpn changed"
 chmod 600 "$vpn"
 # A kept .env.vpn others can write to is refused, and .env with it stays as it was.
 chmod 606 "$vpn"
-run vpn-world -w "$wallet" -y --vpn mullvad
+run vpn-world -w "$wallet" -y --vpn mullvad --autostart
 refused vpn-world "$vpn" "-rw----rw-"
 cmp -s "$vpn" "$w/vpn.first" || fail "vpn-world: .env.vpn changed"
 cmp -s "$env" "$w/env.vpnrun" || fail "vpn-world: .env changed"
