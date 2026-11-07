@@ -22,7 +22,7 @@ Both paths go through the same installer script. Pass `--docker` for the contain
 ### Docker (prebuilt image, recommended)
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
   --docker -w YOUR_MONERO_WALLET --autostart
 ```
 
@@ -49,7 +49,7 @@ Available image tags:
 Pass `--build` if you'd rather compile locally — useful when you've patched XMRig, when you don't want to pull from GHCR, or when a prebuilt image isn't available for your platform.
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
   --docker --build -w YOUR_MONERO_WALLET --autostart
 ```
 
@@ -74,7 +74,7 @@ Tail logs: `docker logs -f monero_xmrig_miner`. Stop: `docker stop monero_xmrig_
 ### Native (Debian/Ubuntu, macOS)
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
   -w YOUR_MONERO_WALLET
 ```
 
@@ -166,7 +166,7 @@ Drop the curl/bash prefix and your wallet in, then pick one block. All examples 
 **Mullvad (WireGuard).** Download a config from your Mullvad account page; copy `PrivateKey` and `Address` out of the `[Interface]` block.
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
   --docker -w YOUR_MONERO_WALLET \
   --vpn mullvad \
   --wg-key-file ~/.secrets/mullvad.key \
@@ -178,7 +178,7 @@ bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/
 **ProtonVPN (WireGuard).** Generate a WireGuard config in the Proton dashboard (requires a paid plan). Copy `PrivateKey` and `Address` the same way.
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
   --docker -w YOUR_MONERO_WALLET \
   --vpn protonvpn \
   --wg-key-file ~/.secrets/protonvpn.key \
@@ -190,7 +190,7 @@ bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/
 **PIA (OpenVPN).** Uses your regular PIA account username and password. PIA's location field is a **region**, not a country (`Swiss`, `US East`, `CA Toronto`, `UK London`, etc.) — see the [gluetun PIA docs](https://github.com/qdm12/gluetun-wiki/blob/main/setup/providers/private-internet-access.md) for the full list.
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
   --docker -w YOUR_MONERO_WALLET \
   --vpn pia \
   --vpn-user-file ~/.secrets/pia.user \
@@ -203,7 +203,7 @@ Fully non-interactive, credentials via env vars (useful for CI and Ansible):
 
 ```bash
 OPENVPN_USER='p1234567' OPENVPN_PASSWORD='xxxxx' \
-bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
   --docker -w YOUR_MONERO_WALLET \
   --vpn pia --vpn-location Swiss \
   -y --autostart
@@ -212,7 +212,7 @@ bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/
 **NordVPN (OpenVPN).** You must use NordVPN's **service credentials**, not your account login — grab them from the manual-setup page in the [nord account dashboard](https://my.nordaccount.com/dashboard/nordvpn/manual-setup/). NordVPN's ToS prohibits crypto-mining on some plans; verify yours before running long.
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh) \
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh)" -- \
   --docker -w YOUR_MONERO_WALLET \
   --vpn nordvpn \
   --vpn-user-file ~/.secrets/nord.user \
@@ -334,7 +334,7 @@ None of them claim the script does something it doesn't advertise. They're sayin
 1. **Read the install script in your terminal**:
 
    ```bash
-   curl -s https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh | less
+   curl -fsSL https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh | less
    ```
 
 2. **Check the VirusTotal URL scans** for each entry point:
