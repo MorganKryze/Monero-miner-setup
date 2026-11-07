@@ -15,11 +15,11 @@ w=$(cd "$w" && pwd -P)
 case $(uname) in Darwin) os=macos ;; *) os=linux ;; esac
 wallet=4AdUndXHHZ6cfufTMvppY6JwXNouMBzSkbLYfpAV5Usx3skxNgYeYTRj5UzqtReoS44qo9mtmXCqY45DJ852K5Jv2684Rge
 {
-  for f in check_repo_exists check_if_built configs_exist generate_config_files service_is_set_up install_project; do
+  for f in check_repo_exists check_if_built configs_exist write_miner_config generate_config_files service_is_set_up install_project; do
     sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"
   done
 } > "$w/functions.sh"
-for f in check_repo_exists check_if_built configs_exist generate_config_files service_is_set_up install_project; do
+for f in check_repo_exists check_if_built configs_exist write_miner_config generate_config_files service_is_set_up install_project; do
   grep -qx "function $f() {" "$w/functions.sh" || fail "no function $f in scripts/install.sh"
 done
 # The runs below put the unit and the plist in the fixture, so the paths the installer looks for
