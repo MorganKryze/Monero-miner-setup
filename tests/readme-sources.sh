@@ -1,7 +1,7 @@
 #!/bin/bash
 # Nothing is fetched that the README does not name. The scripts fetch only from the sources listed
 # below, by curl, wget or git clone (a submodule comes from .gitmodules, an image from the compose
-# files), and the README names each of them. Versions are left out (the toolbox commit, image tags),
+# files, a base image from the Dockerfile), and the README names each of them. Versions are left out (the toolbox commit, image tags),
 # so a Dependabot bump stays green; a new source, in a script or in the README's absence, fails.
 # Reads the repository root, or the directory given as $1 (tests/readme-sources-fixtures.sh
 # points it at a copy with a change planted).
@@ -40,6 +40,18 @@ image=$(sed -n 's/^[[:space:]]*image: \${XMRIG_IMAGE:-\(.*\)}$/\1/p' docker/comp
 sources+=("${image%:*}")
 image=$(sed -n 's/^[[:space:]]*image: //p' docker/compose.vpn.yml)
 sources+=("${image%:*}")
+# A base image is named in backticks: a bare word like ubuntu would match any prose. A FROM that
+# names an earlier stage fetches nothing.
+stages=" "
+while read -r from ref rest; do
+    [ "$from" = FROM ] || continue
+    case $ref in --*) read -r ref rest <<< "$rest" ;; esac
+    case $stages in *" $ref "*) continue ;; esac
+    case $rest in AS\ * | as\ *) stages+="${rest#* } " ;; esac
+    ref=${ref%%@*}
+    ref='`'"${ref%:*}"'`'
+    case " ${sources[*]} " in *" $ref "*) ;; *) sources+=("$ref") ;; esac
+done < docker/Dockerfile
 
 for s in "${sources[@]}"; do
     if [ -z "$s" ] || [ "$s" = "<commit>" ]; then

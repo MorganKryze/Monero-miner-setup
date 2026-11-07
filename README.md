@@ -367,7 +367,7 @@ XMRig is legitimate open-source software. AV tools flag it because malware insta
 
 ### What the installers fetch
 
-Everything comes over HTTPS from the sources below, and nothing else:
+The installers fetch from the sources below and nothing else. All of it comes over HTTPS except the packages apt installs: apt uses the archives its sources list names (the base image's, in a Docker build), plain HTTP by default on Debian and Ubuntu, and checks what it gets against the archive's signing key.
 
 | What | From | When |
 | --- | --- | --- |
@@ -376,6 +376,7 @@ Everything comes over HTTPS from the sources below, and nothing else:
 | The Docker installer | your clone's copy, else `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh` | `--docker` |
 | The repository | `https://github.com/MorganKryze/Monero-miner-setup.git`, its submodules at the commits it pins: `https://github.com/MoneroOcean/xmrig.git`, `https://github.com/MorganKryze/bash-toolbox.git` | when there's no clone yet |
 | The image | `ghcr.io/morgankryze/monero-miner-setup`, built by this repository's CI | Docker, unless `--build` |
+| The base image and its packages | `ubuntu` from Docker Hub, at the tag `docker/Dockerfile` names, and Ubuntu's packages through apt in both build stages | `--build`, or when the image pull fails |
 | The VPN sidecar | `qmcgaw/gluetun`, pinned to a release in `docker/compose.vpn.yml` | `--vpn` |
 | Your exit IP | `https://ifconfig.io`, asked from inside the VPN container | `--vpn --autostart` |
 

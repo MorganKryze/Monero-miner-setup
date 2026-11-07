@@ -55,6 +55,14 @@ printf '\n%s\n' '	wget -q https://example.invalid/payload' >> "$w/repo/Makefile"
 expect "a wget in the Makefile" 1 \
     'FAIL a fetch the README may not name: Makefile:[0-9]+:	wget -q https://example\.invalid/payload'
 
+fresh
+sed 's/^FROM [^ ]* AS runtime$/FROM evil\/base:1 AS runtime/' docker/Dockerfile > "$w/repo/docker/Dockerfile"
+expect "another base image" 1 'FAIL README\.md does not name `evil/base`, which the project fetches'
+
+fresh
+sed 's/^FROM \([^ :]*\):[^ ]* AS /FROM \1:99.99 AS /' docker/Dockerfile > "$w/repo/docker/Dockerfile"
+expect "the base image tag bumped" 0 'PASS readme-sources \([0-9]+ sources\)'
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
