@@ -11,7 +11,8 @@ xmrig
 logs/
 configs/
 docker-configs/
-docker/.env
+# Settings and secrets files, examples included: nothing in the image needs them.
+docker/.env*
 
 # Docs / assets not needed at runtime
 assets/
