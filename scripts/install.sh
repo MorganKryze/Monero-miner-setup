@@ -265,17 +265,20 @@ function validate_wallet() {
     return 0
 }
 
-# Root owns the path and neither its group nor others can write it (GNU stat, Linux only). stat
-# drops a mode's leading zeros (0007 comes out as 7), so the mode is read as a whole octal number.
-function only_root_can_change() {
-    local info mode
+# Root, or the user who ran sudo (who holds root already), owns the path and neither its
+# group nor others can write it (GNU stat, Linux only). A link counts as its own path (stat does
+# not follow it, and a link's mode is 777), so a link is refused. stat drops a mode's leading zeros
+# (0007 comes out as 7), so the mode is read as a whole octal number.
+function trusted_by_root() {
+    local info mode owner
     info=$(stat -c '%U %a' "$1") || return 1
-    mode=${info#* }
-    [[ "$mode" =~ ^[0-7]+$ ]] && [ "${info%% *}" = root ] && (( (8#$mode & 8#022) == 0 ))
+    owner=${info%% *} mode=${info#* }
+    [[ "$mode" =~ ^[0-7]+$ ]] && (( (8#$mode & 8#022) == 0 )) &&
+        { [ "$owner" = root ] || { [ -n "${SUDO_USER:-}" ] && [ "$owner" = "$SUDO_USER" ]; }; }
 }
 
 function validate_directory() {
-    local dir="$1" path
+    local dir="$1" path check rest remedy
 
     # As root on Linux, the service runs the miner as another account (setup_service_debian.sh),
     # which root's home keeps out: the default is then /opt, unless an earlier install left its
@@ -283,14 +286,6 @@ function validate_directory() {
     if [ -z "$dir" ] && [ "$(id -u)" == "0" ] && [ "$(uname -s)" == "Linux" ] && [ -d "$ROOT_BASE_DIR" ] &&
         [ ! -d "${HOME:-}/$REPO_NAME" ]; then
         dir="$ROOT_BASE_DIR"
-        # Root goes on to run the clone's scripts: a user who can change /opt, or a clone already
-        # there, would choose what root runs, as with the installer's own clone above.
-        for path in "$dir" "$dir/$REPO_NAME"; do
-            if [ -e "$path" ] && ! only_root_can_change "$path"; then
-                error "$path is not root's alone: a user other than root owns it or can write to it. Pass -d with the base directory to install in." >&2
-                return 1
-            fi
-        done
         # Redirect info message to stderr so it doesn't get captured by $()
         info "Running as root, no base directory provided: using $dir, which the account running the miner can enter." >&2
     elif [ -z "$dir" ]; then
@@ -315,6 +310,28 @@ function validate_directory() {
         fi
         # Redirect info message to stderr so it doesn't get captured by $()
         info "Using base directory: $dir." >&2
+    fi
+
+    # Root goes on to run the clone's scripts: a user who can change the base directory, a clone
+    # already there or any directory above them would choose what root runs, as with the
+    # installer's own clone above. This holds whatever chose the directory, -d included.
+    if [ "$(id -u)" == "0" ] && [ "$(uname -s)" == "Linux" ]; then
+        path=$(cd -- "$dir" && pwd -P) || return 1
+        remedy="Pass -d"
+        if [ -e "$path/$REPO_NAME" ] || [ -L "$path/$REPO_NAME" ]; then
+            path="$path/$REPO_NAME"
+            remedy="Remove $path, or pass -d"
+        fi
+        check=
+        while :; do
+            if ! trusted_by_root "${check:-/}"; then
+                error "${check:-/} can be changed by a user other than root or the one who ran sudo, and root would run what they put there. $remedy with a directory only root can change." >&2
+                return 1
+            fi
+            [ "${check:-/}" = "$path" ] && break
+            rest=${path#"$check"/}
+            check=$check/${rest%%/*}
+        done
     fi
 
     if [ ! -w "$dir" ]; then

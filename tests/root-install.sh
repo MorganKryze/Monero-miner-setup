@@ -2,8 +2,10 @@
 # What a root install changes about who runs the miner. The installer's --service-as-root, whose
 # help line names the x86 RandomX MSR boost, reaches the service setup as SERVICE_AS_ROOT=yes, and
 # nothing else does; as root on Linux, with no -d and no earlier clone in HOME, the base directory
-# is /opt, which the account running the miner can enter, and only while root alone can change
-# /opt and a clone already there: else the installer stops and asks for -d. The launchd setup refuses to run as root
+# is /opt, which the account running the miner can enter. Whatever chose the base directory (that
+# default, HOME or -d), root goes on only while no user but root, or a non-root user who ran sudo,
+# can change it, a clone already there or any directory above them: else the installer stops and
+# names a directory only root can change. The launchd setup refuses to run as root
 # or with SERVICE_AS_ROOT=yes, and then writes, changes and loads nothing. The installer's
 # constants and functions are taken from scripts/install.sh and run with stub id, uname and stat; the
 # launchd setup runs in a fixture clone with stub id and launchctl. PATH holds the stub dirs and a
@@ -16,10 +18,11 @@ fail() { echo "FAIL $*"; rc=1; }
 same() { # label, expected, got
   [ "$2" = "$3" ] || { fail "$1"; diff <(printf '%s\n' "$2") <(printf '%s\n' "$3") | sed 's/^/    /'; }
 }
+unset SUDO_USER
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
-fns="usage only_root_can_change validate_directory parse_arguments"
+fns="usage trusted_by_root validate_directory parse_arguments"
 {
   sed -n '/^# ===== Constants =====$/,/^DOCKER_SCRIPT_URL=/p' "$root/scripts/install.sh"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done
@@ -53,6 +56,12 @@ on() {
     ROOT_BASE_DIR="$w/opt" HOME="$w/home" PATH=$(stubpath "$host")
     "$@" )
 }
+refused() { # path, clone or "": the installer's error line for a path root cannot trust
+  local remedy="Pass -d"
+  [ -z "$2" ] || remedy="Remove $2, or pass -d"
+  printf '[ERROR] %s can be changed by a user other than root or the one who ran sudo, and root would run what they put there. %s with a directory only root can change.' \
+    "$1" "$remedy"
+}
 base() { # host, -d value: sets got (the directory), err (its info lines)
   got=$(on "$1" validate_directory "$2" 2> "$w/err"); err=$(cat "$w/err")
 }
@@ -63,17 +72,20 @@ mkdir -p "$w/bin"
 : > "$w/stat"
 printf '#!/bin/sh\n[ "$1" = -c ] && [ "$2" = "%%U %%a" ] || exit 1\nwhile read -r p o m; do [ "$p" = "$3" ] && { echo "$o $m"; exit 0; }; done < "%s/stat"\necho "root 755"\n' "$w" > "$w/bin/stat"
 chmod +x "$w/bin/stat"
+opt_line="[INFO] Running as root, no base directory provided: using $w/opt, which the account running the miner can enter."
+given_line="[INFO] Using base directory: $w/given."
 base root ""
 same "root, no -d: directory" "$w/opt" "$got"
-same "root, no -d: line" "[INFO] Running as root, no base directory provided: using $w/opt, which the account running the miner can enter." "$err"
+same "root, no -d: line" "$opt_line" "$err"
 # /opt, or a clone in it, that a user other than root owns or can write: root would run that
-# user's scripts. An error naming the path and -d, no directory.
+# user's scripts. The directory chosen, an error naming the path and the remedy, no directory.
 for bad in "$w/opt root 777" "$w/opt root 775" "$w/opt alice 755" "$w/opt root 7" "$w/opt/Monero-miner-setup alice 755"; do
   mkdir -p "$w/opt/Monero-miner-setup"
   printf '%s\n' "$bad" > "$w/stat"
   base root ""
   same "root, no -d, $bad: directory" "" "$got"
-  same "root, no -d, $bad: line" "[ERROR] ${bad%% *} is not root's alone: a user other than root owns it or can write to it. Pass -d with the base directory to install in." "$err"
+  same "root, no -d, $bad: line" "$opt_line
+$(refused "${bad%% *}" "$w/opt/Monero-miner-setup")" "$err"
 done
 # A clone in /opt that only root can change: a re-run there goes on.
 : > "$w/stat"
@@ -82,6 +94,28 @@ same "root, no -d, root's clone in /opt: directory" "$w/opt" "$got"
 rmdir "$w/opt/Monero-miner-setup"
 base root "$w/given"
 same "root, -d: directory" "$w/given" "$got"
+# -d skips none of it: a clone there that another user owns or can write, or the directory itself,
+# or one above it, is refused as /opt's would be; the sudoer's own clone is theirs to run.
+mkdir -p "$w/given/Monero-miner-setup"
+for bad in "$w/given/Monero-miner-setup alice 755" "$w/given/Monero-miner-setup root 775" "$w/given alice 755" "$w root 757"; do
+  printf '%s\n' "$bad" > "$w/stat"
+  base root "$w/given"
+  same "root, -d, $bad: directory" "" "$got"
+  same "root, -d, $bad: line" "$given_line
+$(refused "${bad%% *}" "$w/given/Monero-miner-setup")" "$err"
+done
+printf '%s\n' "$w/given/Monero-miner-setup alice 755" > "$w/stat"
+SUDO_USER=alice base root "$w/given"
+same "root by sudo, -d, the sudoer's clone: directory" "$w/given" "$got"
+printf '%s\n' "$w/given/Monero-miner-setup alice 775" > "$w/stat"
+SUDO_USER=alice base root "$w/given"
+same "root by sudo, -d, the sudoer's group-writable clone: directory" "" "$got"
+rmdir "$w/given/Monero-miner-setup"
+printf '%s\n' "$w/given alice 755" > "$w/stat"
+base root "$w/given"
+same "root, -d, another user's directory, no clone: line" "$given_line
+$(refused "$w/given" "")" "$err"
+: > "$w/stat"
 base user ""
 same "user, no -d: directory" "$w/home" "$got"
 base macroot ""
