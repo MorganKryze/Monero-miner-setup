@@ -122,6 +122,11 @@ unset ID_MODE; chmod 755 "$w/own" "$w/own/docker"
 ln -s "$w/own" "$w/own-link"
 LPWD="$w/own-link" run own-via-link "$w/own-link" "$w/own/scripts/docker_setup.sh"
 used own-via-link "$w/own" "Using this script's clone at $w/own."
+# Its docker/ folder, where Compose reads its files, open to others: refused, nothing written.
+chmod 777 "$w/own/docker"
+run own-docker-open "$w/own" "$w/own/scripts/docker_setup.sh"
+refused own-docker-open "$(open_line "$w/own/docker")" "$w/own"
+chmod 755 "$w/own/docker"
 
 # A folder that only looks like the project, at or above the current directory, is never adopted:
 # not by a fetched copy, nor by a script read from a pipe, nor by the own clone of another copy.
