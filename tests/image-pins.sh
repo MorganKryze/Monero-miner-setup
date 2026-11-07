@@ -2,7 +2,9 @@
 # The published image's Dockerfile: its parser directives, every line but comments and blanks,
 # continuation lines included (a new RUN, ADD, COPY or USER, or one more command in a RUN,
 # fails here), both stages on one Ubuntu tag, the two package lists, the apt-get install lines
-# and the cmake line that links the shared libuv, so the miner loads the runtime's libuv1t64.
+# and the cmake line that links the shared libuv, so the miner loads the runtime's libuv1t64;
+# the copied miner and scripts stay root's (no --chown, mode 755), the runtime account owns only
+# the directories it writes; and the build context leaves out every docker/.env* file.
 # A bump of the Ubuntu tag or of the official frontend's version passes; any other change
 # updates this file with it.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
@@ -50,10 +52,10 @@ COPY --from=builder /src/build/xmrig /app/xmrig
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/healthcheck.sh /usr/local/bin/healthcheck.sh
 RUN mkdir -p /app/logs /app/configs \
-    && chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh /app/xmrig \
+    && chmod 755 /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh /app/xmrig \
     && groupadd -r -g 999 xmrig \
     && useradd -r -u 999 -g xmrig -s /bin/false xmrig \
-    && chown -R xmrig:xmrig /app
+    && chown xmrig:xmrig /app/logs /app/configs
 USER 999:999
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD ["/usr/local/bin/healthcheck.sh"]
@@ -75,5 +77,10 @@ want='build-essential cmake git libuv1-dev libssl-dev libhwloc-dev'
 [ "$(packages builder)" = "$want" ] || { echo "FAIL builder packages: $(packages builder)"; rc=1; }
 want='ca-certificates libuv1t64 libssl3t64 libhwloc15 procps jq netcat-openbsd'
 [ "$(packages runtime)" = "$want" ] || { echo "FAIL runtime packages: $(packages runtime)"; rc=1; }
+# The ignore file's one line for the settings files, with no exception after it that lets one in.
+d=.dockerignore
+[ "$(grep -cxF 'docker/.env*' "$d")" -eq 1 ] || { echo "FAIL $d: no 'docker/.env*' line"; rc=1; }
+bad=$(grep -E '^[[:space:]]*!' "$d")
+[ -z "$bad" ] || { echo "FAIL $d: an exception lets files back in: $bad"; rc=1; }
 [ "$rc" -eq 0 ] && echo "PASS image-pins"
 exit "$rc"
