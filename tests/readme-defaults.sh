@@ -64,6 +64,24 @@ line_holds '- `--service-as-root`'
 grep -qF 'echo "  --name STRING         Display name for the mining worker (default: random adjective_noun_NNN)"' $N ||
     fail "$N: --help does not give the random worker name as the --name default"
 
+# Docker install (scripts/docker_setup.sh).
+D=scripts/docker_setup.sh
+line_holds '- `--worker-name NAME`' "$(constant $D DEFAULT_WORKER_NAME)"
+line_holds '- `--cpus N` / `--memory LIMIT`' "$(constant $D DEFAULT_CPU_COUNT)" "$(constant $D DEFAULT_MEMORY_LIMIT)"
+line_holds '- `--threads PCT` / `--force-threads N`' "$(constant $D DEFAULT_MAX_THREADS)" "$(constant $D DEFAULT_FORCE_THREAD_COUNT)"
+line_holds '- `--image REF`' "$(constant $D DEFAULT_XMRIG_IMAGE)"
+line_holds '- `--overwrite-env`'
+
+grep -qxF "  --cpus $(constant $D DEFAULT_CPU_COUNT) --memory $(constant $D DEFAULT_MEMORY_LIMIT) \\" "$README" ||
+    fail "$README: the minimal docker run does not use the Docker defaults"
+grep -qxF '  --security-opt no-new-privileges:true \' "$README" ||
+    fail "$README: the minimal docker run does not set no-new-privileges"
+grep -qxF '      - no-new-privileges:true' docker/compose.yml ||
+    fail "docker/compose.yml: no no-new-privileges, which the README claims"
+if grep -n '/app/logs' "$README"; then
+    fail "$README: names /app/logs, where the image writes no log"
+fi
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi

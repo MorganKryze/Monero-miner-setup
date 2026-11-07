@@ -29,23 +29,37 @@ bash -c "${installer:?the download came back empty}" -- \
   --docker -w YOUR_MONERO_WALLET --autostart
 ```
 
-Pulls a multi-arch prebuilt image (`amd64` + `arm64`) from GHCR — no compile step, no Dockerfile toolchain on the host. The installer writes `docker/.env`, then brings up the full stack (compose, healthcheck, log rotation, optional VPN sidecar). The container runs as a non-root `xmrig` user with `no-new-privileges`.
+Pulls a multi-arch prebuilt image (`amd64` + `arm64`) from GHCR — no compile step, no Dockerfile toolchain on the host. The installer writes `docker/.env` (and `docker/.env.vpn` with `--vpn`) only when it's missing or you pass `--overwrite-env`, with mode 600 from the first byte. A kept file that other users can read gets a warning and the `chmod 600` command that restricts it. With `--autostart` it brings up the stack (compose, healthcheck, log rotation, optional VPN sidecar); a re-run without `--vpn` starts it without the VPN sidecar. The container runs as a non-root `xmrig` user, with `no-new-privileges` set in the compose file.
+
+Under 2560 MiB usable (the memory limit or the host's available memory, whichever is lower, plus its free huge pages), the miner warns and runs in light mode. At each start it runs XMRig's offline benchmark in light mode, connected to nothing, and stops it as soon as XMRig saves its thread count: under a second, five at most.
 
 Common flags (run `install.sh --docker --help` for the complete list):
 
 - `--worker-name NAME`: label shown on the pool (default: `docker_miner`)
-- `--cpus N` / `--memory LIMIT`: container caps (defaults: `2.0`, `1g`)
-- `--threads PCT` / `--force-threads N`: XMRig thread tuning (defaults: `75`, `2`)
+- `--pool URL`: pool override (default: `gulf.moneroocean.stream`). A `stratum+ssl://` URL is kept as given, so give its port; only a bare or `stratum+tcp://` MoneroOcean URL gets the computed port
+- `--cpus N` / `--memory LIMIT`: container caps (defaults: `2.0`, `3g`). Under 2560 MiB the miner runs in RandomX light mode, at a fraction of the hashrate
+- `--threads PCT` / `--force-threads N`: threads as a percentage of the container's CPU quota, at most the count XMRig picks itself, or exactly N threads (defaults: `75`, none)
 - `--pause-battery` / `--pause-active`: pause mining when on battery or when the user is active
 - `--vpn PROVIDER`: route mining through a VPN, see [VPN config](#vpn-config-docker)
 - `--image REF`: pin a specific tag or point at a fork (default: `ghcr.io/morgankryze/monero-miner-setup:latest`)
 - `--build`: build the image locally from source instead of pulling (see below)
+- `--overwrite-env`: rewrite `docker/.env` (and `docker/.env.vpn` with `--vpn`) from this run's flags. Without it, a re-run keeps both files as they are
 
 Available image tags:
 
-- `:latest`: tracks the `main` branch. Auto-updates whenever `main` changes (Dependabot bumps, etc.).
-- `:main-abc1234`: commit-pinned build off `main`. Use for reproducibility without committing to a version tag.
-- `:vX.Y.Z`, `:vX.Y`: release pins. Match git tags on the repo.
+- `:latest`: follows `main`. Rebuilt on every push to `main` and after each Dependabot merge, never by a manual run.
+- `:main-abc1234`: one per commit on `main`.
+- `:X.Y.Z`, `:X.Y`: release pins, without the `v`. A `vX.Y.Z` git tag publishes both and moves `:latest`.
+
+An image older than 0.1.0 under the new compose file writes its log file inside the container, and it grows unbounded.
+
+To pin a release, clone it and run its own installer: the commands above fetch `docker_setup.sh` from `main`, so `--image` alone pins only the image, not the installer. A tag checkout has no branch, so `make update` doesn't apply to it: check out the next tag instead.
+
+```bash
+git clone --branch v0.1.0 --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
+cd Monero-miner-setup
+./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:0.1.0 -w YOUR_MONERO_WALLET --autostart
+```
 
 ### Docker (build from source)
 
@@ -57,7 +71,7 @@ bash -c "${installer:?the download came back empty}" -- \
   --docker --build -w YOUR_MONERO_WALLET --autostart
 ```
 
-First run compiles XMRig (3–8 min). The runtime image is ~128 MB. Everything else is identical to the prebuilt path.
+First run compiles XMRig (3–8 min). The runtime image is about 190 MB. Everything else is identical to the prebuilt path.
 
 ### Minimal `docker run`
 
@@ -67,9 +81,9 @@ If you don't want the installer, compose, or VPN support, a single `docker run` 
 docker run -d \
   --name monero_xmrig_miner \
   --restart unless-stopped \
-  --cpus 2.0 --memory 1g \
+  --cpus 2.0 --memory 3g \
+  --security-opt no-new-privileges:true \
   -e WALLET_ADDRESS=YOUR_MONERO_WALLET \
-  -v "$PWD/logs:/app/logs" \
   ghcr.io/morgankryze/monero-miner-setup:latest
 ```
 
@@ -242,7 +256,7 @@ Skip the installer and wire the override yourself:
 
 ```bash
 cd docker/
-cp .env.vpn.example .env.vpn
+cp .env.vpn.example .env.vpn && chmod 600 .env.vpn
 # Uncomment ONE provider block in .env.vpn and fill in credentials.
 docker compose -f compose.yml -f compose.vpn.yml up -d
 ```
@@ -255,7 +269,7 @@ Check the exit IP is not yours:
 docker exec monero_xmrig_gluetun wget -qO- https://ifconfig.io
 ```
 
-Gluetun's killswitch (`FIREWALL=on`) blocks outbound traffic if the VPN drops, so your real IP can't leak.
+Gluetun's killswitch is on by Gluetun's default: if the tunnel drops, outbound traffic stops, so your real IP can't leak. Nothing the project writes turns it off.
 
 Tradeoffs to know about:
 
@@ -287,9 +301,9 @@ For the native install, run from the repo root. Targets work on both Linux (syst
 
 Neither `make service-disable` nor `make wipe` removes the `xmrig` account. Remove it with `sudo userdel xmrig`.
 
-Docker equivalents: `docker compose up -d`, `down`, `logs -f`, `restart`, `ps`.
+Docker equivalents, from `docker/`: `docker compose up -d`, `down`, `logs -f`, `restart`, `ps`. `docker compose down -v` also removes the config volume.
 
-One-off benchmark from a Docker install (builds the image if needed, no wallet required):
+One-off benchmark from a Docker install, run from `docker/` (builds the image if needed, no wallet required):
 
 ```bash
 docker compose run --rm --entrypoint /app/xmrig xmrig --bench=1M
@@ -307,6 +321,14 @@ An update keeps your wallet, pool and worker settings. A few steps are yours.
 - The setup turns background mode off in `configs/config_background.json`, that one setting alone, and says so. Miners an earlier background start left running are reported with the command that stops them (add `sudo` if they run as another user). Nothing is stopped for you.
 - The service keeps running the old binary until you run `make restart`.
 - Installed as root with the clone in `/root`? The miner's account can't enter root's home, so `make update` stops with `The account xmrig cannot run /root/Monero-miner-setup/xmrig; move the clone where it can, such as /opt.` and your old service keeps running. Run `make service-disable` in the old clone, then the installer again as root with `-d /opt` (or without `-d` once `/root/Monero-miner-setup` is gone), passing your wallet and flags again.
+
+**Docker.**
+
+- A re-run keeps your `docker/.env`, and its old values with it. One the old installer wrote holds `FORCE_THREAD_COUNT=2` (2 threads, whatever `--threads` says) and `MEMORY_LIMIT=1g`, under which the miner now runs in light mode instead of restarting in a loop. For the new defaults, run the installer again with `--overwrite-env` and your flags, or set `FORCE_THREAD_COUNT=` and `MEMORY_LIMIT=3g` in the file.
+- A `docker/.env` that leaves a key out gets the new defaults: worker name `docker_miner` (it was `miner_docker`, so the pool shows a new worker), threads 75 % (was 25 % with 2 forced), memory 3g (was 1g).
+- The config moved from `docker/docker-configs` to the `xmrig-configs` volume, and the log from `docker/logs` to the container's output. Delete both folders; use `sudo` if Docker created them as root.
+- An old `docker/.env.vpn` keeps a `FIREWALL=on` line. Gluetun never read it, so it changes nothing; delete it if you like.
+- The MoneroOcean calibration is redone at every container start, as before.
 
 ## Tuning for performance
 
@@ -327,7 +349,7 @@ macOS has no userspace equivalent for any of these. Expect 10–30% less hashrat
 
 The installer fills both in from `templates/*.json.template`, and a re-run keeps them. To regenerate them, run `make clean-configs`, then the installer.
 
-**Docker.** Runtime config lives in `docker/.env` (and `docker/.env.vpn` if VPN is enabled). The installer writes these for you. Both files are `chmod 600`. `docker/.env.example` documents every variable, including `XMRIG_IMAGE` for pinning a specific tag or pointing compose at a forked image.
+**Docker.** Runtime config lives in `docker/.env` (and `docker/.env.vpn` if VPN is enabled). The installer writes them, mode 600, only when they're missing or you pass `--overwrite-env`. The miner's config is built at every start into the named volume `xmrig-configs` (`docker volume ls` shows `docker_xmrig-configs`). `docker compose down` keeps it; `docker compose down -v` removes it. `docker/.env.example` documents every variable, including `XMRIG_IMAGE` for pinning a specific tag or pointing compose at a forked image.
 
 For the XMRig schema itself, see the [XMRig docs](https://xmrig.com/docs).
 
@@ -337,7 +359,7 @@ For the XMRig schema itself, see the [XMRig docs](https://xmrig.com/docs).
 | ------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Linux   | `/var/log/xmrig/<account>/xmrig.log`               | `/etc/logrotate.d/xmrig` (daily, 7 kept, compressed, as the account) if `logrotate` is installed. The service restarts after each rotation: one short pool reconnect a day |
 | macOS   | `$REPO/logs/xmrig_stdout.log` + `xmrig_stderr.log` | None. Truncate them yourself if they grow                                                             |
-| Docker  | `./logs/xmrig.log` + container stdout              | Container stdout rotates via compose (`max-size: 10m`, `max-file: 3`). File log grows until truncated |
+| Docker  | Container output only: `docker compose logs -f`    | Compose rotates it at 3 files of 10 MB. `docker compose down` drops it with the container             |
 
 ## Security
 
@@ -396,7 +418,7 @@ The Docker image runs as a non-root `xmrig` user with `no-new-privileges`. The i
 
 **Service keeps coming back after `make stop`.** Use `make service-disable`. `systemd` and `launchd` re-spawn stopped units; `stop` alone won't keep them down.
 
-**Docker container reports unhealthy on startup.** The first 30–60 s of RandomX dataset allocation predates the healthcheck. `start_period` is set to 60 s, so Docker won't mark it unhealthy during that window. If it lasts longer, check `docker compose logs` for an OOM.
+**Docker container reports unhealthy.** The healthcheck reports unhealthy only when the miner process is gone, or when it holds its pool connection, isn't paused, and used no CPU time since the last check. `start_period` is 60 s. Under 2560 MiB the miner runs in light mode instead of being OOM-killed: give it `--memory 3g`.
 
 **Build fails on macOS.** `make deps-macos` installs `cmake`, `libuv`, `openssl`, `hwloc` with Homebrew, and stops with Homebrew's install command when `brew` isn't on your `PATH`.
 
