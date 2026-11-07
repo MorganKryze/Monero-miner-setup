@@ -207,6 +207,8 @@ function xmrig_own_count() {
     for i in $(seq 1 50); do
         count=$(jq -r '.cpu.rx | if type == "array" and length > 0 then length else empty end' "$dir/config.json" 2>/dev/null) || count=""
         [ -n "$count" ] && break
+        # A probe that already exited will write nothing more: stop waiting for it.
+        kill -0 "$pid" 2>/dev/null || break
         sleep 0.1
     done
     kill "$pid" 2>/dev/null
