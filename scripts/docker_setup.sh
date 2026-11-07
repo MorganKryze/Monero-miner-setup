@@ -436,11 +436,35 @@ function open_own_clone() {
     fi
 }
 
+# only_user_can_write for a file, the one a link points to: that one takes folders only. Group
+# write passes only for a private group, as there.
+function only_user_can_write_file() {
+    local group_ok listing
+    group_ok=(! -perm -0020)
+    if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
+        group_ok=("(" ! -perm -0020 -o -group "$(id -g)" ")")
+    fi
+    [ "$(find -H "$1" -maxdepth 0 -type f ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1" ] || return 1
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        listing=$(ls -leL -- "$1" 2>/dev/null) || return 1
+    else
+        listing=$(ls -lL -- "$1" 2>/dev/null) || return 1
+    fi
+    case $listing in
+        *$'\n'*) return 1 ;;
+    esac
+    case ${listing%% *} in
+        *+) return 1 ;;
+    esac
+}
+
 # A clone this run may write its settings into and start: a git clone owned by you or root (as
 # root, also by the user who ran sudo, who can become root anyway), that no other user can write
-# to, nor to its docker/ folder, where Compose reads its files.
+# to, nor to its docker/ folder, nor to the files there the root daemon acts on: the Compose files
+# (a privileged service, a host folder mounted) and the Dockerfile (the image's user). The rest of
+# the build context is not checked, as nothing in it runs as root.
 function check_clone() {
-    local dir="$1" f owners
+    local dir="$1" f bad="" owners
     if [ ! -d "$dir" ] || [ ! -e "$dir/.git" ]; then
         error "$dir is not a git clone. Move it away, or pass -d with another base directory."
         return 1
@@ -451,10 +475,24 @@ function check_clone() {
     fi
     for f in "$dir" "$dir/docker"; do
         if [ "$(find "$f/" -maxdepth 0 "(" "${owners[@]}" ")" -print 2>/dev/null)" != "$f/" ] || ! only_user_can_write "$f"; then
-            error "$f can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."
-            return 1
+            bad=$f
+            break
         fi
     done
+    if [ -z "$bad" ]; then
+        for f in "$dir/docker/compose.yml" "$dir/docker/compose.vpn.yml" "$dir/docker/Dockerfile"; do
+            # A missing file is one only those who can write to docker/, checked above, could add.
+            if [ ! -e "$f" ] && [ ! -L "$f" ]; then continue; fi
+            if [ "$(find -H "$f" -maxdepth 0 "(" "${owners[@]}" ")" -print 2>/dev/null)" != "$f" ] || ! only_user_can_write_file "$f"; then
+                bad=$f
+                break
+            fi
+        done
+    fi
+    if [ -n "$bad" ]; then
+        error "$bad can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."
+        return 1
+    fi
 }
 
 # Sets REPO_DIR to the clone this run uses: the one this script sits in, else
@@ -477,7 +515,7 @@ function ensure_repo() {
     if [ -z "$own" ]; then
         open_own=$(open_own_clone)
         if [ -n "$open_own" ]; then
-            error "$open_own is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod go-w $open_own, then run again."
+            error "$open_own is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod -R go-w '$open_own', then run again."
             return 1
         fi
     fi

@@ -1,8 +1,8 @@
 #!/bin/bash
 # The Docker installer uses only its own clone, or else $BASE_DIR/Monero-miner-setup, cloned when
 # missing, and only a git clone owned by the user or root (as root, also by the user who ran sudo)
-# that no other user can write to, nor to its docker/ folder; anything else stops with one error
-# line. A folder at or above the current directory that only holds the project's Docker files is
+# that no other user can write to, nor to its docker/ folder, its Compose files or its Dockerfile;
+# anything else stops with one error line. A folder at or above the current directory that only holds the project's Docker files is
 # never adopted: when it is not that clone, the run stops with one error line, before anything is
 # cloned, written or started. Its own-clone functions are scripts/install.sh's, byte for byte.
 # Every run is a copy of the installer in a scratch folder, under env -i, with stub docker, git and
@@ -64,7 +64,7 @@ wallet=4AdUndXHHZ6cfufTMvppY6JwXNouMBzSkbLYfpAV5Usx3skxNgYeYTRj5UzqtReoS44qo9mtm
 # clone <dir>: a clone of the project, with this tree's installer in it, modes set, not left to umask.
 clone() {
   mkdir -p "$1/.git" "$1/docker" "$1/scripts"
-  : > "$1/docker/compose.yml"; : > "$1/docker/Dockerfile"
+  : > "$1/docker/compose.yml"; : > "$1/docker/compose.vpn.yml"; : > "$1/docker/Dockerfile"
   cp "$root/scripts/docker_setup.sh" "$1/scripts/docker_setup.sh"
   chmod 755 "$1" "$1/docker"
 }
@@ -111,7 +111,7 @@ look_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run use
 # With a docker/.env there, a run from outside it would start a second set of settings: only the
 # install.sh remedy is offered.
 kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. If it is your own clone, run its scripts/install.sh --docker."; }
-mode_line() { echo "$1 is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod go-w $1, then run again."; }
+mode_line() { echo "$1 is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod -R go-w '$1', then run again."; }
 open_line() { echo "$1 can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."; }
 home_clone="$w/home/Monero-miner-setup"
 
@@ -220,6 +220,31 @@ for m in 777 1777 775 757; do
   refused "docker-$m" "$(open_line "$c/docker")" "$c"
   chmod 755 "$c/docker"
 done
+# The files the daemon reads, Compose's and the Dockerfile's, open to others in a clone whose
+# folders are not: refused, so no one else can add a privileged service or drop the image's user.
+for f in compose.yml compose.vpn.yml Dockerfile; do
+  chmod 666 "$c/docker/$f"
+  run "file-open-$f" "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
+  refused "file-open-$f" "$(open_line "$c/docker/$f")" "$c"
+  chmod 644 "$c/docker/$f"
+done
+chmod 666 "$w/own/docker/compose.yml"
+run own-file-open "$w/own" "$w/own/scripts/docker_setup.sh" --autostart
+refused own-file-open "$(open_line "$w/own/docker/compose.yml")" "$w/own"
+chmod 644 "$w/own/docker/compose.yml"
+# Through a link, the file Compose reads is the one checked, open or not.
+: > "$w/open.yml"; chmod 666 "$w/open.yml"
+mv "$c/docker/compose.yml" "$w/compose.yml.real"; ln -s "$w/open.yml" "$c/docker/compose.yml"
+run file-open-link "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
+refused file-open-link "$(open_line "$c/docker/compose.yml")" "$c"
+chmod 644 "$w/open.yml"
+run file-closed-link "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
+used file-closed-link "$c" "Found existing clone at $c."
+rm "$c/docker/compose.yml"; mv "$w/compose.yml.real" "$c/docker/compose.yml"
+ID_MODE=private; chmod 664 "$c/docker/compose.yml"
+run file-private-group "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
+used file-private-group "$c" "Found existing clone at $c."
+unset ID_MODE; chmod 644 "$c/docker/compose.yml"
 ID_MODE=private; chmod 775 "$c" "$c/docker"
 run private-group "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
 used private-group "$c" "Found existing clone at $c."
