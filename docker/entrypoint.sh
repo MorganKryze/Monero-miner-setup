@@ -2,6 +2,12 @@
 
 set -e
 
+# Where the image keeps the miner, its config and the wallet secret. A check sources this file
+# and points them at fixtures.
+XMRIG_BIN=/app/xmrig
+CONFIG_DIR=/app/configs
+WALLET_SECRET=/run/secrets/wallet_address
+
 # Colors for logging
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -25,125 +31,8 @@ function log_error() {
     echo -e "[${RED}  ERROR  ${RESET}] ${RED}$1${RESET}" >&2
 }
 
-# Check if wallet address is provided
-if [ -z "$WALLET_ADDRESS" ]; then
-    if [ -f "/run/secrets/wallet_address" ]; then
-        WALLET_ADDRESS=$(cat /run/secrets/wallet_address)
-    else
-        log_error "WALLET_ADDRESS environment variable is required"
-        exit 1
-    fi
-fi
-
-# Validate wallet address: length + leading char + base58 alphabet.
-# Strips optional ".paymentid" suffix before validating the base address.
-wallet_base=$(echo "$WALLET_ADDRESS" | cut -f1 -d".")
-wallet_len=${#wallet_base}
-
-if [ "$wallet_len" != 95 ] && [ "$wallet_len" != 106 ]; then
-    log_error "Invalid wallet length: $wallet_len (expected 95 or 106)"
-    exit 1
-fi
-
-# Monero addresses start with '4' (standard/integrated) or '8' (subaddress)
-# and use the base58 alphabet (no 0, O, I, l).
-if ! [[ "$wallet_base" =~ ^[48][1-9A-HJ-NP-Za-km-z]+$ ]]; then
-    log_error "Invalid wallet format: must start with '4' or '8' and use base58 characters only (no 0, O, I, l)"
-    exit 1
-fi
-
-log_info "Using wallet address: $WALLET_ADDRESS"
-log_info "Wallet format looks valid (length $wallet_len, leading char '${wallet_base:0:1}')"
-
-# Set default values
-WORKER_NAME=${WORKER_NAME:-"docker_miner_$(head /dev/urandom | tr -dc a-z0-9 | head -c 6)"}
-POOL_URL=${POOL_URL:-"gulf.moneroocean.stream"}
-DONATE_LEVEL=${DONATE_LEVEL:-0}
-MAX_THREADS_PERCENT=${MAX_THREADS_PERCENT:-75}
-PAUSE_ON_BATTERY=${PAUSE_ON_BATTERY:-false}
-PAUSE_ON_ACTIVE=${PAUSE_ON_ACTIVE:-false}
-FORCE_THREAD_COUNT=${FORCE_THREAD_COUNT:-}
-
-# Calculate thread count
-AVAILABLE_CPUS=$(nproc)
-log_info "Available CPU cores: $AVAILABLE_CPUS"
-
-if [ -n "$FORCE_THREAD_COUNT" ]; then
-    THREAD_COUNT=$FORCE_THREAD_COUNT
-    log_info "Using forced thread count: $THREAD_COUNT"
-else
-    THREAD_COUNT=$((AVAILABLE_CPUS * MAX_THREADS_PERCENT / 100))
-    if [ "$THREAD_COUNT" -lt 1 ]; then
-        THREAD_COUNT=1
-    fi
-    log_info "Calculated thread count: $THREAD_COUNT (${MAX_THREADS_PERCENT}% of $AVAILABLE_CPUS cores)"
-fi
-
-# Handle pool URL and port
-if [[ "$POOL_URL" != *":"* ]]; then
-    # No port specified, calculate optimal port for MoneroOcean
-    if [[ "$POOL_URL" == *"moneroocean"* ]]; then
-        EXP_MONERO_HASHRATE=$((THREAD_COUNT * 700 / 1000))
-        PORT=$((EXP_MONERO_HASHRATE * 30))
-        PORT=$((PORT == 0 ? 1 : PORT))
-
-        # Calculate power of 2
-        if [ "$PORT" -gt "8192" ]; then
-            PORT="8192"
-        elif [ "$PORT" -gt "4096" ]; then
-            PORT="4096"
-        elif [ "$PORT" -gt "2048" ]; then
-            PORT="2048"
-        elif [ "$PORT" -gt "1024" ]; then
-            PORT="1024"
-        elif [ "$PORT" -gt "512" ]; then
-            PORT="512"
-        elif [ "$PORT" -gt "256" ]; then
-            PORT="256"
-        elif [ "$PORT" -gt "128" ]; then
-            PORT="128"
-        elif [ "$PORT" -gt "64" ]; then
-            PORT="64"
-        elif [ "$PORT" -gt "32" ]; then
-            PORT="32"
-        elif [ "$PORT" -gt "16" ]; then
-            PORT="16"
-        elif [ "$PORT" -gt "8" ]; then
-            PORT="8"
-        elif [ "$PORT" -gt "4" ]; then
-            PORT="4"
-        elif [ "$PORT" -gt "2" ]; then
-            PORT="2"
-        else
-            PORT="1"
-        fi
-
-        PORT=$((10000 + PORT))
-        FULL_POOL_URL="${POOL_URL}:${PORT}"
-    else
-        # Default port for other pools
-        FULL_POOL_URL="${POOL_URL}:3333"
-    fi
-else
-    FULL_POOL_URL="$POOL_URL"
-fi
-
-log_info "Using pool: $FULL_POOL_URL"
-
-# Test pool connectivity
-log_info "Testing pool connectivity..."
-if timeout 10 nc -z $(echo $FULL_POOL_URL | cut -d: -f1) $(echo $FULL_POOL_URL | cut -d: -f2) 2>/dev/null; then
-    log_success "Pool is reachable"
-else
-    log_warning "Pool connectivity test failed, but continuing anyway..."
-fi
-
-# Create configuration directory if it doesn't exist
-mkdir -p /app/configs
-
-# Generate XMRig configuration
-cat >/app/configs/config.json <<EOF
-{
+# A jq program: the values come in as $variables, never as text.
+CONFIG_TEMPLATE='{
     "api": {
         "id": null,
         "worker-id": null
@@ -178,7 +67,7 @@ cat >/app/configs/config.json <<EOF
         "priority": null,
         "memory-pool": true,
         "yield": true,
-        "max-threads-hint": ${MAX_THREADS_PERCENT},
+        "max-threads-hint": $hint,
         "asm": true,
         "argon2-impl": null,
         "astrobwt-max-size": 550,
@@ -208,16 +97,16 @@ cat >/app/configs/config.json <<EOF
         "bfactor-hint": 6,
         "bsleep-hint": 25
     },
-    "donate-level": ${DONATE_LEVEL},
+    "donate-level": $donate,
     "donate-over-proxy": 1,
     "log-file": "/app/logs/xmrig.log",
     "pools": [
         {
             "algo": null,
             "coin": null,
-            "url": "${FULL_POOL_URL}",
-            "user": "${WALLET_ADDRESS}",
-            "pass": "${WORKER_NAME}",
+            "url": $url,
+            "user": $user,
+            "pass": $pass,
             "rig-id": null,
             "nicehash": false,
             "keepalive": true,
@@ -252,25 +141,204 @@ cat >/app/configs/config.json <<EOF
     "user-agent": null,
     "verbose": 1,
     "watch": true,
-    "pause-on-battery": ${PAUSE_ON_BATTERY},
-    "pause-on-active": ${PAUSE_ON_ACTIVE}
+    "pause-on-battery": $battery,
+    "pause-on-active": $active
+} | if $threads == null then . else .cpu["*"] = {"threads": $threads, "affinity": -1} end'
+
+# The value rules, the same in scripts/install.sh, scripts/docker_setup.sh and here. Every
+# value that reaches the miner's config passes one of them first.
+function is_wallet() {
+    local LC_ALL=C re='^[48]([1-9A-HJ-NP-Za-km-z]{94}|[1-9A-HJ-NP-Za-km-z]{105})([.][A-Za-z0-9]{1,64})?$'
+    [[ $1 =~ $re ]]
 }
-EOF
 
-log_success "Configuration generated successfully"
-log_info "Worker name: $WORKER_NAME"
-log_info "Thread count: $THREAD_COUNT"
-log_info "Pool URL: $FULL_POOL_URL"
-log_info "Donate level: ${DONATE_LEVEL}%"
+function is_worker_name() {
+    local LC_ALL=C re='^[A-Za-z0-9._@:+-]{1,64}$'
+    [[ $1 =~ $re ]]
+}
 
-# Add thread configuration if forced count is specified
-if [ -n "$FORCE_THREAD_COUNT" ]; then
-    log_info "Adding explicit thread configuration..."
-    # Create a temporary config with thread specification
-    jq --argjson threads "$THREAD_COUNT" '.cpu["*"] = {"threads": $threads, "affinity": -1}' /app/configs/config.json >/tmp/config_with_threads.json
-    mv /tmp/config_with_threads.json /app/configs/config.json
+function is_pool() {
+    local LC_ALL=C hostport re='^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(:([0-9]{1,5}))?$'
+    case $1 in
+        stratum+tcp://* | stratum+ssl://*) hostport=${1#stratum+???://} ;;
+        *) hostport=$1 ;;
+    esac
+    [[ $hostport =~ $re ]] || return 1
+    [ -z "${BASH_REMATCH[3]}" ] || { [ "$((10#${BASH_REMATCH[3]}))" -ge 1 ] && [ "$((10#${BASH_REMATCH[3]}))" -le 65535 ]; }
+}
+
+# Arguments: value, lowest, highest.
+function is_whole_number() {
+    local LC_ALL=C re='^[0-9]{1,5}$'
+    [[ $1 =~ $re ]] && [ "$((10#$1))" -ge "$2" ] && [ "$((10#$1))" -le "$3" ]
+}
+
+function check_values() {
+    if ! is_wallet "$WALLET_ADDRESS"; then
+        log_error "Invalid wallet: 95 or 106 base58 characters starting with 4 or 8, then optionally one '.' and 1 to 64 letters or digits."
+        return 1
+    fi
+    if ! is_worker_name "$WORKER_NAME"; then
+        log_error "WORKER_NAME must be 1 to 64 letters, digits or . _ - @ : + characters."
+        return 1
+    fi
+    if ! is_pool "$POOL_URL"; then
+        log_error "POOL_URL must be a host name or IPv4 address, optionally after stratum+tcp:// or stratum+ssl:// and before a :port from 1 to 65535."
+        return 1
+    fi
+    if ! is_whole_number "$DONATE_LEVEL" 0 5; then
+        log_error "DONATE_LEVEL must be a whole number from 0 to 5."
+        return 1
+    fi
+    if ! is_whole_number "$MAX_THREADS_PERCENT" 1 100; then
+        log_error "MAX_THREADS_PERCENT must be a whole number from 1 to 100."
+        return 1
+    fi
+    if [ -n "$FORCE_THREAD_COUNT" ] && ! is_whole_number "$FORCE_THREAD_COUNT" 1 1024; then
+        log_error "FORCE_THREAD_COUNT must be empty or a whole number from 1 to 1024."
+        return 1
+    fi
+    case $PAUSE_ON_BATTERY in true | false) ;; *) log_error "PAUSE_ON_BATTERY must be true or false."; return 1 ;; esac
+    case $PAUSE_ON_ACTIVE in true | false) ;; *) log_error "PAUSE_ON_ACTIVE must be true or false."; return 1 ;; esac
+}
+
+function main() {
+    # Check if wallet address is provided
+    if [ -z "$WALLET_ADDRESS" ]; then
+        if [ -f "$WALLET_SECRET" ]; then
+            WALLET_ADDRESS=$(cat "$WALLET_SECRET")
+        else
+            log_error "WALLET_ADDRESS environment variable is required"
+            exit 1
+        fi
+    fi
+
+    # Set default values
+    WORKER_NAME=${WORKER_NAME:-docker_miner}
+    POOL_URL=${POOL_URL:-gulf.moneroocean.stream}
+    DONATE_LEVEL=${DONATE_LEVEL:-0}
+    MAX_THREADS_PERCENT=${MAX_THREADS_PERCENT:-75}
+    PAUSE_ON_BATTERY=${PAUSE_ON_BATTERY:-false}
+    PAUSE_ON_ACTIVE=${PAUSE_ON_ACTIVE:-false}
+    FORCE_THREAD_COUNT=${FORCE_THREAD_COUNT:-}
+
+    check_values || exit 1
+    # The rules accept leading zeros, which bash arithmetic would read as octal: 08 fails, 075 is 61.
+    DONATE_LEVEL=$((10#$DONATE_LEVEL))
+    MAX_THREADS_PERCENT=$((10#$MAX_THREADS_PERCENT))
+    if [ -n "$FORCE_THREAD_COUNT" ]; then FORCE_THREAD_COUNT=$((10#$FORCE_THREAD_COUNT)); fi
+    log_info "Using wallet address: $WALLET_ADDRESS"
+
+    # Calculate thread count
+    AVAILABLE_CPUS=$(nproc)
+    log_info "Available CPU cores: $AVAILABLE_CPUS"
+
+    if [ -n "$FORCE_THREAD_COUNT" ]; then
+        THREAD_COUNT=$FORCE_THREAD_COUNT
+        log_info "Using forced thread count: $THREAD_COUNT"
+    else
+        THREAD_COUNT=$((AVAILABLE_CPUS * MAX_THREADS_PERCENT / 100))
+        if [ "$THREAD_COUNT" -lt 1 ]; then
+            THREAD_COUNT=1
+        fi
+        log_info "Calculated thread count: $THREAD_COUNT (${MAX_THREADS_PERCENT}% of $AVAILABLE_CPUS cores)"
+    fi
+
+    # Handle pool URL and port
+    local hostport=${POOL_URL#stratum+???://}
+    if [[ "$hostport" != *":"* ]]; then
+        # No port specified, calculate optimal port for MoneroOcean
+        if [[ "$POOL_URL" == *"moneroocean"* ]]; then
+            EXP_MONERO_HASHRATE=$((THREAD_COUNT * 700 / 1000))
+            PORT=$((EXP_MONERO_HASHRATE * 30))
+            PORT=$((PORT == 0 ? 1 : PORT))
+
+            # Calculate power of 2
+            if [ "$PORT" -gt "8192" ]; then
+                PORT="8192"
+            elif [ "$PORT" -gt "4096" ]; then
+                PORT="4096"
+            elif [ "$PORT" -gt "2048" ]; then
+                PORT="2048"
+            elif [ "$PORT" -gt "1024" ]; then
+                PORT="1024"
+            elif [ "$PORT" -gt "512" ]; then
+                PORT="512"
+            elif [ "$PORT" -gt "256" ]; then
+                PORT="256"
+            elif [ "$PORT" -gt "128" ]; then
+                PORT="128"
+            elif [ "$PORT" -gt "64" ]; then
+                PORT="64"
+            elif [ "$PORT" -gt "32" ]; then
+                PORT="32"
+            elif [ "$PORT" -gt "16" ]; then
+                PORT="16"
+            elif [ "$PORT" -gt "8" ]; then
+                PORT="8"
+            elif [ "$PORT" -gt "4" ]; then
+                PORT="4"
+            elif [ "$PORT" -gt "2" ]; then
+                PORT="2"
+            else
+                PORT="1"
+            fi
+
+            PORT=$((10000 + PORT))
+            FULL_POOL_URL="${POOL_URL}:${PORT}"
+        else
+            # Default port for other pools
+            FULL_POOL_URL="${POOL_URL}:3333"
+        fi
+    else
+        FULL_POOL_URL="$POOL_URL"
+    fi
+
+    log_info "Using pool: $FULL_POOL_URL"
+
+    # Test pool connectivity
+    log_info "Testing pool connectivity..."
+    hostport=${FULL_POOL_URL#stratum+???://}
+    if timeout 10 nc -z "${hostport%:*}" "${hostport##*:}" 2>/dev/null; then
+        log_success "Pool is reachable"
+    else
+        log_warning "Pool connectivity test failed, but continuing anyway..."
+    fi
+
+    write_config || exit 1
+
+    log_success "Configuration generated successfully"
+    log_info "Worker name: $WORKER_NAME"
+    log_info "Thread count: $THREAD_COUNT"
+    log_info "Pool URL: $FULL_POOL_URL"
+    log_info "Donate level: ${DONATE_LEVEL}%"
+
+    # Start XMRig with verbose logging
+    log_info "Starting XMRig miner with verbose logging..."
+    exec "$XMRIG_BIN" --config="$CONFIG_DIR/config.json" --verbose
+}
+
+# The miner's config, built as data: every value goes in as a JSON string, number or boolean
+# holding exactly that value. It is written beside the old one and renamed over it, so a failed
+# write leaves no partial config and the miner does not start.
+function write_config() {
+    local tmp forced=null
+    if [ -n "$FORCE_THREAD_COUNT" ]; then forced=$THREAD_COUNT; fi
+    mkdir -p "$CONFIG_DIR" && tmp=$(mktemp "$CONFIG_DIR/config.json.XXXXXX") || {
+        log_error "Could not write the miner's config in $CONFIG_DIR."
+        return 1
+    }
+    if ! jq -n \
+        --arg url "$FULL_POOL_URL" --arg user "$WALLET_ADDRESS" --arg pass "$WORKER_NAME" \
+        --argjson donate "$DONATE_LEVEL" --argjson hint "$MAX_THREADS_PERCENT" --argjson threads "$forced" \
+        --argjson battery "$PAUSE_ON_BATTERY" --argjson active "$PAUSE_ON_ACTIVE" "$CONFIG_TEMPLATE" >"$tmp" \
+        || ! chmod 644 "$tmp" || ! mv -f "$tmp" "$CONFIG_DIR/config.json"; then
+        rm -f "$tmp"
+        log_error "Could not write the miner's config in $CONFIG_DIR."
+        return 1
+    fi
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
 fi
-
-# Start XMRig with verbose logging
-log_info "Starting XMRig miner with verbose logging..."
-exec /app/xmrig --config=/app/configs/config.json --verbose
