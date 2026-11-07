@@ -13,24 +13,28 @@ services:
     
     environment:
       - WALLET_ADDRESS=${WALLET_ADDRESS}
-      - WORKER_NAME=${WORKER_NAME:-miner_docker}
+      - WORKER_NAME=${WORKER_NAME:-docker_miner}
       - POOL_URL=${POOL_URL:-gulf.moneroocean.stream}
       - DONATE_LEVEL=${DONATE_LEVEL:-0}
-      - MAX_THREADS_PERCENT=${MAX_THREADS_PERCENT:-25}
+      - MAX_THREADS_PERCENT=${MAX_THREADS_PERCENT:-75}
       - PAUSE_ON_BATTERY=${PAUSE_ON_BATTERY:-false}
       - PAUSE_ON_ACTIVE=${PAUSE_ON_ACTIVE:-false}
-      - FORCE_THREAD_COUNT=${FORCE_THREAD_COUNT:-2}
+      - FORCE_THREAD_COUNT=${FORCE_THREAD_COUNT:-}
     
     # Resource caps. Top-level keys rather than deploy.resources.limits so
     # they apply under plain `docker compose up` without requiring Swarm mode.
     cpus: '${CPU_COUNT:-2.0}'
-    mem_limit: '${MEMORY_LIMIT:-1g}'
+    # 3g holds RandomX's fast-mode dataset (2.30 GiB measured); under 2560 MiB the miner
+    # switches to light mode itself, at a fraction of the hashrate.
+    mem_limit: '${MEMORY_LIMIT:-3g}'
 
 
-    # Mount logs for persistence
+    # The miner's config directory. A named volume starts as a copy of the image's directory, owned
+    # by the account the miner runs as, so that account can write it on Linux too. It keeps nothing
+    # across starts: the entrypoint rewrites config.json at every start.
     volumes:
-      - ./logs:/app/logs
-      - ./docker-configs:/app/configs
+      - xmrig-configs:/app/configs
+
     
     # Security options
     security_opt:
@@ -50,11 +54,12 @@ services:
       retries: 3
       start_period: 60s
 
-    # Container stdout/stderr rotation (the /app/logs/xmrig.log file inside
-    # the container is separate; mount it read-only or truncate it externally
-    # if disk growth is a concern).
+    # The miner logs only to its output, rotated here.
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  xmrig-configs:
