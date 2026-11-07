@@ -302,7 +302,7 @@ An update keeps your wallet, pool and worker settings. A few steps are yours.
 **Native.**
 
 - Update the way you installed: as yourself, with `sudo`, or as root. The service runs the miner as the account that gives (you, the user who ran `sudo`, or the system account `xmrig`).
-- Before you update, run `grep -n -- --remote Makefile` in the clone. If it prints a line, your clone has the old recipe: the first `make update` builds XMRig's upstream tip instead of the pinned commit, so run `make update` twice.
+- Before you update, run `grep -n -- --remote Makefile` in the clone. If it prints a line, your clone has the old recipe: a `make update` would build XMRig's upstream tip instead of the pinned commit. Run `git pull` first, then `make update`.
 - `make update` sets the service up without `--service-as-root`. To keep a root service, run `SERVICE_AS_ROOT=yes make update` as root.
 - The setup turns background mode off in `configs/config_background.json`, that one setting alone, and says so. Miners an earlier background start left running are reported with the command that stops them (add `sudo` if they run as another user). Nothing is stopped for you.
 - The service keeps running the old binary until you run `make restart`.
