@@ -536,7 +536,12 @@ function ensure_repo() {
     if [ -n "$found" ] && [ "$found" != "$REPO_DIR" ]; then
         # A run from outside a folder holding settings would start a second set under the same
         # Compose project, so that remedy is offered only when there are none.
-        if [ -e "$found/docker/.env" ]; then
+        # A git clone of yours that only the write check keeps from use would be refused by its
+        # own installer too, so the remedy then is to restrict it.
+        if [ -e "$found/docker/.env" ] && [ -e "$found/.git" ] && trusted_owner "$found/" &&
+            { ! only_user_can_write "$found" || ! only_user_can_write "$found/docker"; }; then
+            error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. If it is your own clone, run chmod -R go-w '$found', then its scripts/install.sh --docker."
+        elif [ -e "$found/docker/.env" ]; then
             error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. If it is your own clone, run its scripts/install.sh --docker."
         else
             error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. Run again from outside $found, or, if it is your own clone, with its scripts/install.sh --docker."

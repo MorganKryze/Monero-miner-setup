@@ -113,6 +113,9 @@ look_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run use
 # With a docker/.env there, a run from outside it would start a second set of settings: only the
 # install.sh remedy is offered.
 kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. If it is your own clone, run its scripts/install.sh --docker."; }
+# A git clone there that only the write check keeps from use: the remedy is to restrict it, as
+# its own installer would refuse it too.
+open_kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. If it is your own clone, run chmod -R go-w '$1', then its scripts/install.sh --docker."; }
 mode_line() { echo "$1 is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod -R go-w '$1', then run again."; }
 open_line() { echo "$1 can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."; }
 # With settings in it, a run in another base directory would start a fresh set under the same
@@ -165,6 +168,16 @@ want look-piped stderr "[  ERROR  ] $(kept_line "$w/shared" "$home_clone")" "$er
 run look-own "$w/shared" "$w/own/scripts/docker_setup.sh" --autostart
 KEPT=1 refused look-own "$(kept_line "$w/shared" "$w/own")" "$w/shared"
 cmp -s "$w/shared/docker/.env" "$w/planted.env" || fail "look-own: the planted .env changed"
+clone "$w/open-clone"
+printf 'WORKER_NAME="rig9"\n' > "$w/open-clone/docker/.env"
+chmod 600 "$w/open-clone/docker/.env"
+chmod 777 "$w/open-clone"
+run look-open-clone "$w/open-clone" "$w/fetched/docker_setup.sh"
+KEPT=1 refused look-open-clone "$(open_kept_line "$w/open-clone" "$home_clone")" "$w/open-clone"
+chmod 755 "$w/open-clone"; chmod 777 "$w/open-clone/docker"
+run look-open-clone-docker "$w/open-clone" "$w/fetched/docker_setup.sh"
+KEPT=1 refused look-open-clone-docker "$(open_kept_line "$w/open-clone" "$home_clone")" "$w/open-clone"
+rm -rf "$w/open-clone"
 # A lookalike inside the own clone is nearer than the clone itself: it stops the run too.
 lookalike "$w/own/sub"
 run look-inside-own "$w/own/sub" "$w/own/scripts/docker_setup.sh"
