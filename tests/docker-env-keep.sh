@@ -75,13 +75,15 @@ run rerun-no-wallet -y
 want rerun-no-wallet exit 1 "$code"
 cmp -s "$env" "$w/env.first" || fail "rerun-no-wallet: .env changed"
 
-# A kept file others can read: one warning, mode unchanged.
-chmod 644 "$env"
-run loose -w "$wallet" -y
-want loose exit 0 "$code"
-want loose mode "-rw-r--r--" "$(mode "$env")"
-want loose stderr "[ WARNING ] $env can be read or changed by other users. Restrict it with: chmod 600 $env" "$err"
-cmp -s "$env" "$w/env.first" || fail "loose: .env changed"
+# A kept file the group or others can read or write: one warning, mode unchanged.
+for m in 644:-rw-r--r-- 604:-rw----r-- 606:-rw----rw- 640:-rw-r----- 620:-rw--w----; do
+  chmod "${m%%:*}" "$env"
+  run "loose-${m%%:*}" -w "$wallet" -y
+  want "loose-${m%%:*}" exit 0 "$code"
+  want "loose-${m%%:*}" mode "${m#*:}" "$(mode "$env")"
+  want "loose-${m%%:*}" stderr "[ WARNING ] $env can be read or changed by other users. Restrict it with: chmod 600 $env" "$err"
+  cmp -s "$env" "$w/env.first" || fail "loose-${m%%:*}: .env changed"
+done
 chmod 600 "$env"
 
 # --overwrite-env rewrites it from this run's flags, with one line naming it.
@@ -113,6 +115,15 @@ cmp -s "$env" "$w/env.vpnrun" || fail "vpn-rerun: .env changed"
 has vpn-rerun "$out" "$(keep_line "$vpn")"
 has vpn-rerun "$out" "$(keep_line "$env")"
 want vpn-rerun stderr "" "$err"
+
+# A kept .env.vpn others can read gets the same warning, and only it.
+chmod 604 "$vpn"
+run vpn-loose -w "$wallet" -y --vpn mullvad
+want vpn-loose exit 0 "$code"
+want vpn-loose mode "-rw----r--" "$(mode "$vpn")"
+want vpn-loose stderr "[ WARNING ] $vpn can be read or changed by other users. Restrict it with: chmod 600 $vpn" "$err"
+cmp -s "$vpn" "$w/vpn.first" || fail "vpn-loose: .env.vpn changed"
+chmod 600 "$vpn"
 
 # --overwrite-env without a provider leaves .env.vpn as it is.
 run overwrite-novpn -w "$wallet" -y --overwrite-env --worker-name third
