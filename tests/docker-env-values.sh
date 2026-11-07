@@ -120,22 +120,23 @@ WG_ADDR=10.64.0.1/32 run key-file --vpn mullvad --wg-key-file "$w/key"
 want key-file exit 0 "$code"
 grep -qx 'WIREGUARD_PRIVATE_KEY="onlyline"' "$vpn" || fail "key-file: $(grep KEY "$vpn")"
 
-# Secrets holding $, #, quotes, backslashes and non-ASCII letters: the escaped form, and that form
-# read back as Compose does (inside double quotes, a backslash keeps the next character) is the
-# value, byte for byte. Every provider's whole file, but its date line; none sets FIREWALL.
+# Secrets, addresses, users and locations holding $, #, quotes, backslashes and non-ASCII letters:
+# the escaped form, and that form read back as Compose does (inside double quotes, a backslash
+# keeps the next character) is the value, byte for byte. Every provider's whole file, but its date
+# line; none sets FIREWALL.
 secret='pa$$w0rd #tail "q" back\slash ab$HOMEcd ü'
 escaped='pa\$\$w0rd #tail \"q\" back\\slash ab\$HOMEcd ü'
 unescape() { local v=$1 out="" c; while [ -n "$v" ]; do c=${v:0:1} v=${v:1}; if [ "$c" = '\' ]; then c=${v:0:1} v=${v:1}; fi; out+=$c; done; printf '%s' "$out"; }
 want round-trip value "$secret" "$(unescape "$escaped")"
-WG_KEY=$secret WG_ADDR=10.64.0.1/32 run mullvad --vpn mullvad --vpn-location 'Zürich'
+WG_KEY=$secret WG_ADDR=$secret run mullvad --vpn mullvad --vpn-location "$secret"
 want mullvad .env.vpn "$(printf '%s\n' 'VPN_SERVICE_PROVIDER="mullvad"' 'VPN_TYPE="wireguard"' "WIREGUARD_PRIVATE_KEY=\"$escaped\"" \
-  'WIREGUARD_ADDRESSES="10.64.0.1/32"' 'SERVER_CITIES="Zürich"' 'TZ="UTC"' 'LOG_LEVEL="info"')" "$(body "$vpn")"
+  "WIREGUARD_ADDRESSES=\"$escaped\"" "SERVER_CITIES=\"$escaped\"" 'TZ="UTC"' 'LOG_LEVEL="info"')" "$(body "$vpn")"
 want mullvad mode "-rw-------" "$(ls -l "$vpn" | cut -c1-10)"
 WG_KEY=k WG_ADDR=10.2.0.2/32 run protonvpn --vpn protonvpn
 want protonvpn .env.vpn "$(printf '%s\n' 'VPN_SERVICE_PROVIDER="protonvpn"' 'VPN_TYPE="wireguard"' 'WIREGUARD_PRIVATE_KEY="k"' \
   'WIREGUARD_ADDRESSES="10.2.0.2/32"' 'TZ="UTC"' 'LOG_LEVEL="info"')" "$(body "$vpn")"
-VPN_USER=user VPN_PASS=$secret run pia --vpn pia --vpn-location Swiss
-want pia .env.vpn "$(printf '%s\n' 'VPN_SERVICE_PROVIDER="private internet access"' 'VPN_TYPE="openvpn"' 'OPENVPN_USER="user"' \
+VPN_USER=$secret VPN_PASS=$secret run pia --vpn pia --vpn-location Swiss
+want pia .env.vpn "$(printf '%s\n' 'VPN_SERVICE_PROVIDER="private internet access"' 'VPN_TYPE="openvpn"' "OPENVPN_USER=\"$escaped\"" \
   "OPENVPN_PASSWORD=\"$escaped\"" 'SERVER_REGIONS="Swiss"' 'TZ="UTC"' 'LOG_LEVEL="info"')" "$(body "$vpn")"
 VPN_USER=user VPN_PASS=p run nordvpn --vpn nordvpn --vpn-location Switzerland
 want nordvpn .env.vpn "$(printf '%s\n' 'VPN_SERVICE_PROVIDER="nordvpn"' 'VPN_TYPE="openvpn"' 'OPENVPN_USER="user"' \
