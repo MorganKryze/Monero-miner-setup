@@ -78,8 +78,10 @@ has() { # name, stream text, whole line
 mode() { ls -l "$1" | cut -c1-10; }
 leftovers() { (cd "$w/repo/docker" && ls -A | grep -vxE 'compose.yml|Dockerfile|\.env|\.env\.vpn' | tr '\n' ' '); }
 # The refusal offers first the remedy that keeps none of the file's values: a chmod alone would
-# start the miner on values someone else may have written.
-refuse_line() { echo "[  ERROR  ] $1 can be changed by a user other than you, so this run does not use it. Run again with --overwrite-env, or, if you wrote its values and have checked them, restrict it with: chmod 600 $1"; }
+# start the miner on values someone else may have written. --overwrite-env, which rewrites the
+# other settings file too, is offered only for a file the user cannot chmod: another user's.
+refuse_line() { echo "[  ERROR  ] $1 can be changed by a user other than you, so this run does not use it. Remove it and run again, or, if you wrote its values and have checked them, restrict it with: chmod 600 $1"; }
+refuse_owner_line() { echo "[  ERROR  ] $1 belongs to another user, so this run does not use it. Remove it and run again, or run again with --overwrite-env, which rewrites docker/.env, and docker/.env.vpn with --vpn, from this run's flags."; }
 keep_line() { echo "[  INFO   ] Keeping $1: this run's flags are not applied to it. To rewrite it from them, run again with --overwrite-env."; }
 
 # A first run writes .env, mode 600.
@@ -120,14 +122,14 @@ chmod 600 "$env"
 # file byte for byte and mode as it was.
 refused() {
   want "$1" exit 1 "$code"
-  want "$1" stderr "$(refuse_line "$2")" "$err"
+  want "$1" stderr "$(${LINE:-refuse_line} "$2")" "$err"
   want "$1" mode "$3" "$(mode "$2")"
   printf '%s\n' "$out" | grep -q 'Wrote \|Replaced ' && fail "$1: a file was written"
 }
 # A kept file another user owns or can change is refused: the run would start the miner on
 # settings someone else chose. Group write passes only for the user's private group.
 OTHER_OWNS=$env run env-other-owner -w "$wallet" -y --autostart
-refused env-other-owner "$env" "-rw-------"
+LINE=refuse_owner_line refused env-other-owner "$env" "-rw-------"
 cmp -s "$env" "$w/env.first" || fail "env-other-owner: .env changed"
 chmod 620 "$env"
 run env-group -w "$wallet" -y --autostart
@@ -199,7 +201,19 @@ run vpn-world -w "$wallet" -y --vpn mullvad --autostart
 refused vpn-world "$vpn" "-rw----rw-"
 cmp -s "$vpn" "$w/vpn.first" || fail "vpn-world: .env.vpn changed"
 cmp -s "$env" "$w/env.vpnrun" || fail "vpn-world: .env changed"
-chmod 600 "$vpn"
+# The remedy it gives touches only .env.vpn: removed and written again, .env stays as it was.
+chmod 664 "$vpn"
+run vpn-group -w "$wallet" -y --vpn mullvad --autostart
+refused vpn-group "$vpn" "-rw-rw-r--"
+rm "$vpn"
+KEY=wgkey-first ADDR=10.64.0.1/32 run vpn-removed -w "$wallet" -y --vpn mullvad
+want vpn-removed exit 0 "$code"
+cmp -s "$env" "$w/env.vpnrun" || fail "vpn-removed: .env changed"
+want vpn-removed "mode .env.vpn" "-rw-------" "$(mode "$vpn")"
+cp -p "$vpn" "$w/vpn.first"
+OTHER_OWNS=$vpn run vpn-other-owner -w "$wallet" -y --vpn mullvad --autostart
+LINE=refuse_owner_line refused vpn-other-owner "$vpn" "-rw-------"
+cmp -s "$vpn" "$w/vpn.first" || fail "vpn-other-owner: .env.vpn changed"
 
 # --overwrite-env without a provider leaves .env.vpn as it is.
 run overwrite-novpn -w "$wallet" -y --overwrite-env --worker-name third

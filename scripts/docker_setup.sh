@@ -574,14 +574,18 @@ function ensure_repo() {
 # ===== Settings files =====
 # A kept settings file passes the same owner and write checks as the clone's Compose files: the
 # miner would otherwise start on a wallet someone else chose. --overwrite-env replaces it whole.
-# A chmod alone would keep values someone else may have written, so it comes second, for a file
-# whose values the user has checked.
+# Removing the file comes first: a chmod alone would keep values someone else may have written. As
+# --overwrite-env rewrites the other settings file too, it is offered only when no chmod can help.
 function check_kept() {
     local file="$1"
     if [ ! -e "$file" ] && [ ! -L "$file" ]; then return 0; fi
     if [ "$OVERWRITE_ENV" = "true" ]; then return 0; fi
-    if trusted_owner "$file" && only_user_can_write_file "$file"; then return 0; fi
-    error "$file can be changed by a user other than you, so this run does not use it. Run again with --overwrite-env, or, if you wrote its values and have checked them, restrict it with: chmod 600 $(printf '%q' "$file")"
+    if ! trusted_owner "$file"; then
+        error "$file belongs to another user, so this run does not use it. Remove it and run again, or run again with --overwrite-env, which rewrites docker/.env, and docker/.env.vpn with --vpn, from this run's flags."
+        return 1
+    fi
+    if only_user_can_write_file "$file"; then return 0; fi
+    error "$file can be changed by a user other than you, so this run does not use it. Remove it and run again, or, if you wrote its values and have checked them, restrict it with: chmod 600 $(printf '%q' "$file")"
     return 1
 }
 
