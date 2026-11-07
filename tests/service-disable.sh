@@ -2,8 +2,9 @@
 # `make service-disable` and `make wipe` remove the logrotate file the systemd setup installed,
 # besides the unit or the plist, and no other path; `make start`, `stop`, `status` and
 # `service-disable` know systemd and launchd only (no FreeBSD rc.d branch left). On systemd,
-# `service-disable` stops and disables the unit, has systemd remove the service's own configuration,
-# state and log directories while the unit still exists (a failed clean stops it there, non-zero),
+# `service-disable` stops and disables the unit, resets a failed state, has systemd remove the
+# service's own configuration, state and log directories while the unit still exists (a failed
+# clean stops it there, non-zero; a unit from an older release declares none and skips the clean),
 # then removes the unit; `status` tails the
 # service's log under /var/log/xmrig/<its User=>, never a file in the clone. The targets run in
 # a fixture directory with the service paths set to fixture files on the command line and stubs
@@ -26,10 +27,30 @@ for c in sudo systemctl launchctl pgrep pkill; do
 done
 printf '#!/bin/sh\nexit 0\n' > "$w/bin/sleep"
 # sudo fails `systemctl clean` while the file fail-clean exists in the fixture, as it does on a
-# systemd without the clean verb or on a unit still active.
-printf '#!/bin/sh\necho "sudo $*" >> "%s/calls"\n[ "$1 $2" = "systemctl clean" ] && [ -f "%s/fail-clean" ] && exit 1\nexit 0\n' "$w" "$w" > "$w/bin/sudo"
-# systemctl show answers the unit's User= with a fixture account name.
-printf '#!/bin/sh\necho "systemctl $*" >> "%s/calls"\n[ "$1" = show ] && echo fixture-miner\nexit 0\n' "$w" > "$w/bin/systemctl"
+# systemd without the clean verb or on a unit still active; while the file failed exists, as
+# systemd refuses to clean a unit in the failed state, until `systemctl reset-failed` removes it;
+# and while old-unit exists, as on a unit that declares none of the directories.
+cat > "$w/bin/sudo" <<EOS
+#!/bin/sh
+echo "sudo \$*" >> "$w/calls"
+[ "\$1 \$2" = "systemctl reset-failed" ] && /bin/rm -f "$w/failed"
+if [ "\$1 \$2" = "systemctl clean" ]; then
+  [ -f "$w/fail-clean" ] && exit 1
+  [ -f "$w/failed" ] && { echo "Failed to clean unit xmrig.service: Unit is not inactive or has pending job." >&2; exit 2; }
+  [ -f "$w/old-unit" ] && { echo "Failed to clean unit xmrig.service: No matching resources found." >&2; exit 2; }
+fi
+exit 0
+EOS
+# systemctl show answers the unit's User= with a fixture account name and its StateDirectory=
+# with the directory the setup declares, or nothing for a unit from an older release.
+cat > "$w/bin/systemctl" <<EOS
+#!/bin/sh
+echo "systemctl \$*" >> "$w/calls"
+[ "\$1 \$3" = "show User" ] && echo fixture-miner
+[ "\$1" = show ] && [ -f "$w/no-bus" ] && exit 1
+[ "\$1 \$3" = "show StateDirectory" ] && [ ! -f "$w/old-unit" ] && echo xmrig/fixture-miner
+exit 0
+EOS
 chmod +x "$w/bin/"*
 paths=(SYSTEMD_UNIT="$w/etc/xmrig.service" LAUNCHD_PLIST="$w/agents/com.moneroocean.xmrig.plist" LOGROTATE_CONF="$w/etc/logrotate-xmrig")
 # The targets must reach the service only through the three variables: with them set, no recipe
@@ -38,9 +59,10 @@ for t in start stop status service-disable; do
   TERM=dumb make -s -n -f "$root/Makefile" "${paths[@]}" "$t" | grep -nE '/etc/|/usr/local/etc|LaunchAgents' | grep -v "$w/" \
     && { echo "FAIL $t names a service path the check cannot redirect; not run"; exit 1; }
 done
-target() { # target: runs it in the fixture, sets out (stdout), code, calls, files
+make=$(command -v make)
+target() { # target: runs it in the fixture, sets out (stdout), code, calls, files; stub_path=<dir> narrows PATH
   rm -f "$w/calls"
-  out=$(cd "$w/run" && TERM=dumb PATH="$w/bin:$PATH" make -s -f "$root/Makefile" "${paths[@]}" "$1" 2>/dev/null); code=$?
+  out=$(cd "$w/run" && TERM=dumb PATH="${stub_path:-$w/bin:$PATH}" "$make" -s -f "$root/Makefile" "${paths[@]}" "$1" 2>/dev/null); code=$?
   calls=$(cat "$w/calls" 2>/dev/null)
   files=$(cd "$w" && find etc agents run -type f | LC_ALL=C sort)
 }
@@ -56,6 +78,8 @@ target service-disable
 [ "$code" -eq 0 ] || fail "systemd: exit $code"
 same "systemd: calls" "sudo systemctl stop xmrig.service
 sudo systemctl disable xmrig.service
+sudo systemctl reset-failed xmrig.service
+systemctl show -p StateDirectory --value xmrig.service
 sudo systemctl clean --what=configuration --what=state --what=logs xmrig.service
 sudo rm -f $w/etc/xmrig.service
 sudo systemctl daemon-reload
@@ -70,10 +94,53 @@ rm -f "$w/fail-clean"
 [ "$code" -ne 0 ] || fail "systemd clean fails: exit 0"
 same "systemd clean fails: calls" "sudo systemctl stop xmrig.service
 sudo systemctl disable xmrig.service
+sudo systemctl reset-failed xmrig.service
+systemctl show -p StateDirectory --value xmrig.service
 sudo systemctl clean --what=configuration --what=state --what=logs xmrig.service" "$calls"
 same "systemd clean fails: output" "[  INFO   ] Disabling and removing XMRig service...
 [  ERROR  ] systemctl clean failed. The unit is kept so make service-disable can retry once the error is fixed" "$out"
 same "systemd clean fails: files left" "etc/logrotate-xmrig
+etc/xmrig.service
+run/keep" "$files"
+# A unit an older release installed declares none of the directories, so systemd has nothing to
+# clean and refuses the verb: the target skips it and removes the unit. The stubs are the whole PATH.
+setup etc/xmrig.service etc/logrotate-xmrig run/keep
+: > "$w/old-unit"
+stub_path="$w/bin" target service-disable
+rm -f "$w/old-unit"
+[ "$code" -eq 0 ] || fail "older unit: exit $code"
+same "older unit: calls" "sudo systemctl stop xmrig.service
+sudo systemctl disable xmrig.service
+sudo systemctl reset-failed xmrig.service
+systemctl show -p StateDirectory --value xmrig.service
+sudo rm -f $w/etc/xmrig.service
+sudo systemctl daemon-reload
+sudo rm -f $w/etc/logrotate-xmrig" "$calls"
+# A unit in the failed state (the miner exited non-zero) is reset first, as systemd refuses to
+# clean it otherwise; then cleaned and removed. The stubs are the whole PATH.
+setup etc/xmrig.service etc/logrotate-xmrig run/keep
+: > "$w/failed"
+stub_path="$w/bin" target service-disable
+[ ! -f "$w/failed" ] || { fail "failed unit: never reset"; rm -f "$w/failed"; }
+[ "$code" -eq 0 ] || fail "failed unit: exit $code"
+same "failed unit: calls" "sudo systemctl stop xmrig.service
+sudo systemctl disable xmrig.service
+sudo systemctl reset-failed xmrig.service
+systemctl show -p StateDirectory --value xmrig.service
+sudo systemctl clean --what=configuration --what=state --what=logs xmrig.service
+sudo rm -f $w/etc/xmrig.service
+sudo systemctl daemon-reload
+sudo rm -f $w/etc/logrotate-xmrig" "$calls"
+# systemctl show fails (no system bus): an empty answer would read as an older unit, so the
+# target stops there, non-zero, and keeps the unit and the logrotate file.
+setup etc/xmrig.service etc/logrotate-xmrig run/keep
+: > "$w/no-bus"
+stub_path="$w/bin" target service-disable
+rm -f "$w/no-bus"
+[ "$code" -ne 0 ] || fail "show fails: exit 0"
+same "show fails: output" "[  INFO   ] Disabling and removing XMRig service...
+[  ERROR  ] systemctl show failed. The unit is kept so make service-disable can retry once the error is fixed" "$out"
+same "show fails: files left" "etc/logrotate-xmrig
 etc/xmrig.service
 run/keep" "$files"
 # launchd host: the plist is the user's own file and goes for real; a logrotate file left by an
@@ -101,6 +168,8 @@ target wipe
 [ "$code" -eq 0 ] || fail "wipe: exit $code"
 same "wipe: calls" "sudo systemctl stop xmrig.service
 sudo systemctl disable xmrig.service
+sudo systemctl reset-failed xmrig.service
+systemctl show -p StateDirectory --value xmrig.service
 sudo systemctl clean --what=configuration --what=state --what=logs xmrig.service
 sudo rm -f $w/etc/xmrig.service
 sudo systemctl daemon-reload

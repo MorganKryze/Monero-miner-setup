@@ -205,15 +205,25 @@ service-setup:
 	fi
 	@$(call log-success,"XMRig service setup complete. Use 'make start' to start mining.")
 
+# systemd refuses to clean a unit in the failed state, so it is reset first (a unit that never
+# failed has nothing to reset). A unit from an older release declares none of the directories
+# and systemd refuses to clean it too: it goes straight to removal.
 service-disable:
 	@$(call log-info,"Disabling and removing XMRig service...")
 	@if [ -f "$(SYSTEMD_UNIT)" ]; then \
 		sudo systemctl stop xmrig.service 2>/dev/null || true; \
 		sudo systemctl disable xmrig.service 2>/dev/null || true; \
-		sudo systemctl clean --what=configuration --what=state --what=logs xmrig.service || { \
-			$(call log-error,"systemctl clean failed. The unit is kept so make service-disable can retry once the error is fixed"); \
+		sudo systemctl reset-failed xmrig.service 2>/dev/null || true; \
+		dirs=$$(systemctl show -p StateDirectory --value xmrig.service) || { \
+			$(call log-error,"systemctl show failed. The unit is kept so make service-disable can retry once the error is fixed"); \
 			exit 1; \
 		}; \
+		if [ -n "$$dirs" ]; then \
+			sudo systemctl clean --what=configuration --what=state --what=logs xmrig.service || { \
+				$(call log-error,"systemctl clean failed. The unit is kept so make service-disable can retry once the error is fixed"); \
+				exit 1; \
+			}; \
+		fi; \
 		sudo rm -f "$(SYSTEMD_UNIT)"; \
 		sudo systemctl daemon-reload; \
 		$(call log-success,"XMRig systemd service disabled and removed."); \
