@@ -63,6 +63,14 @@ fresh
 sed 's/^FROM \([^ :]*\):[^ ]* AS /FROM \1:99.99 AS /' docker/Dockerfile > "$w/repo/docker/Dockerfile"
 expect "the base image tag bumped" 0 'PASS readme-sources \([0-9]+ sources\)'
 
+fresh
+sed '1s/^# syntax=.*$/# syntax=evil\/frontend:1/' docker/Dockerfile > "$w/repo/docker/Dockerfile"
+expect "another Dockerfile frontend" 1 'FAIL README\.md does not name `evil/frontend`, which the project fetches'
+
+fresh
+sed '1s/^\(# syntax=[^:]*\):.*$/\1:99.99/' docker/Dockerfile > "$w/repo/docker/Dockerfile"
+expect "the frontend version bumped" 0 'PASS readme-sources \([0-9]+ sources\)'
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi

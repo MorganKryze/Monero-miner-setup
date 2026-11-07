@@ -1,8 +1,9 @@
 #!/bin/bash
 # Nothing is fetched that the README does not name. The scripts fetch only from the sources listed
 # below, by curl, wget or git clone (a submodule comes from .gitmodules, an image from the compose
-# files, a base image from the Dockerfile), and the README names each of them. Versions are left out (the toolbox commit, image tags),
-# so a Dependabot bump stays green; a new source, in a script or in the README's absence, fails.
+# files, a base image and the frontend from the Dockerfile), and the README names each of them.
+# Versions are left out (the toolbox commit, image tags), so a Dependabot bump stays green; a new
+# source, in a script or in the README's absence, fails.
 # Reads the repository root, or the directory given as $1 (tests/readme-sources-fixtures.sh
 # points it at a copy with a change planted).
 set -u
@@ -52,6 +53,12 @@ while read -r from ref rest; do
     ref='`'"${ref%:*}"'`'
     case " ${sources[*]} " in *" $ref "*) ;; *) sources+=("$ref") ;; esac
 done < docker/Dockerfile
+# BuildKit pulls the image a `# syntax=` directive names to parse the Dockerfile, so that frontend
+# is fetched too; it is named in backticks, without its version, as a base image is.
+while IFS= read -r ref; do
+    ref=${ref%%@*}
+    sources+=('`'"${ref%:*}"'`')
+done < <(sed -n 's/^#[[:space:]]*[sS][yY][nN][tT][aA][xX][[:space:]]*=[[:space:]]*\([^[:space:]]*\).*$/\1/p' docker/Dockerfile)
 
 for s in "${sources[@]}"; do
     if [ -z "$s" ] || [ "$s" = "<commit>" ]; then

@@ -377,6 +377,7 @@ The installers fetch from the sources below and nothing else. All of it comes ov
 | The repository | `https://github.com/MorganKryze/Monero-miner-setup.git`, its submodules at the commits it pins: `https://github.com/MoneroOcean/xmrig.git`, `https://github.com/MorganKryze/bash-toolbox.git` | when there's no clone yet |
 | The image | `ghcr.io/morgankryze/monero-miner-setup`, built by this repository's CI | Docker, unless `--build` |
 | The base image and its packages | `ubuntu` from Docker Hub, at the tag `docker/Dockerfile` names, and Ubuntu's packages through apt in both build stages | `--build`, or when the image pull fails |
+| The Dockerfile frontend | `docker/dockerfile` from Docker Hub, at the version the `# syntax=` line of `docker/Dockerfile` names: BuildKit runs it to read the Dockerfile | `--build`, or when the image pull fails |
 | The VPN sidecar | `qmcgaw/gluetun`, pinned to a release in `docker/compose.vpn.yml` | `--vpn` |
 | Your exit IP | `https://ifconfig.io`, asked from inside the VPN container | `--vpn --autostart` |
 
