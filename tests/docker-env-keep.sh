@@ -58,7 +58,7 @@ run fresh -w "$wallet" -y --worker-name first
 want fresh exit 0 "$code"
 want fresh mode "-rw-------" "$(mode "$env")"
 has fresh "$out" "[ SUCCESS ] Wrote $env (mode 0600)."
-grep -qx 'WORKER_NAME=first' "$env" || fail "fresh: WORKER_NAME=first not written"
+grep -qx 'WORKER_NAME="first"' "$env" || fail "fresh: WORKER_NAME=first not written"
 cp -p "$env" "$w/env.first"
 
 # A re-run keeps it, whatever its flags say, with one line.
@@ -89,7 +89,7 @@ chmod 600 "$env"
 # --overwrite-env rewrites it from this run's flags, with one line naming it.
 run overwrite -w "$wallet" -y --worker-name second --overwrite-env
 want overwrite exit 0 "$code"
-grep -qx 'WORKER_NAME=second' "$env" || fail "overwrite: WORKER_NAME=second not written"
+grep -qx 'WORKER_NAME="second"' "$env" || fail "overwrite: WORKER_NAME=second not written"
 want overwrite mode "-rw-------" "$(mode "$env")"
 has overwrite "$out" "[ SUCCESS ] Replaced $env with this run's flags (mode 0600)."
 want overwrite leftovers "" "$(leftovers)"
@@ -103,7 +103,7 @@ want vpn-missing exit 1 "$code"
 KEY=wgkey-first ADDR=10.64.0.1/32 run vpn -w "$wallet" -y --vpn mullvad
 want vpn exit 0 "$code"
 want vpn "mode .env.vpn" "-rw-------" "$(mode "$vpn")"
-grep -qx 'WIREGUARD_PRIVATE_KEY=wgkey-first' "$vpn" || fail "vpn: key not written"
+grep -qx 'WIREGUARD_PRIVATE_KEY="wgkey-first"' "$vpn" || fail "vpn: key not written"
 cp -p "$vpn" "$w/vpn.first"
 cp -p "$env" "$w/env.vpnrun"
 
@@ -129,13 +129,13 @@ chmod 600 "$vpn"
 run overwrite-novpn -w "$wallet" -y --overwrite-env --worker-name third
 want overwrite-novpn exit 0 "$code"
 cmp -s "$vpn" "$w/vpn.first" || fail "overwrite-novpn: .env.vpn changed"
-grep -qx 'WORKER_NAME=third' "$env" || fail "overwrite-novpn: .env not rewritten"
+grep -qx 'WORKER_NAME="third"' "$env" || fail "overwrite-novpn: .env not rewritten"
 printf '%s\n' "$out" | grep -q "Replaced $vpn" && fail "overwrite-novpn: .env.vpn reported replaced"
 
 # --overwrite-env with the provider rewrites both.
 KEY=wgkey-second ADDR=10.64.0.2/32 run overwrite-vpn -w "$wallet" -y --vpn mullvad --overwrite-env
 want overwrite-vpn exit 0 "$code"
-grep -qx 'WIREGUARD_PRIVATE_KEY=wgkey-second' "$vpn" || fail "overwrite-vpn: key not rewritten"
+grep -qx 'WIREGUARD_PRIVATE_KEY="wgkey-second"' "$vpn" || fail "overwrite-vpn: key not rewritten"
 has overwrite-vpn "$out" "[ SUCCESS ] Replaced $vpn with this run's flags (mode 0600)."
 cp -p "$vpn" "$w/vpn.second"
 cp -p "$env" "$w/env.second"
@@ -152,7 +152,7 @@ chmod +x "$w/bin/mv"
 rm -f "$w/mv.log"
 (umask 000; KEY=wgkey-third ADDR=10.64.0.3/32 run umask -w "$wallet" -y --vpn mullvad --overwrite-env)
 grep -c '^-rw-------$' "$w/mv.log" | grep -qx 2 || fail "umask: a new file was not mode 600 while written: $(grep '^-' "$w/mv.log" | tr '\n' ' ')"
-grep -qx 'WIREGUARD_PRIVATE_KEY=wgkey-third' "$w/mv.log" || fail "umask: the stub saw no key"
+grep -qx 'WIREGUARD_PRIVATE_KEY="wgkey-third"' "$w/mv.log" || fail "umask: the stub saw no key"
 want umask "mode .env" "-rw-------" "$(mode "$env")"
 want umask "mode .env.vpn" "-rw-------" "$(mode "$vpn")"
 cp -p "$vpn" "$w/vpn.second"
