@@ -14,13 +14,15 @@ w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
 mkdir -p "$w/bin" "$w/tools"
-for t in cat chmod cp jq mkdir mktemp mv rm; do
+for t in awk cat chmod cp jq mkdir mktemp mv rm seq sleep; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
+# The start that reads xmrig's own thread count (an offline benchmark) gets no count here.
 cat > "$w/bin/xmrig" <<STUB
 #!/bin/bash
 PATH="$w/bin:$w/tools"
+case " \$* " in *" --bench=1M "*) exit 1 ;; esac
 echo "\$*" > "$w/xmrig.args"
 cp "$w/configs/config.json" "$w/xmrig.config" 2>/dev/null
 STUB
@@ -28,6 +30,9 @@ printf '#!/bin/bash\necho 2\n' > "$w/bin/nproc"
 # The pool check is answered "unreachable" without a network.
 printf '#!/bin/bash\nexit 1\n' > "$w/bin/timeout"
 chmod +x "$w/bin/xmrig" "$w/bin/nproc" "$w/bin/timeout"
+# No CPU quota and plenty of memory: the sizing has its own check.
+mkdir -p "$w/cgroup"
+printf 'MemAvailable:    8000000 kB\n' > "$w/meminfo"
 wallet=4AdUndXHHZ6cfufTMvppY6JwXNouMBzSkbLYfpAV5Usx3skxNgYeYTRj5UzqtReoS44qo9mtmXCqY45DJ852K5Jv2684Rge
 # The rules hold in a UTF-8 locale too, where a letter range may take in accented letters.
 utf8=$(locale -a 2>/dev/null | grep -iE '^(c|en_us)\.utf-?8$' | head -1)
@@ -36,11 +41,11 @@ utf8=$(locale -a 2>/dev/null | grep -iE '^(c|en_us)\.utf-?8$' | head -1)
 run() {
   local name=$1; shift
   rm -rf "$w/configs" "$w/xmrig.args" "$w/xmrig.config"
-  mkdir -p "$w/configs"
+  mkdir -p "$w/configs" "$w/tmp"
   [ -z "${OLD_CONFIG:-}" ] || printf '%s\n' "$OLD_CONFIG" > "$w/configs/config.json"
-  env -i PATH="$w/bin:$w/tools" ${utf8:+LC_ALL=$utf8} "$@" "$BASH" -c '
+  env -i PATH="$w/bin:$w/tools" TMPDIR="$w/tmp" ${utf8:+LC_ALL=$utf8} "$@" "$BASH" -c '
     source "$1/docker/entrypoint.sh"
-    XMRIG_BIN=$2/bin/xmrig CONFIG_DIR=$2/configs WALLET_SECRET=$2/secret
+    XMRIG_BIN=$2/bin/xmrig CONFIG_DIR=$2/configs WALLET_SECRET=$2/secret CGROUP_DIR=$2/cgroup MEMINFO=$2/meminfo
     main' entrypoint "$root" "$w" > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
@@ -67,7 +72,7 @@ refused() { # name, error line, VAR=value...
 run defaults WALLET_ADDRESS="$wallet"
 want defaults exit 0 "$code"
 want defaults args "--config=$w/configs/config.json --verbose" "$(cat "$w/xmrig.args" 2>/dev/null)"
-want defaults values "{\"url\":\"gulf.moneroocean.stream:10001\",\"user\":\"$wallet\",\"pass\":\"docker_miner\",\"donate\":0,\"hint\":75,\"forced\":null,\"battery\":false,\"active\":false,\"pools\":1}" "$(picked)"
+want defaults values "{\"url\":\"gulf.moneroocean.stream:10016\",\"user\":\"$wallet\",\"pass\":\"docker_miner\",\"donate\":0,\"hint\":75,\"forced\":{\"threads\":2,\"affinity\":-1},\"battery\":false,\"active\":false,\"pools\":1}" "$(picked)"
 want defaults mode "-rw-r--r--" "$(ls -l "$w/configs/config.json" | cut -c1-10)"
 want defaults "config dir" "config.json" "$(ls -A "$w/configs")"
 
@@ -85,7 +90,7 @@ want zeros-percent exit 0 "$code"
 want zeros-percent hint 8 "$(printf '%s\n' "$config" | jq -c '.cpu."max-threads-hint"')"
 # A scheme before a pool without a port still gets the port.
 run scheme WALLET_ADDRESS="$wallet" POOL_URL="stratum+tcp://gulf.moneroocean.stream"
-want scheme url '"stratum+tcp://gulf.moneroocean.stream:10001"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
+want scheme url '"stratum+tcp://gulf.moneroocean.stream:10016"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
 # The wallet from the secret file, its final newline dropped.
 printf '%s\n' "$wallet" > "$w/secret"
 run secret
