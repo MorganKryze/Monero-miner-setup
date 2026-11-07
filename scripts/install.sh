@@ -832,7 +832,8 @@ function generate_config_files() {
     if [ ${#missing[@]} -gt 0 ]; then
         # Define full pool URL with port if needed
         local full_pool_url="$POOL_URL"
-        if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "${POOL_URL#stratum+???://}" != *":"* ]]; then
+        # The computed port is a plain TCP one: only a bare or stratum+tcp:// URL gets it.
+        if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "${POOL_URL#stratum+tcp://}" != *":"* ]]; then
             full_pool_url="${POOL_URL}:${PORT}"
             info "Using MoneroOcean with optimized port: $full_pool_url"
         fi

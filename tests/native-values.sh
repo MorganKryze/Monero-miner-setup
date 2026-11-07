@@ -80,7 +80,7 @@ log="$w/we\"ird\\&dir/logs/xmrig.log"
 for name in config.json config_background.json; do
   ( WALLET="$wallet.Rig42" MAX_THREADS=42 DONATE_LEVEL=3 PAUSE_ON_BATTERY=true PAUSE_ON_ACTIVE=true
     on write_miner_config "$root/templates/$name.template" "$w/$name" "$log" "stratum+ssl://pool.example.com:443" "rig@home:1+a.b-c_d"
-    [ "$code" -eq 0 ] || echo "FAIL $name: writer exit $code: $out" )
+    [ "$code" -eq 0 ] || echo "FAIL $name: writer exit $code: $out" ) | grep . && rc=1
   got=$(jq -c '[.cpu."max-threads-hint", ."donate-level", ."log-file", .pools[0].url, .pools[0].user, .pools[0].pass, ."pause-on-battery", ."pause-on-active"]' "$w/$name" 2>&1)
   want "$name" values "[42,3,$(printf '%s' "$log" | jq -Rc .),\"stratum+ssl://pool.example.com:443\",\"$wallet.Rig42\",\"rig@home:1+a.b-c_d\",true,true]" "$got"
   rest() { jq -S 'del(.cpu."max-threads-hint", ."donate-level", ."log-file", .pools[0].url, .pools[0].user, .pools[0].pass, ."pause-on-battery", ."pause-on-active")' "$1"; }
@@ -93,16 +93,24 @@ done
 want exploit url "$(printf '%s' "$exploit" | jq -Rc .)" "$(jq -c '.pools[0].url' "$w/exploit.json" 2>&1)"
 want exploit pass "$(printf '%s' "$exploit" | jq -Rc .)" "$(jq -c '.pools[0].pass' "$w/exploit.json" 2>&1)"
 [ ! -e "$w/pwned" ] || fail "exploit: the value ran as a command"
-# A MoneroOcean pool given with a scheme and no port gets the computed port, as one without does.
+# A MoneroOcean pool given with no scheme or stratum+tcp:// and no port gets the computed port.
 for pool in gulf.moneroocean.stream stratum+tcp://gulf.moneroocean.stream; do
   rm -rf "$w/home"; mkdir -p "$w/home/Monero-miner-setup/templates"
   cp "$root"/templates/config*.template "$w/home/Monero-miner-setup/templates/"
   ( BASE_DIR="$w/home" REPO_NAME=Monero-miner-setup POOL_URL=$pool PORT=10128 PASS=x DEFAULT_PASS=x \
       WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false
     on generate_config_files
-    [ "$code" -eq 0 ] || echo "FAIL generate $pool: exit $code: $out" )
+    [ "$code" -eq 0 ] || echo "FAIL generate $pool: exit $code: $out" ) | grep . && rc=1
   want "generate $pool" url "\"$pool:10128\"" "$(jq -c '.pools[0].url' "$w/home/Monero-miner-setup/configs/config.json" 2>&1)"
 done
+# A TLS MoneroOcean URL with no port is kept as given: the computed port is a plain TCP one.
+rm -rf "$w/home"; mkdir -p "$w/home/Monero-miner-setup/templates"
+cp "$root"/templates/config*.template "$w/home/Monero-miner-setup/templates/"
+( BASE_DIR="$w/home" REPO_NAME=Monero-miner-setup POOL_URL=stratum+ssl://gulf.moneroocean.stream PORT=10128 PASS=x DEFAULT_PASS=x \
+    WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false
+  on generate_config_files
+  [ "$code" -eq 0 ] || echo "FAIL generate tls: exit $code: $out" ) | grep . && rc=1
+want "generate tls" url '"stratum+ssl://gulf.moneroocean.stream"' "$(jq -c '.pools[0].url' "$w/home/Monero-miner-setup/configs/config.json" 2>&1)"
 # A config that cannot be written stops the generator with one error line.
 rm -rf "$w/home"; mkdir -p "$w/home/Monero-miner-setup/templates" "$w/home/Monero-miner-setup/configs"
 cp "$root"/templates/config*.template "$w/home/Monero-miner-setup/templates/"
