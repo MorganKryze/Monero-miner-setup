@@ -58,7 +58,16 @@ case \$* in
   *) exec "$real_id" "\$@" ;;
 esac
 STUB
-chmod +x "$w/bin/docker" "$w/bin/git" "$w/bin/id"
+# OTHER_OWNS=<path>: find's owner test says another user owns that path (no chown needed).
+real_find=$(command -v find)
+cat > "$w/bin/find" <<STUB
+#!/bin/bash
+if [ -n "\${OTHER_OWNS:-}" ] && [ "\$2" = "\$OTHER_OWNS" ]; then
+  for a in "\$@"; do [ "\$a" = -user ] && exit 0; done
+fi
+exec "$real_find" "\$@"
+STUB
+chmod +x "$w/bin/docker" "$w/bin/git" "$w/bin/id" "$w/bin/find"
 cp "$root/scripts/docker_setup.sh" "$w/fetched/docker_setup.sh"
 wallet=4AdUndXHHZ6cfufTMvppY6JwXNouMBzSkbLYfpAV5Usx3skxNgYeYTRj5UzqtReoS44qo9mtmXCqY45DJ852K5Jv2684Rge
 
@@ -79,7 +88,7 @@ run() {
   local dir=$2 script=$3; shift 3
   rm -f "$w/docker.log" "$w/git.log"
   (cd "$dir" && env -i HOME="$w/home" PATH="$w/bin:$w/tools" ${ID_UID:+ID_UID=$ID_UID} ${ID_MODE:+ID_MODE=$ID_MODE} \
-    ${SUDO:+SUDO_USER=$SUDO} ${LPWD:+PWD=$LPWD} ${GIT_MODE:+GIT_MODE=$GIT_MODE} "$BASH" "$script" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
+    ${SUDO:+SUDO_USER=$SUDO} ${LPWD:+PWD=$LPWD} ${GIT_MODE:+GIT_MODE=$GIT_MODE} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} "$BASH" "$script" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
 }
@@ -109,14 +118,16 @@ refused() {
   want "$1" "docker calls" "compose version"$'\n'"--version" "$(cat "$w/docker.log" 2>/dev/null)"
   [ -z "${3:-}" ] || [ ! -e "$3/docker/.env" ] || [ -n "${KEPT:-}" ] || fail "$1: $3/docker/.env written"
 }
+# A lookalike's own installer is named only when it is a git clone its own run would accept.
 look_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. Run again from outside $1, or, if it is your own clone, with its scripts/install.sh --docker."; }
 # With a docker/.env there, a run from outside it would start a second set of settings: only the
 # install.sh remedy is offered.
 kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. If it is your own clone, run its scripts/install.sh --docker."; }
-# A clone others could change may hold files they changed, which a chmod would then let through:
-# every remedy is a fresh clone. A git clone of yours that only the write check keeps from use
-# gets that remedy too, as its own installer would refuse it.
-open_kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. If it is your own clone, a user other than you can change it: move it away and clone this project again."; }
+# Any other lookalike (no .git, another user's, or open to others) may hold files someone else
+# planted or changed: no remedy runs anything from it.
+foreign_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. It is not a git clone only you can change: run again from outside $1."; }
+# With a docker/.env there, a fresh clone is the remedy.
+foreign_kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. It is not a git clone only you can change: if it is your own, move it away and clone this project again."; }
 mode_line() { echo "$1 is this script's clone, but a user other than you can change it, so this run does not use it. Its files may have been changed: move it away and clone this project again."; }
 # open_line <checked path> <clone>
 open_line() { echo "$1 can be changed by a user other than you, so this run does not use it. The clone's files may have been changed: move $2 away and clone this project again, or pass -d with another base directory."; }
@@ -158,32 +169,65 @@ printf 'WALLET_ADDRESS="planted"\n' > "$w/shared/docker/.env"
 cp -p "$w/shared/docker/.env" "$w/planted.env"
 mkdir -p "$w/shared/sub/dir"
 run look-fetched "$w/shared" "$w/fetched/docker_setup.sh" --autostart
-KEPT=1 refused look-fetched "$(kept_line "$w/shared" "$home_clone")" "$w/shared"
+KEPT=1 refused look-fetched "$(foreign_kept_line "$w/shared" "$home_clone")" "$w/shared"
 cmp -s "$w/shared/docker/.env" "$w/planted.env" || fail "look-fetched: the planted .env changed"
 run look-below "$w/shared/sub/dir" "$w/fetched/docker_setup.sh" --autostart
-KEPT=1 refused look-below "$(kept_line "$w/shared" "$home_clone")" "$w/shared"
+KEPT=1 refused look-below "$(foreign_kept_line "$w/shared" "$home_clone")" "$w/shared"
 (cd "$w/shared" && env -i HOME="$w/home" PATH="$w/bin:$w/tools" "$BASH" -s -- -w "$wallet" -y --autostart \
   < "$w/fetched/docker_setup.sh") > "$w/out" 2> "$w/err"
 code=$? err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
 want look-piped exit 1 "$code"
-want look-piped stderr "[  ERROR  ] $(kept_line "$w/shared" "$home_clone")" "$err"
+want look-piped stderr "[  ERROR  ] $(foreign_kept_line "$w/shared" "$home_clone")" "$err"
 run look-own "$w/shared" "$w/own/scripts/docker_setup.sh" --autostart
-KEPT=1 refused look-own "$(kept_line "$w/shared" "$w/own")" "$w/shared"
+KEPT=1 refused look-own "$(foreign_kept_line "$w/shared" "$w/own")" "$w/shared"
 cmp -s "$w/shared/docker/.env" "$w/planted.env" || fail "look-own: the planted .env changed"
+# A /tmp-like folder with a planted installer: no line names it, with or without a planted .env.
+mkdir -p "$w/shared/scripts"
+printf '#!/bin/bash\n: > "%s/planted-ran"\n' "$w" > "$w/shared/scripts/install.sh"
+chmod 755 "$w/shared/scripts/install.sh"
+run look-tmp-planted "$w/shared" "$w/fetched/docker_setup.sh" --autostart
+KEPT=1 refused look-tmp-planted "$(foreign_kept_line "$w/shared" "$home_clone")" "$w/shared"
+mv "$w/shared/docker/.env" "$w/shared.env"
+run look-tmp-planted-no-env "$w/shared" "$w/fetched/docker_setup.sh" --autostart
+refused look-tmp-planted-no-env "$(foreign_line "$w/shared" "$home_clone")" "$w/shared"
+mv "$w/shared.env" "$w/shared/docker/.env"
+[ ! -e "$w/planted-ran" ] || fail "look-tmp-planted: the planted installer ran"
+# Another user's clone (id -u says 54321), open to all or closed: no line names its installer.
+clone "$w/other-clone"
+printf 'WORKER_NAME="rig8"\n' > "$w/other-clone/docker/.env"
+chmod 600 "$w/other-clone/docker/.env"
+chmod 777 "$w/other-clone" "$w/other-clone/docker"
+ID_UID=54321 run look-other-open "$w/other-clone" "$w/fetched/docker_setup.sh"
+KEPT=1 refused look-other-open "$(foreign_kept_line "$w/other-clone" "$home_clone")" "$w/other-clone"
+chmod 755 "$w/other-clone" "$w/other-clone/docker"
+ID_UID=54321 run look-other-closed "$w/other-clone" "$w/fetched/docker_setup.sh"
+KEPT=1 refused look-other-closed "$(foreign_kept_line "$w/other-clone" "$home_clone")" "$w/other-clone"
+# Each owner test on its own: the folder, or only its docker/, another user's.
+OTHER_OWNS="$w/other-clone/" run look-other-owns-root "$w/other-clone" "$w/fetched/docker_setup.sh"
+KEPT=1 refused look-other-owns-root "$(foreign_kept_line "$w/other-clone" "$home_clone")" "$w/other-clone"
+OTHER_OWNS="$w/other-clone/docker/" run look-other-owns-docker "$w/other-clone" "$w/fetched/docker_setup.sh"
+KEPT=1 refused look-other-owns-docker "$(foreign_kept_line "$w/other-clone" "$home_clone")" "$w/other-clone"
+# The user's own closed git clone, other than the one in use: its installer is the remedy.
+run look-clone "$w/other-clone" "$w/fetched/docker_setup.sh"
+KEPT=1 refused look-clone "$(kept_line "$w/other-clone" "$home_clone")" "$w/other-clone"
+rm "$w/other-clone/docker/.env"
+run look-clone-no-env "$w/other-clone" "$w/fetched/docker_setup.sh"
+refused look-clone-no-env "$(look_line "$w/other-clone" "$home_clone")" "$w/other-clone"
+rm -rf "$w/other-clone"
 clone "$w/open-clone"
 printf 'WORKER_NAME="rig9"\n' > "$w/open-clone/docker/.env"
 chmod 600 "$w/open-clone/docker/.env"
 chmod 777 "$w/open-clone"
 run look-open-clone "$w/open-clone" "$w/fetched/docker_setup.sh"
-KEPT=1 refused look-open-clone "$(open_kept_line "$w/open-clone" "$home_clone")" "$w/open-clone"
+KEPT=1 refused look-open-clone "$(foreign_kept_line "$w/open-clone" "$home_clone")" "$w/open-clone"
 chmod 755 "$w/open-clone"; chmod 777 "$w/open-clone/docker"
 run look-open-clone-docker "$w/open-clone" "$w/fetched/docker_setup.sh"
-KEPT=1 refused look-open-clone-docker "$(open_kept_line "$w/open-clone" "$home_clone")" "$w/open-clone"
+KEPT=1 refused look-open-clone-docker "$(foreign_kept_line "$w/open-clone" "$home_clone")" "$w/open-clone"
 rm -rf "$w/open-clone"
 # A lookalike inside the own clone is nearer than the clone itself: it stops the run too.
 lookalike "$w/own/sub"
 run look-inside-own "$w/own/sub" "$w/own/scripts/docker_setup.sh"
-refused look-inside-own "$(look_line "$w/own/sub" "$w/own")" "$w/own/sub"
+refused look-inside-own "$(foreign_line "$w/own/sub" "$w/own")" "$w/own/sub"
 rm -r "$w/own/sub"
 
 # With no own clone and no clone in the base directory, it clones there, then writes .env there.

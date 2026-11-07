@@ -538,11 +538,15 @@ function ensure_repo() {
     if [ -n "$found" ] && [ "$found" != "$REPO_DIR" ]; then
         # A run from outside a folder holding settings would start a second set under the same
         # Compose project, so that remedy is offered only when there are none.
-        # A git clone of yours that only the write check keeps from use would be refused by its
-        # own installer too, and may hold files others changed, so the remedy then is a fresh one.
-        if [ -e "$found/docker/.env" ] && [ -e "$found/.git" ] && trusted_owner "$found/" &&
-            { ! only_user_can_write "$found" || ! only_user_can_write "$found/docker"; }; then
-            error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. If it is your own clone, a user other than you can change it: move it away and clone this project again."
+        # Its installer is named only for a git clone its own run would accept: any other folder
+        # may hold a script someone else planted or changed, so no remedy runs anything from it.
+        if ! { [ -e "$found/.git" ] && trusted_owner "$found/" && trusted_owner "$found/docker/" &&
+            only_user_can_write "$found" && only_user_can_write "$found/docker"; }; then
+            if [ -e "$found/docker/.env" ]; then
+                error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. It is not a git clone only you can change: if it is your own, move it away and clone this project again."
+            else
+                error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. It is not a git clone only you can change: run again from outside $found."
+            fi
         elif [ -e "$found/docker/.env" ]; then
             error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. If it is your own clone, run its scripts/install.sh --docker."
         else
