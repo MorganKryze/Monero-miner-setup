@@ -10,13 +10,13 @@ REPO_URL="https://github.com/MorganKryze/Monero-miner-setup.git"
 REPO_NAME="Monero-miner-setup"
 PROJECT_URL="https://github.com/MorganKryze/Monero-miner-setup"
 
-DEFAULT_WORKER_NAME=""
+DEFAULT_WORKER_NAME="docker_miner"
 DEFAULT_POOL_URL="gulf.moneroocean.stream"
 DEFAULT_DONATE_LEVEL=0
 DEFAULT_MAX_THREADS=75
 DEFAULT_CPU_COUNT="2.0"
-DEFAULT_MEMORY_LIMIT="1g"
-DEFAULT_FORCE_THREAD_COUNT="2"
+DEFAULT_MEMORY_LIMIT="3g"
+DEFAULT_FORCE_THREAD_COUNT=""
 DEFAULT_PAUSE_ON_BATTERY=false
 DEFAULT_PAUSE_ON_ACTIVE=false
 DEFAULT_VPN_PROVIDER="none"
@@ -25,6 +25,9 @@ DEFAULT_AUTOSTART=false
 DEFAULT_BUILD_LOCAL=false
 DEFAULT_OVERWRITE_ENV=false
 DEFAULT_XMRIG_IMAGE="ghcr.io/morgankryze/monero-miner-setup:latest"
+# RandomX's fast mode needs this much memory for its dataset (measured: 2.30 GiB in use); under
+# it the container mines in light mode.
+FAST_MODE_MIB=2560
 
 set -o errexit
 set -o pipefail
@@ -51,13 +54,17 @@ Required:
   -w, --wallet WALLET          Your Monero wallet (95/106 chars, base58)
 
 Mining:
-  --worker-name NAME           Worker name (default: docker_miner)
-  --pool URL                   Pool URL (default: ${DEFAULT_POOL_URL})
+  --worker-name NAME           Worker name, 1-64 letters, digits or . _ - @ : +
+                               (default: ${DEFAULT_WORKER_NAME})
+  --pool URL                   Pool host[:port], optionally after stratum+tcp:// or
+                               stratum+ssl:// (default: ${DEFAULT_POOL_URL})
   --donate N                   Donation level 0-5 (default: ${DEFAULT_DONATE_LEVEL})
-  --threads N                  Max threads percentage 1-100 (default: ${DEFAULT_MAX_THREADS})
-  --force-threads N            Override auto-computed thread count (default: ${DEFAULT_FORCE_THREAD_COUNT})
+  --threads N                  Threads as a percentage 1-100 of the container's CPU quota,
+                               at most xmrig's own count (default: ${DEFAULT_MAX_THREADS})
+  --force-threads N            Mine with exactly N threads, 1-1024 (default: none)
   --cpus N                     Container CPU quota (default: ${DEFAULT_CPU_COUNT})
-  --memory LIMIT               Container memory limit (default: ${DEFAULT_MEMORY_LIMIT})
+  --memory LIMIT               Container memory limit, digits with b, k, m or g
+                               (default: ${DEFAULT_MEMORY_LIMIT}; under ${FAST_MODE_MIB}m, RandomX light mode)
   --pause-battery              Pause on battery
   --pause-active               Pause on user input
 
@@ -135,8 +142,99 @@ function validate_wallet() {
         return 1
     fi
 
+    if ! is_wallet "$wallet"; then
+        error "Invalid wallet: 95 or 106 base58 characters starting with 4 or 8, then optionally one '.' and 1 to 64 letters or digits."
+        return 1
+    fi
+
     info "Wallet looks valid (length $len, leading char '${wallet_base:0:1}')."
     return 0
+}
+
+# The value rules, the same in docker/entrypoint.sh, scripts/install.sh and here. Every
+# value that reaches the miner's config passes one of them first.
+function is_wallet() {
+    local LC_ALL=C re='^[48]([1-9A-HJ-NP-Za-km-z]{94}|[1-9A-HJ-NP-Za-km-z]{105})([.][A-Za-z0-9]{1,64})?$'
+    [[ $1 =~ $re ]]
+}
+
+function is_worker_name() {
+    local LC_ALL=C re='^[A-Za-z0-9._@:+-]{1,64}$'
+    [[ $1 =~ $re ]]
+}
+
+function is_pool() {
+    local LC_ALL=C hostport re='^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(:([0-9]{1,5}))?$'
+    case $1 in
+        stratum+tcp://* | stratum+ssl://*) hostport=${1#stratum+???://} ;;
+        *) hostport=$1 ;;
+    esac
+    [[ $hostport =~ $re ]] || return 1
+    [ -z "${BASH_REMATCH[3]}" ] || { [ "$((10#${BASH_REMATCH[3]}))" -ge 1 ] && [ "$((10#${BASH_REMATCH[3]}))" -le 65535 ]; }
+}
+
+# Arguments: value, lowest, highest.
+function is_whole_number() {
+    local LC_ALL=C re='^[0-9]{1,5}$'
+    [[ $1 =~ $re ]] && [ "$((10#$1))" -ge "$2" ] && [ "$((10#$1))" -le "$3" ]
+}
+
+function is_one_line() {
+    local LC_ALL=C
+    [[ $1 != *[[:cntrl:]]* ]]
+}
+
+# Every flag's value against its rule, before anything is written. One error line names the flag
+# and the rule.
+function check_values() {
+    local LC_ALL=C mib
+    if ! is_worker_name "$WORKER_NAME"; then
+        error "--worker-name must be 1 to 64 letters, digits or . _ - @ : + characters."; return 1
+    fi
+    if ! is_pool "$POOL_URL"; then
+        error "--pool must be a host name or IPv4 address, optionally after stratum+tcp:// or stratum+ssl:// and before a :port from 1 to 65535."; return 1
+    fi
+    if ! is_whole_number "$DONATE_LEVEL" 0 5; then
+        error "--donate must be a whole number from 0 to 5."; return 1
+    fi
+    if ! is_whole_number "$MAX_THREADS" 1 100; then
+        error "--threads must be a whole number from 1 to 100."; return 1
+    fi
+    if [ -n "$FORCE_THREAD_COUNT" ] && ! is_whole_number "$FORCE_THREAD_COUNT" 1 1024; then
+        error "--force-threads must be a whole number from 1 to 1024."; return 1
+    fi
+    if ! [[ $CPU_COUNT =~ ^[0-9]{1,4}([.][0-9]{1,3})?$ && $CPU_COUNT =~ [1-9] ]]; then
+        error "--cpus must be a positive decimal number, such as 2 or 1.5."; return 1
+    fi
+    # Compose reads a zero limit as no limit at all, so zero is refused like a malformed value.
+    if ! [[ $MEMORY_LIMIT =~ ^[0-9]{1,12}[bkmg]?$ && $MEMORY_LIMIT =~ [1-9] ]]; then
+        error "--memory must be digits with an optional b, k, m or g, such as 3g."; return 1
+    fi
+    if ! [[ $XMRIG_IMAGE =~ ^[A-Za-z0-9._/:@-]{1,255}$ ]]; then
+        error "--image must hold only letters, digits and . _ - / : @ characters."; return 1
+    fi
+    if ! is_one_line "$VPN_LOCATION"; then
+        error "--vpn-location must be one line with no control character."; return 1
+    fi
+    case $MEMORY_LIMIT in
+        *g) mib=$((10#${MEMORY_LIMIT%g} * 1024)) ;;
+        *m) mib=$((10#${MEMORY_LIMIT%m})) ;;
+        *k) mib=$((10#${MEMORY_LIMIT%k} / 1024)) ;;
+        *) mib=$((10#${MEMORY_LIMIT%b} / 1048576)) ;;
+    esac
+    if [ "$mib" -lt "$FAST_MODE_MIB" ]; then
+        warning "--memory $MEMORY_LIMIT is under the ${FAST_MODE_MIB} MiB RandomX's fast mode needs: the miner will run in light mode, at a fraction of the hashrate."
+    fi
+}
+
+# A value as Compose reads it back byte for byte inside double quotes: \, " and $ escaped. Pure
+# bash, so it cannot fail half way (bash 3.2 to 5.3 give the same result).
+function env_value() {
+    local v="$1"
+    v=${v//\\/\\\\}
+    v=${v//\"/\\\"}
+    v=${v//\$/\\\$}
+    printf '%s' "$v"
 }
 
 # ===== Secret resolver =====
@@ -154,8 +252,8 @@ function resolve_secret() {
             error "Cannot read secret file: $file_path"
             return 1
         fi
-        # Strip any trailing newline.
-        tr -d '\n' <"$file_path"
+        # The file's final newline goes; any other stays, for the one-line rule to refuse.
+        printf '%s' "$(cat "$file_path")"
         return 0
     fi
 
@@ -201,7 +299,7 @@ function check_docker() {
 function parse_args() {
     WALLET=""
     BASE_DIR=""
-    WORKER_NAME=""
+    WORKER_NAME="$DEFAULT_WORKER_NAME"
     POOL_URL="$DEFAULT_POOL_URL"
     DONATE_LEVEL="$DEFAULT_DONATE_LEVEL"
     MAX_THREADS="$DEFAULT_MAX_THREADS"
@@ -350,17 +448,17 @@ function write_settings_file() {
 function env_content() {
     cat <<EOF
 # Generated by scripts/docker_setup.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
-WALLET_ADDRESS=$WALLET
-WORKER_NAME=${WORKER_NAME:-docker_miner}
-POOL_URL=$POOL_URL
-DONATE_LEVEL=$DONATE_LEVEL
-MAX_THREADS_PERCENT=$MAX_THREADS
-FORCE_THREAD_COUNT=$FORCE_THREAD_COUNT
-CPU_COUNT=$CPU_COUNT
-MEMORY_LIMIT=$MEMORY_LIMIT
-PAUSE_ON_BATTERY=$PAUSE_ON_BATTERY
-PAUSE_ON_ACTIVE=$PAUSE_ON_ACTIVE
-XMRIG_IMAGE=$XMRIG_IMAGE
+WALLET_ADDRESS="$(env_value "$WALLET")"
+WORKER_NAME="$(env_value "$WORKER_NAME")"
+POOL_URL="$(env_value "$POOL_URL")"
+DONATE_LEVEL="$(env_value "$DONATE_LEVEL")"
+MAX_THREADS_PERCENT="$(env_value "$MAX_THREADS")"
+FORCE_THREAD_COUNT="$(env_value "$FORCE_THREAD_COUNT")"
+CPU_COUNT="$(env_value "$CPU_COUNT")"
+MEMORY_LIMIT="$(env_value "$MEMORY_LIMIT")"
+PAUSE_ON_BATTERY="$(env_value "$PAUSE_ON_BATTERY")"
+PAUSE_ON_ACTIVE="$(env_value "$PAUSE_ON_ACTIVE")"
+XMRIG_IMAGE="$(env_value "$XMRIG_IMAGE")"
 EOF
 }
 
@@ -370,70 +468,50 @@ function collect_vpn_secrets() {
         mullvad|protonvpn)
             RESOLVED_WG_KEY=$(resolve_secret "$WG_KEY_FILE" "WIREGUARD_PRIVATE_KEY" "$WG_KEY" "WireGuard private key") || return 1
             RESOLVED_WG_ADDRESS=$(resolve_secret "$WG_ADDRESS_FILE" "WIREGUARD_ADDRESSES" "$WG_ADDRESS" "WireGuard address (e.g. 10.64.0.1/32)") || return 1
+            is_one_line "$RESOLVED_WG_KEY" || { error "The WireGuard private key must be one line with no control character."; return 1; }
+            is_one_line "$RESOLVED_WG_ADDRESS" || { error "The WireGuard address must be one line with no control character."; return 1; }
             ;;
         pia|nordvpn)
             RESOLVED_VPN_USER=$(resolve_secret "$VPN_USER_FILE" "OPENVPN_USER" "$VPN_USER" "OpenVPN username") || return 1
             RESOLVED_VPN_PASS=$(resolve_secret "$VPN_PASS_FILE" "OPENVPN_PASSWORD" "$VPN_PASS" "OpenVPN password") || return 1
+            is_one_line "$RESOLVED_VPN_USER" || { error "The OpenVPN username must be one line with no control character."; return 1; }
+            is_one_line "$RESOLVED_VPN_PASS" || { error "The OpenVPN password must be one line with no control character."; return 1; }
             ;;
     esac
 }
 
 # ===== docker/.env.vpn for the selected provider =====
 function env_vpn_content() {
+    local location_key
+    echo "# Generated by scripts/docker_setup.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     case "$VPN_PROVIDER" in
-        mullvad)
-            cat <<EOF
-# Generated by scripts/docker_setup.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
-VPN_SERVICE_PROVIDER=mullvad
-VPN_TYPE=wireguard
-WIREGUARD_PRIVATE_KEY=$RESOLVED_WG_KEY
-WIREGUARD_ADDRESSES=$RESOLVED_WG_ADDRESS
-${VPN_LOCATION:+SERVER_CITIES=$VPN_LOCATION}
-FIREWALL=on
-TZ=UTC
-LOG_LEVEL=info
-EOF
+        mullvad | protonvpn)
+            echo "VPN_SERVICE_PROVIDER=\"$VPN_PROVIDER\""
+            echo "VPN_TYPE=\"wireguard\""
+            echo "WIREGUARD_PRIVATE_KEY=\"$(env_value "$RESOLVED_WG_KEY")\""
+            echo "WIREGUARD_ADDRESSES=\"$(env_value "$RESOLVED_WG_ADDRESS")\""
+            location_key=SERVER_COUNTRIES
+            [ "$VPN_PROVIDER" = "mullvad" ] && location_key=SERVER_CITIES
             ;;
-        protonvpn)
-            cat <<EOF
-# Generated by scripts/docker_setup.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
-VPN_SERVICE_PROVIDER=protonvpn
-VPN_TYPE=wireguard
-WIREGUARD_PRIVATE_KEY=$RESOLVED_WG_KEY
-WIREGUARD_ADDRESSES=$RESOLVED_WG_ADDRESS
-${VPN_LOCATION:+SERVER_COUNTRIES=$VPN_LOCATION}
-FIREWALL=on
-TZ=UTC
-LOG_LEVEL=info
-EOF
-            ;;
-        pia)
-            cat <<EOF
-# Generated by scripts/docker_setup.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
-VPN_SERVICE_PROVIDER=private internet access
-VPN_TYPE=openvpn
-OPENVPN_USER=$RESOLVED_VPN_USER
-OPENVPN_PASSWORD=$RESOLVED_VPN_PASS
-${VPN_LOCATION:+SERVER_REGIONS=$VPN_LOCATION}
-FIREWALL=on
-TZ=UTC
-LOG_LEVEL=info
-EOF
-            ;;
-        nordvpn)
-            cat <<EOF
-# Generated by scripts/docker_setup.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
-VPN_SERVICE_PROVIDER=nordvpn
-VPN_TYPE=openvpn
-OPENVPN_USER=$RESOLVED_VPN_USER
-OPENVPN_PASSWORD=$RESOLVED_VPN_PASS
-${VPN_LOCATION:+SERVER_COUNTRIES=$VPN_LOCATION}
-FIREWALL=on
-TZ=UTC
-LOG_LEVEL=info
-EOF
+        pia | nordvpn)
+            if [ "$VPN_PROVIDER" = "pia" ]; then
+                echo "VPN_SERVICE_PROVIDER=\"private internet access\""
+                location_key=SERVER_REGIONS
+            else
+                echo "VPN_SERVICE_PROVIDER=\"nordvpn\""
+                location_key=SERVER_COUNTRIES
+            fi
+            echo "VPN_TYPE=\"openvpn\""
+            echo "OPENVPN_USER=\"$(env_value "$RESOLVED_VPN_USER")\""
+            echo "OPENVPN_PASSWORD=\"$(env_value "$RESOLVED_VPN_PASS")\""
             ;;
     esac
+    if [ -n "$VPN_LOCATION" ]; then
+        echo "$location_key=\"$(env_value "$VPN_LOCATION")\""
+    fi
+    # Gluetun's killswitch is on by its own default; nothing here turns it off.
+    echo "TZ=\"UTC\""
+    echo "LOG_LEVEL=\"info\""
 }
 
 # ===== Start the stack =====
@@ -492,6 +570,7 @@ function main() {
     parse_args "$@"
 
     if ! validate_wallet "$WALLET"; then exit 1; fi
+    if ! check_values; then exit 1; fi
     if ! check_docker; then exit 1; fi
     if ! ensure_repo; then exit 1; fi
 
