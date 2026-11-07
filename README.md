@@ -387,11 +387,12 @@ The native build's packages come from your package manager: `build-essential cma
 On Linux, these steps go through `sudo` (`make deps-debian`, `scripts/setup_service_debian.sh` and the service targets):
 
 - `apt-get update` and `apt-get install` of the packages above
-- creating the `xmrig` account, when the service needs it
-- installing `/etc/xmrig/config.json`, `/etc/logrotate.d/xmrig` and `/etc/systemd/system/xmrig.service`, root-owned, from private temp files
-- `systemctl` daemon-reload, enable, start, stop and clean
+- `useradd --system` to create the `xmrig` account, when the service needs it
+- `install -d` of `/etc/xmrig`, then `install` of `/etc/xmrig/config.json`, `/etc/logrotate.d/xmrig` and `/etc/systemd/system/xmrig.service`, root-owned, from private temp files
+- `rm -f` of `/etc/systemd/system/xmrig.service` and `/etc/logrotate.d/xmrig`, on `make service-disable`
+- `systemctl daemon-reload`, `enable`, `start`, `stop`, `status`, `disable`, `reset-failed` and `clean`
 
-The miner itself runs as root only with `--service-as-root`.
+The service runs the miner as root only with `--service-as-root`. `make test` runs it as whoever runs `make`. An install you run as root runs every step as root, not only these: the clone, the XMRig build, and turning off background mode in the clone's config.
 
 ### Why these scripts get flagged
 
