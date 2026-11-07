@@ -97,7 +97,7 @@ bash -c "${installer:?the download came back empty}" -- \
   -w YOUR_MONERO_WALLET
 ```
 
-Clones to `$HOME/Monero-miner-setup`, builds the XMRig commit the repository pins, writes `config.json` + `config_background.json`, registers a `systemd` (Linux) or `launchd` (macOS) service. Needs `git`, `curl`, `make` on the `PATH`. As root on Linux with no `-d`, the clone goes to `/opt/Monero-miner-setup`, unless an earlier install left one in root's home: a re-run keeps using that one. As root, the installer refuses a base directory, a clone, or a directory above them that a user other than root or the `sudo` user can change.
+Clones to `$HOME/Monero-miner-setup`, builds the XMRig commit the repository pins, writes `config.json` + `config_background.json`, registers a `systemd` (Linux) or `launchd` (macOS) service. Needs `git`, `curl`, `make` on the `PATH`. As root on Linux with no `-d`, the clone goes to `/opt/Monero-miner-setup`, unless an earlier install left one in root's home: a re-run keeps using that one. As root on Linux, the installer refuses a base directory, a clone, or a directory above them that a user other than root or the `sudo` user can change.
 
 The service runs the miner as you. Installed with `sudo`, it runs as the user who ran `sudo`; installed as root with no `sudo` user, it runs as the system account `xmrig` (no login shell, no home), created once and reused. That account owns nothing in the clone. systemd creates `/etc/xmrig`, `/var/lib/xmrig/<account>` (its config and calibration) and `/var/log/xmrig/<account>`, and removes them on `make service-disable`.
 
@@ -106,7 +106,7 @@ The service runs the miner as you. Installed with `sudo`, it runs as the user wh
 Common flags (run `install.sh --help` for the complete list):
 
 - `-t, --threads PERCENT`: `max-threads-hint` 1–100, a percentage of the host's cores (default: `75`)
-- `-p, --pool URL`: pool override (default: `gulf.moneroocean.stream`). A `stratum+ssl://` URL is used as given, so give its port
+- `-p, --pool URL`: pool override (default: `gulf.moneroocean.stream`). A `stratum+ssl://` URL is used as given, so give its port.
 - `--name STRING`: worker name (default: random `adjective_noun_NNN`)
 - `-d, --dir DIR`: where the clone goes (default: `$HOME`; as root on Linux, `/opt`)
 - `--service-as-root`: run the systemd service as root, for the x86 RandomX MSR boost (see below)
@@ -315,7 +315,7 @@ An update keeps your wallet, pool and worker settings. A few steps are yours.
 
 **Native.**
 
-- Update the way you installed: as yourself, with `sudo`, or as root. The service runs the miner as the account that gives (you, the user who ran `sudo`, or the system account `xmrig`).
+- Update the way you installed: as yourself, with `sudo`, or as root. The service keeps running the miner as the account that way of installing gives: you, the user who ran `sudo`, or the system account `xmrig`.
 - Before you update, run `grep -n -- --remote Makefile` in the clone. If it prints a line, your clone has the old recipe: a `make update` would build XMRig's upstream tip instead of the pinned commit. Run `git pull` first, then `make update`.
 - `make update` sets the service up without `--service-as-root`. To keep a root service, run `SERVICE_AS_ROOT=yes make update` as root.
 - The setup turns background mode off in `configs/config_background.json`, that one setting alone, and says so. Miners an earlier background start left running are reported with the command that stops them (add `sudo` if they run as another user). Nothing is stopped for you.
@@ -365,6 +365,36 @@ For the XMRig schema itself, see the [XMRig docs](https://xmrig.com/docs).
 
 XMRig is legitimate open-source software. AV tools flag it because malware installs miners without the user's consent. Your AV will flag this project too.
 
+### What the installers fetch
+
+The installers fetch from the sources below and nothing else. All of it comes over HTTPS except the packages apt installs: apt uses the archives its sources list names (the base image's, in a Docker build), plain HTTP by default on Debian and Ubuntu, and checks what it gets against the archive's signing key.
+
+| What | From | When |
+| --- | --- | --- |
+| The installer | `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh` | the install commands above |
+| Its log helpers (bash-toolbox) | your clone's submodule, else `https://raw.githubusercontent.com/MorganKryze/bash-toolbox/<commit>/src/prefix.sh` at the commit `dependencies/bash-toolbox` pins | every native install (`--docker` hands off before it loads them) |
+| The Docker installer | your clone's copy, else `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh` | `--docker` |
+| The repository | `https://github.com/MorganKryze/Monero-miner-setup.git`, its submodules at the commits it pins: `https://github.com/MoneroOcean/xmrig.git`, `https://github.com/MorganKryze/bash-toolbox.git` | when there's no clone yet |
+| The image | `ghcr.io/morgankryze/monero-miner-setup`, built by this repository's CI | Docker, unless `--build` |
+| The base image and its packages | `ubuntu` from Docker Hub, at the tag `docker/Dockerfile` names, and Ubuntu's packages through apt in both build stages | `--build`, or when the image pull fails |
+| The Dockerfile frontend | `docker/dockerfile` from Docker Hub, at the version the `# syntax=` line of `docker/Dockerfile` names: BuildKit runs it to read the Dockerfile | `--build`, or when the image pull fails |
+| The VPN sidecar | `qmcgaw/gluetun`, pinned to a release in `docker/compose.vpn.yml` | `--vpn` |
+| Your exit IP | `https://ifconfig.io`, asked from inside the VPN container | `--vpn --autostart` |
+
+The native build's packages come from your package manager: `build-essential cmake libuv1-dev libssl-dev libhwloc-dev` through apt, with `--no-upgrade`, or `cmake libuv openssl hwloc` through Homebrew. Homebrew itself is never installed for you.
+
+### What runs as root
+
+On Linux, these steps go through `sudo` (`make deps-debian`, `scripts/setup_service_debian.sh` and the service targets):
+
+- `apt-get update` and `apt-get install` of the packages above
+- `useradd --system` to create the `xmrig` account, when the service needs it
+- `install -d` of `/etc/xmrig`, then `install` of `/etc/xmrig/config.json`, `/etc/logrotate.d/xmrig` and `/etc/systemd/system/xmrig.service`, root-owned, from private temp files
+- `rm -f` of `/etc/systemd/system/xmrig.service` and `/etc/logrotate.d/xmrig`, on `make service-disable`
+- `systemctl daemon-reload`, `enable`, `start`, `stop`, `status`, `disable`, `reset-failed` and `clean`
+
+The service runs the miner as root only with `--service-as-root`. `make test` runs it as whoever runs `make`. An install you run as root runs every step as root, not only these: the clone, the XMRig build, and turning off background mode in the clone's config.
+
 ### Why these scripts get flagged
 
 Expect 1–4 hits out of ~91 vendors on every file in this repo, and similar on any miner-adjacent project. Three things drive the verdict:
@@ -380,7 +410,7 @@ The vendors that flag (BitDefender, Fortinet, G-Data, Chong Lua Dao) classify th
 - BitDefender / G-Data: `Application.RiskTool.CoinMiner.X` or `Application.Generic.X`
 - Fortinet: `Riskware/CoinMiner` or `BAT/Agent.X!tr`
 
-None of them claim the script does something it doesn't advertise. They're saying "this category of tool is high-risk." For comparison, the upstream XMRig binary sits at around 30/70 on VirusTotal. This repo's wrappers come out far lower because the binary itself isn't shipped, only the source-build pipeline.
+None of them claim the script does something it doesn't advertise. They're saying "this category of tool is high-risk." For comparison, the upstream XMRig binary sits at around 30/70 on VirusTotal; the wrappers in this repo score the 1–4 above. The prebuilt GHCR image does ship an XMRig binary: this repository's CI builds it from the pinned submodule, unmodified. The native install builds it on your host.
 
 ### Verify before running
 
@@ -408,13 +438,13 @@ None of them claim the script does something it doesn't advertise. They're sayin
    cd Monero-miner-setup && less scripts/install.sh Makefile docker/Dockerfile
    ```
 
-The Docker image runs as a non-root `xmrig` user with `no-new-privileges`. The installer rejects wallet addresses that fail length, leading-character, or base58 checks, and warns before running as root.
+The container runs as uid 999, `xmrig`. The compose file and the minimal run above set `no-new-privileges`; a bare `docker run` without that flag doesn't. Both installers and the container check the wallet, the worker name, the pool and every number and flag before they write them, and write them as values. As root on Linux, the installer refuses a base directory, a clone, or a directory above them that another user can change, and the service setup refuses a binary anyone but root can change when it runs it as another account. The installer still warns before running as root.
 
 ## Troubleshooting
 
 **Service won't start.** Run `make status`. It prints the tail of the error log. Common causes: wallet rejected by the validator (wrong length, wrong leading char, non-base58 character), missing executable bit on `./xmrig`, or XMRig exiting on a missing CPU feature.
 
-**Hashrate lower than expected.** Run `make doctor` and apply its recommendations. On Ryzen/EPYC, the `msr` kernel module is the single biggest lever for a service installed with `--service-as-root`.
+**Hashrate lower than expected.** Run `make doctor` and apply its recommendations. The `msr` kernel module helps only a service installed with `--service-as-root` on x86: 5–15% on Ryzen and EPYC.
 
 **Service keeps coming back after `make stop`.** Use `make service-disable`. `systemd` and `launchd` re-spawn stopped units; `stop` alone won't keep them down.
 
@@ -422,13 +452,13 @@ The Docker image runs as a non-root `xmrig` user with `no-new-privileges`. The i
 
 **Build fails on macOS.** `make deps-macos` installs `cmake`, `libuv`, `openssl`, `hwloc` with Homebrew, and stops with Homebrew's install command when `brew` isn't on your `PATH`.
 
-**`The account <account> cannot run <clone>/xmrig; move the clone where it can, such as /opt.`** The miner's account can't reach the clone. Installed as root in `/root`? Follow the `/root` step of [Upgrading](#upgrading-an-install-made-before-010). Otherwise move the clone under `/opt`.
+**`The account <account> cannot run <clone>/xmrig; move the clone where it can, such as /opt.`** The miner's account can't reach the clone. Installed as root in `/root`? Follow the `/root` step of [Upgrading](#upgrading-an-install-made-before-010). Otherwise run `make service-disable` in that clone, then the installer again with `-d /opt` and your wallet and flags: a moved clone keeps its config links to the old path.
 
 ## Development
 
-- CI (`.github/workflows/ci.yml`) runs `shellcheck`, `hadolint`, a `make -n` dry-run, and a full Docker build smoke test on every push and PR. First-time contributor PRs require maintainer approval before workflows run.
-- Dependabot opens weekly PRs for the vendored `xmrig` and `bash-toolbox` submodules, and for the GitHub Actions in the workflow. A companion workflow auto-merges Dependabot PRs once CI is green.
-- Pull requests welcome. Fork, branch, open a PR. CI will tell you if anything's broken before a human looks at it.
+- CI (`.github/workflows/ci.yml`) runs `shellcheck`, `hadolint`, the `make -n` dry runs, `make check` and the Docker build smoke test on amd64 and arm64. It runs on pushes and pull requests to `main`, and after a Dependabot merge. A pull request to `main` needs green CI to merge (the maintainer can still push directly). First-time contributor PRs require maintainer approval before workflows run.
+- Dependabot opens weekly PRs for the `xmrig` and `bash-toolbox` submodules, the GitHub Actions, the Dockerfile's base image and Gluetun. Only Actions patch and minor bumps merge on their own, once CI is green; the rest wait for review.
+- Pull requests welcome. Fork, branch, run `make check`, open a PR.
 
 ## License
 
