@@ -13,7 +13,7 @@ w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
 mkdir -p "$w/tools"
-for t in awk cat cp cut ln mkdir; do
+for t in awk cat cp cut ln mkdir mv rm; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
@@ -114,5 +114,13 @@ chmod 555 "$w/home/Monero-miner-setup/configs"
   printf '%s\n' "$out" | grep -qxF "[ERROR] Failed to write $w/home/Monero-miner-setup/configs/config.json." \
     || echo "FAIL unwritable: no error line: $out" ) | grep . && rc=1
 chmod 755 "$w/home/Monero-miner-setup/configs"
+# A config whose write fails leaves nothing behind, so the next run does not keep it as written.
+rm -rf "$w/home"; mkdir -p "$w/home/Monero-miner-setup/templates"
+cp "$root"/templates/config.json.template "$w/home/Monero-miner-setup/templates/"
+( BASE_DIR="$w/home" REPO_NAME=Monero-miner-setup POOL_URL=gulf.moneroocean.stream PORT=10128 PASS=x DEFAULT_PASS=x \
+    WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false
+  on generate_config_files
+  [ "$code" -eq 1 ] || echo "FAIL failed write: exit $code" ) | grep . && rc=1
+want "failed write" "configs left" "config.json" "$(cd "$w/home/Monero-miner-setup/configs" && ls -A)"
 [ "$rc" -eq 0 ] && echo "PASS native-values"
 exit "$rc"

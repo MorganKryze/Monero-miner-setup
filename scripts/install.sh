@@ -762,6 +762,8 @@ function configs_exist() {
 # Writes a miner config from its template: each setting the installer fills in becomes one JSON
 # value holding exactly what was passed. The values reach awk through its environment, as data;
 # no command is built from them. Arguments: template, destination, log file, pool URL, worker name.
+# The config is written next to the destination and moved over it only once complete: a failed
+# write leaves no partial file that a later run would keep.
 function write_miner_config() {
     XMRIG_HINT=$MAX_THREADS XMRIG_DONATE=$DONATE_LEVEL XMRIG_LOG=$3 XMRIG_URL=$4 XMRIG_USER=$WALLET \
         XMRIG_PASS=$5 XMRIG_BATTERY=$PAUSE_ON_BATTERY XMRIG_ACTIVE=$PAUSE_ON_ACTIVE awk '
@@ -788,7 +790,9 @@ function write_miner_config() {
         /^[ \t]*"pause-on-battery": [a-z]*,?$/ { put("pause-on-battery", ENVIRON["XMRIG_BATTERY"]); next }
         /^[ \t]*"pause-on-active": [a-z]*,?$/ { put("pause-on-active", ENVIRON["XMRIG_ACTIVE"]); next }
         { print }
-    ' "$1" >"$2"
+    ' "$1" >"$2.tmp" && mv -f "$2.tmp" "$2" && return 0
+    rm -f "$2.tmp"
+    return 1
 }
 
 function generate_config_files() {
