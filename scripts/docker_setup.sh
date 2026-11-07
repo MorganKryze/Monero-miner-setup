@@ -484,7 +484,13 @@ function ensure_repo() {
 
     found=$(nearest_lookalike)
     if [ -n "$found" ] && [ "$found" != "$REPO_DIR" ]; then
-        error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. Run again from outside $found, or, if it is your own clone, with its scripts/install.sh --docker."
+        # A run from outside a folder holding settings would start a second set under the same
+        # Compose project, so that remedy is offered only when there are none.
+        if [ -e "$found/docker/.env" ]; then
+            error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. If it is your own clone, run its scripts/install.sh --docker."
+        else
+            error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. Run again from outside $found, or, if it is your own clone, with its scripts/install.sh --docker."
+        fi
         return 1
     fi
 

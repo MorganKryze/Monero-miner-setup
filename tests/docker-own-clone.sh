@@ -108,6 +108,9 @@ refused() {
   [ -z "${3:-}" ] || [ ! -e "$3/docker/.env" ] || [ -n "${KEPT:-}" ] || fail "$1: $3/docker/.env written"
 }
 look_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. Run again from outside $1, or, if it is your own clone, with its scripts/install.sh --docker."; }
+# With a docker/.env there, a run from outside it would start a second set of settings: only the
+# install.sh remedy is offered.
+kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. If it is your own clone, run its scripts/install.sh --docker."; }
 mode_line() { echo "$1 is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod go-w $1, then run again."; }
 open_line() { echo "$1 can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."; }
 home_clone="$w/home/Monero-miner-setup"
@@ -145,17 +148,17 @@ printf 'WALLET_ADDRESS="planted"\n' > "$w/shared/docker/.env"
 cp -p "$w/shared/docker/.env" "$w/planted.env"
 mkdir -p "$w/shared/sub/dir"
 run look-fetched "$w/shared" "$w/fetched/docker_setup.sh" --autostart
-KEPT=1 refused look-fetched "$(look_line "$w/shared" "$home_clone")" "$w/shared"
+KEPT=1 refused look-fetched "$(kept_line "$w/shared" "$home_clone")" "$w/shared"
 cmp -s "$w/shared/docker/.env" "$w/planted.env" || fail "look-fetched: the planted .env changed"
 run look-below "$w/shared/sub/dir" "$w/fetched/docker_setup.sh" --autostart
-KEPT=1 refused look-below "$(look_line "$w/shared" "$home_clone")" "$w/shared"
+KEPT=1 refused look-below "$(kept_line "$w/shared" "$home_clone")" "$w/shared"
 (cd "$w/shared" && env -i HOME="$w/home" PATH="$w/bin:$w/tools" "$BASH" -s -- -w "$wallet" -y --autostart \
   < "$w/fetched/docker_setup.sh") > "$w/out" 2> "$w/err"
 code=$? err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
 want look-piped exit 1 "$code"
-want look-piped stderr "[  ERROR  ] $(look_line "$w/shared" "$home_clone")" "$err"
+want look-piped stderr "[  ERROR  ] $(kept_line "$w/shared" "$home_clone")" "$err"
 run look-own "$w/shared" "$w/own/scripts/docker_setup.sh" --autostart
-KEPT=1 refused look-own "$(look_line "$w/shared" "$w/own")" "$w/shared"
+KEPT=1 refused look-own "$(kept_line "$w/shared" "$w/own")" "$w/shared"
 cmp -s "$w/shared/docker/.env" "$w/planted.env" || fail "look-own: the planted .env changed"
 # A lookalike inside the own clone is nearer than the clone itself: it stops the run too.
 lookalike "$w/own/sub"
