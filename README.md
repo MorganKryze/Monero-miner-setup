@@ -19,7 +19,7 @@ The install commands below need a POSIX shell such as bash or zsh. In fish, run 
 | Pick       | Best when                                                        |
 | ---------- | ---------------------------------------------------------------- |
 | **Docker** | You want isolation, no system changes, easy teardown             |
-| **Native** | Debian/Ubuntu or macOS. Unlocks huge pages + MSR tuning for max hashrate |
+| **Native** | Debian/Ubuntu or macOS. Unlocks huge pages, and the MSR boost with `--service-as-root` on x86 |
 
 ### Docker (prebuilt image, recommended)
 
@@ -83,13 +83,19 @@ bash -c "${installer:?the download came back empty}" -- \
   -w YOUR_MONERO_WALLET
 ```
 
-Clones to `$HOME/Monero-miner-setup`, builds XMRig from source, writes `config.json` + `config_background.json`, registers a `systemd` (Linux) or `launchd` (macOS) service. Needs `git`, `curl`, `make` on the `PATH`.
+Clones to `$HOME/Monero-miner-setup`, builds the XMRig commit the repository pins, writes `config.json` + `config_background.json`, registers a `systemd` (Linux) or `launchd` (macOS) service. Needs `git`, `curl`, `make` on the `PATH`. As root on Linux with no `-d`, the clone goes to `/opt/Monero-miner-setup`, unless an earlier install left one in root's home: a re-run keeps using that one. As root, the installer refuses a base directory, a clone, or a directory above them that a user other than root or the `sudo` user can change.
+
+The service runs the miner as you. Installed with `sudo`, it runs as the user who ran `sudo`; installed as root with no `sudo` user, it runs as the system account `xmrig` (no login shell, no home), created once and reused. That account owns nothing in the clone. systemd creates `/etc/xmrig`, `/var/lib/xmrig/<account>` (its config and calibration) and `/var/log/xmrig/<account>`, and removes them on `make service-disable`.
+
+`--service-as-root` is for systemd only: the macOS service refuses it, and refuses to run as root. It exists for the x86 RandomX MSR boost, which needs root. Without it, the miner gets no MSR boost and can't reserve huge pages itself, so reserve them with `sysctl` (see [Tuning](#tuning-for-performance)).
 
 Common flags (run `install.sh --help` for the complete list):
 
-- `-t, --threads PERCENT`: `max-threads-hint` 1–100 (default: `75`)
-- `-p, --pool URL`: pool override (default: `gulf.moneroocean.stream`)
+- `-t, --threads PERCENT`: `max-threads-hint` 1–100, a percentage of the host's cores (default: `75`)
+- `-p, --pool URL`: pool override (default: `gulf.moneroocean.stream`). A `stratum+ssl://` URL is used as given, so give its port
 - `--name STRING`: worker name (default: random `adjective_noun_NNN`)
+- `-d, --dir DIR`: where the clone goes (default: `$HOME`; as root on Linux, `/opt`)
+- `--service-as-root`: run the systemd service as root, for the x86 RandomX MSR boost (see below)
 - `--donate PERCENT`: 0–5
 - `--autostart`: start the service right after install
 - `--only-manual`: install the binary, skip service setup
@@ -267,16 +273,19 @@ For the native install, run from the repo root. Targets work on both Linux (syst
 | `make start`           | Start the mining service                                              |
 | `make stop`            | Stop the service and kill any stray `xmrig` processes                 |
 | `make restart`         | `stop` + `start`                                                      |
-| `make status`          | Service state, PIDs, and the last 5 log lines                         |
+| `make status`          | Service state, PIDs, and the last 5 log lines (systemd: `/var/log/xmrig/<account>/xmrig.log`) |
 | `make test`            | Run XMRig in the foreground. Ctrl-C to exit                           |
 | `make doctor`          | Check host tuning (huge pages, MSR, AES-NI) and print recommendations |
 | `make benchmark`       | 1-minute RandomX benchmark. Prints a hashrate score                   |
 | `make benchmark-long`  | 10-minute RandomX benchmark. More stable for hardware comparisons     |
-| `make update`          | `git pull`, update submodules, rebuild, re-install the service unit   |
-| `make service-disable` | Stop the service and remove the system unit                           |
+| `make update`          | `git pull`, the pinned submodule commits, rebuild, `make service-setup` again |
+| `make service-disable` | Stop and disable the service, remove the unit and the logrotate file; systemd removes `/etc/xmrig`, `/var/lib/xmrig/<account>` and `/var/log/xmrig/<account>` |
 | `make clean-build`     | Remove the build directory and the `xmrig` symlink                    |
 | `make clean-configs`   | Remove generated configs                                              |
 | `make wipe`            | `clean-build` + `clean-configs` + `service-disable`                   |
+| `make check`           | Run the regression checks in `tests/`. No build, no mining            |
+
+Neither `make service-disable` nor `make wipe` removes the `xmrig` account. Remove it with `sudo userdel xmrig`.
 
 Docker equivalents: `docker compose up -d`, `down`, `logs -f`, `restart`, `ps`.
 
@@ -286,12 +295,25 @@ One-off benchmark from a Docker install (builds the image if needed, no wallet r
 docker compose run --rm --entrypoint /app/xmrig xmrig --bench=1M
 ```
 
+## Upgrading an install made before 0.1.0
+
+An update keeps your wallet, pool and worker settings. A few steps are yours.
+
+**Native.**
+
+- Update the way you installed: as yourself, with `sudo`, or as root. The service runs the miner as the account that gives (you, the user who ran `sudo`, or the system account `xmrig`).
+- Before you update, run `grep -n -- --remote Makefile` in the clone. If it prints a line, your clone has the old recipe: the first `make update` builds XMRig's upstream tip instead of the pinned commit, so run `make update` twice.
+- `make update` sets the service up without `--service-as-root`. To keep a root service, run `SERVICE_AS_ROOT=yes make update` as root.
+- The setup turns background mode off in `configs/config_background.json`, that one setting alone, and says so. Miners an earlier background start left running are reported with the command that stops them (add `sudo` if they run as another user). Nothing is stopped for you.
+- The service keeps running the old binary until you run `make restart`.
+- Installed as root with the clone in `/root`? The miner's account can't enter root's home, so `make update` stops with `The account xmrig cannot run /root/Monero-miner-setup/xmrig; move the clone where it can, such as /opt.` and your old service keeps running. Run `make service-disable` in the old clone, then the installer again as root with `-d /opt` (or without `-d` once `/root/Monero-miner-setup` is gone), passing your wallet and flags again.
+
 ## Tuning for performance
 
 Run `make doctor` first. It inspects your host and prints a numbered list of concrete commands to apply. Common wins on Linux:
 
 - **Reserve 2 MB huge pages**: `sudo sysctl -w vm.nr_hugepages=1280`. Persist in `/etc/sysctl.d/99-xmrig.conf`.
-- **Load the `msr` module**: `sudo modprobe msr`. Persist via `echo msr | sudo tee /etc/modules-load.d/msr.conf`. Worth 5–15% on Ryzen and EPYC.
+- **Load the `msr` module**: `sudo modprobe msr`. Persist via `echo msr | sudo tee /etc/modules-load.d/msr.conf`. It helps only a service installed with `--service-as-root`. Worth 5–15% on Ryzen and EPYC.
 - **Enable 1 GB pages** (if the CPU has `pdpe1gb`): add `hugepagesz=1G hugepages=3 default_hugepagesz=2M` to `GRUB_CMDLINE_LINUX`, regenerate GRUB, reboot. Worth 1–5%.
 
 macOS has no userspace equivalent for any of these. Expect 10–30% less hashrate than a tuned Linux host on the same silicon.
@@ -301,9 +323,9 @@ macOS has no userspace equivalent for any of these. Expect 10–30% less hashrat
 **Native.** Generated configs live under `configs/`:
 
 - `config.json`: used by `make test`
-- `config_background.json`: used by the service
+- `config_background.json`: the service's. The setup installs it as `/etc/xmrig/config.json`; at the first start after it changed, the service copies it into `/var/lib/xmrig/<account>/config.json`, and otherwise keeps the calibration it saved there. Edit it, then run `make service-setup` and `make restart`.
 
-Both come from `templates/*.json.template` via `sed` substitution. Edit the templates if you want different defaults for future installs.
+The installer fills both in from `templates/*.json.template`, and a re-run keeps them. To regenerate them, run `make clean-configs`, then the installer.
 
 **Docker.** Runtime config lives in `docker/.env` (and `docker/.env.vpn` if VPN is enabled). The installer writes these for you. Both files are `chmod 600`. `docker/.env.example` documents every variable, including `XMRIG_IMAGE` for pinning a specific tag or pointing compose at a forked image.
 
@@ -313,7 +335,7 @@ For the XMRig schema itself, see the [XMRig docs](https://xmrig.com/docs).
 
 | Install | Location                                           | Rotation                                                                                              |
 | ------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Linux   | `$REPO/logs/xmrig.log`                             | `/etc/logrotate.d/xmrig` (daily, 7 rotations, compressed) if `logrotate` is installed                 |
+| Linux   | `/var/log/xmrig/<account>/xmrig.log`               | `/etc/logrotate.d/xmrig` (daily, 7 kept, compressed, as the account) if `logrotate` is installed. The service restarts after each rotation: one short pool reconnect a day |
 | macOS   | `$REPO/logs/xmrig_stdout.log` + `xmrig_stderr.log` | None. Truncate them yourself if they grow                                                             |
 | Docker  | `./logs/xmrig.log` + container stdout              | Container stdout rotates via compose (`max-size: 10m`, `max-file: 3`). File log grows until truncated |
 
@@ -376,7 +398,9 @@ The Docker image runs as a non-root `xmrig` user with `no-new-privileges`. The i
 
 **Docker container reports unhealthy on startup.** The first 30–60 s of RandomX dataset allocation predates the healthcheck. `start_period` is set to 60 s, so Docker won't mark it unhealthy during that window. If it lasts longer, check `docker compose logs` for an OOM.
 
-**Build fails on macOS.** `make deps-macos` installs `cmake`, `libuv`, `openssl`, `hwloc` via Homebrew. The target installs Homebrew first if it isn't on your `PATH`.
+**Build fails on macOS.** `make deps-macos` installs `cmake`, `libuv`, `openssl`, `hwloc` with Homebrew, and stops with Homebrew's install command when `brew` isn't on your `PATH`.
+
+**`The account <account> cannot run <clone>/xmrig; move the clone where it can, such as /opt.`** The miner's account can't reach the clone. Installed as root in `/root`? Follow the `/root` step of [Upgrading](#upgrading-an-install-made-before-010). Otherwise move the clone under `/opt`.
 
 ## Development
 
