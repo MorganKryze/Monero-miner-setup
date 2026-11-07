@@ -4,7 +4,10 @@
 VERSION="0.0.1"
 LOW_DELAY=0.5
 HIGH_DELAY=15
-TOOLBOX_URL="https://raw.githubusercontent.com/MorganKryze/bash-toolbox/main/src/prefix.sh"
+# The commit dependencies/bash-toolbox pins: a fetch by commit cannot change under a running
+# install, unlike the branch tip. tests/installer-sources.sh fails when the two differ.
+TOOLBOX_COMMIT="b17a126be5390700e081e6f7ae6cddfdb47537e9"
+TOOLBOX_URL="https://raw.githubusercontent.com/MorganKryze/bash-toolbox/${TOOLBOX_COMMIT}/src/prefix.sh"
 PROJECT_URL="https://github.com/MorganKryze/Monero-miner-setup"
 REPO_NAME="Monero-miner-setup"
 REPO_URL="https://github.com/MorganKryze/Monero-miner-setup.git"
@@ -16,12 +19,69 @@ DEFAULT_PAUSE_ON_ACTIVE=false
 DEFAULT_PAUSE_ON_BATTERY=false
 DEFAULT_SERVICE_MODE="setup" # Options: "setup", "manual", "autostart"
 DEFAULT_NON_INTERACTIVE=false
+# Base directory as root on Linux: the service then runs the miner as another account, which can
+# enter /opt but not root's home (mode 700).
+ROOT_BASE_DIR="/opt"
+# Where the service setup (scripts/setup_service_*.sh) installs the service: a re-run that finds
+# it there leaves the service as it is.
+SYSTEMD_UNIT="/etc/systemd/system/xmrig.service"
+LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.moneroocean.xmrig.plist"
 DOCKER_SCRIPT_URL="https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh"
 
+# ===== Own clone =====
+# BASH_SOURCE is read here, at the top level: inside a function, bash 5 gives a script read from a
+# pipe its $0 ("bash", or the first argument of `bash -c`), which may name a file in the current
+# directory.
+SELF_PATH="${BASH_SOURCE[0]-}"
+
+# Prints the clone this file sits in (<clone>/scripts/install.sh), or nothing. Piped into bash, run
+# through `bash <(...)` or `bash -c "$(...)"`, or saved outside a clone, the installer has no clone
+# of its own and never looks in the current directory, where another user may have left a file.
+# Nor has it one when someone else can write to the clone root, as in /tmp: they could have
+# planted the .git and the toolbox there.
+function find_own_clone() {
+    local dir root
+    [ -n "$SELF_PATH" ] && [ -f "$SELF_PATH" ] || return 0
+    dir=$(cd -- "$(dirname -- "$SELF_PATH")" 2>/dev/null && pwd -P) || return 0
+    root="${dir%/*}"
+    if [ "${dir##*/}" = "scripts" ] && [ -e "$root/.git" ] && only_user_can_write "$root"; then
+        printf '%s' "$root"
+    fi
+}
+
+# Other users can never write to the folder. Its group can only when the group is the user's own:
+# Ubuntu gives each user one and a umask of 0002, so a clone there is group-writable, while a
+# shared group (macOS's staff holds every local user) or a project group holds other users. find
+# prints the folder only when it is safe, so a failed check, or a failed id, falls back to the fetch.
+# The mode bits miss an ACL, which can let anyone add files to the folder: one on the folder is a no
+# too. macOS lists each entry on a line of its own under ls -e (its + marker gives way to @ when
+# the folder has extended attributes); Linux ends the mode with +.
+function only_user_can_write() {
+    local group_ok listing
+    group_ok=(! -perm -0020)
+    if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
+        group_ok=("(" ! -perm -0020 -o -group "$(id -g)" ")")
+    fi
+    [ "$(find "$1/" -maxdepth 0 ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1/" ] || return 1
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        listing=$(ls -lde -- "$1/" 2>/dev/null) || return 1
+    else
+        listing=$(ls -ld -- "$1/" 2>/dev/null) || return 1
+    fi
+    case $listing in
+        *$'\n'*) return 1 ;;
+    esac
+    case ${listing%% *} in
+        *+) return 1 ;;
+    esac
+}
+
+OWN_CLONE=$(find_own_clone)
+
 # ===== Docker-mode dispatch =====
-# If --docker appears anywhere in the args, hand off to docker_setup.sh
-# (preferring a local sibling file, falling back to a fetch from GitHub).
-# Runs before any other logic so the native install path never executes.
+# If --docker appears anywhere in the args, hand off to docker_setup.sh: the own clone's copy,
+# otherwise a fetch from GitHub. Runs before any other logic so the native install path never
+# executes.
 function maybe_dispatch_docker() {
     local is_docker=false
     local passthrough=()
@@ -37,19 +97,21 @@ function maybe_dispatch_docker() {
         return 0
     fi
 
-    # Prefer a sibling docker_setup.sh when running from a clone.
-    local self_dir=""
-    self_dir=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd) || self_dir=""
-    if [ -n "$self_dir" ] && [ -f "$self_dir/docker_setup.sh" ]; then
-        echo "Dispatching to $self_dir/docker_setup.sh..."
-        exec bash "$self_dir/docker_setup.sh" "${passthrough[@]}"
+    if [ -n "$OWN_CLONE" ] && [ -f "$OWN_CLONE/scripts/docker_setup.sh" ]; then
+        echo "Dispatching to $OWN_CLONE/scripts/docker_setup.sh..."
+        exec bash "$OWN_CLONE/scripts/docker_setup.sh" "${passthrough[@]}"
     fi
 
-    # Otherwise fetch the latest from GitHub and exec.
     local tmpfile
-    tmpfile=$(mktemp) || { echo "Failed to create temp file." >&2; exit 1; }
-    if ! curl -fsSL "$DOCKER_SCRIPT_URL" -o "$tmpfile"; then
-        echo "Failed to fetch $DOCKER_SCRIPT_URL. Check your network or install from a local clone." >&2
+    tmpfile=$(mktemp) || { echo "[  ERROR  ] Failed to create temp file." >&2; exit 1; }
+    if ! curl -fsSL --proto '=https' "$DOCKER_SCRIPT_URL" -o "$tmpfile"; then
+        echo "[  ERROR  ] Failed to fetch $DOCKER_SCRIPT_URL. Check your network or install from a local clone." >&2
+        rm -f "$tmpfile"
+        exit 1
+    fi
+    # bash runs an empty file and exits 0: a cut download would look like a finished install.
+    if [ ! -s "$tmpfile" ]; then
+        echo "[  ERROR  ] Fetched an empty file from $DOCKER_SCRIPT_URL. Check your network or install from a local clone." >&2
         rm -f "$tmpfile"
         exit 1
     fi
@@ -74,29 +136,24 @@ function cleanup() {
     return $exit_code
 }
 
+# The log helpers: the own clone's vendored copy when it is checked out, otherwise the pinned
+# commit from GitHub. Without them nothing below can print, so a failed, empty or partial load
+# stops here, before any other step.
 function load_toolbox() {
-    if ! source <(curl -s --connect-timeout 10 "$TOOLBOX_URL"); then
-        echo "Error: Failed to load bash toolbox. Check your internet connection."
-        echo "Using fallback basic functions..."
-
-        GREEN='\033[0;32m'
-        BLUE='\033[0;34m'
-        RED='\033[0;31m'
-        ORANGE='\033[0;33m'
-        RESET='\033[0m'
-        LINK='\033[0;36m'
-        UNDERLINE='\033[4m'
-
-        function txt() { echo -e "${RESET}$1"; }
-        function info() { txt "[${BLUE}  INFO   ${RESET}] ${BLUE}$1${RESET}"; }
-        function warning() { txt "[${ORANGE} WARNING ${RESET}] ${ORANGE}$1${RESET}" >&2; }
-        function error() {
-            txt "[${RED}  ERROR  ${RESET}] ${RED}$1${RESET}" >&2
-            return 1
-        }
-        function success() { txt "[${GREEN} SUCCESS ${RESET}] ${GREEN}$1${RESET}"; }
-        function hint() { txt "[${ORANGE}  HINT   ${RESET}] ${ORANGE}$1${RESET}"; }
+    local from toolbox=""
+    if [ -n "$OWN_CLONE" ] && [ -f "$OWN_CLONE/dependencies/bash-toolbox/src/prefix.sh" ]; then
+        from="$OWN_CLONE/dependencies/bash-toolbox/src/prefix.sh"
+        toolbox=$(cat -- "$from") || toolbox=""
+    else
+        from="$TOOLBOX_URL"
+        toolbox=$(curl -fsSL --proto '=https' --connect-timeout 10 "$TOOLBOX_URL") || toolbox=""
     fi
+    # eval, not `source <(...)`: macOS's bash 3.2 sources nothing from a process substitution.
+    if [ -n "$toolbox" ] && eval "$toolbox" && declare -F txt info warning error success hint >/dev/null; then
+        return 0
+    fi
+    echo "[  ERROR  ] Failed to load the log helpers from $from." >&2
+    exit 1
 }
 
 function display_header() {
@@ -131,7 +188,7 @@ function usage() {
     echo "  -w, --wallet WALLET   Your Monero wallet address"
     echo
     echo "Installation Options:"
-    echo "  -d, --dir DIR         Base directory for installation (defaults to HOME)"
+    echo "  -d, --dir DIR         Base directory for installation (defaults to HOME; as root on Linux, /opt)"
     echo
     echo "Mining Configuration Options:"
     echo "  -t, --threads PERCENT Max CPU threads hint (1-100, default: $DEFAULT_MAX_THREADS)"
@@ -145,6 +202,9 @@ function usage() {
     echo "Service Configuration Options:"
     echo "  --only-manual        Do not set up any service, only manual operation"
     echo "  --autostart          Start mining service immediately after installation"
+    echo "  --service-as-root    Run the systemd service as root. Only for the x86 RandomX MSR boost, which"
+    echo "                       needs root; without it, a root install runs the miner as the user who ran"
+    echo "                       sudo, or as the system account xmrig"
     echo
     echo "Automation Options:"
     echo "  -y, --yes, --non-interactive"
@@ -205,10 +265,30 @@ function validate_wallet() {
     return 0
 }
 
-function validate_directory() {
-    local dir="$1"
+# Root, or the user who ran sudo (who holds root already), owns the path and neither its
+# group nor others can write it (GNU stat, Linux only). A link counts as its own path (stat does
+# not follow it, and a link's mode is 777), so a link is refused. stat drops a mode's leading zeros
+# (0007 comes out as 7), so the mode is read as a whole octal number.
+function trusted_by_root() {
+    local info mode owner
+    info=$(stat -c '%U %a' "$1") || return 1
+    owner=${info%% *} mode=${info#* }
+    [[ "$mode" =~ ^[0-7]+$ ]] && (( (8#$mode & 8#022) == 0 )) &&
+        { [ "$owner" = root ] || { [ -n "${SUDO_USER:-}" ] && [ "$owner" = "$SUDO_USER" ]; }; }
+}
 
-    if [ -z "$dir" ]; then
+function validate_directory() {
+    local dir="$1" path check rest remedy
+
+    # As root on Linux, the service runs the miner as another account (setup_service_debian.sh),
+    # which root's home keeps out: the default is then /opt, unless an earlier install left its
+    # clone in HOME, where a re-run finds it.
+    if [ -z "$dir" ] && [ "$(id -u)" == "0" ] && [ "$(uname -s)" == "Linux" ] && [ -d "$ROOT_BASE_DIR" ] &&
+        [ ! -d "${HOME:-}/$REPO_NAME" ]; then
+        dir="$ROOT_BASE_DIR"
+        # Redirect info message to stderr so it doesn't get captured by $()
+        info "Running as root, no base directory provided: using $dir, which the account running the miner can enter." >&2
+    elif [ -z "$dir" ]; then
         if [ -z "$HOME" ]; then
             error "Please define HOME environment variable to your home directory."
             return 1
@@ -230,6 +310,33 @@ function validate_directory() {
         fi
         # Redirect info message to stderr so it doesn't get captured by $()
         info "Using base directory: $dir." >&2
+    fi
+
+    # Root goes on to run the clone's scripts: a user who can change the base directory, a clone
+    # already there or any directory above them would choose what root runs, as with the
+    # installer's own clone above. This holds whatever chose the directory, -d included.
+    if [ "$(id -u)" == "0" ] && [ "$(uname -s)" == "Linux" ]; then
+        path=$(cd -- "$dir" && pwd -P) || return 1
+        # Root acts on the directory it checked, never on a link a user could point elsewhere later.
+        if [ "$path" != "$dir" ]; then
+            info "Resolved to $path." >&2
+            dir=$path
+        fi
+        remedy="Pass -d"
+        if [ -e "$path/$REPO_NAME" ] || [ -L "$path/$REPO_NAME" ]; then
+            path="$path/$REPO_NAME"
+            remedy="Remove $path, or pass -d"
+        fi
+        check=
+        while :; do
+            if ! trusted_by_root "${check:-/}"; then
+                error "${check:-/} can be changed by a user other than root or the one who ran sudo, and root would run what they put there. $remedy with a directory only root can change." >&2
+                return 1
+            fi
+            [ "${check:-/}" = "$path" ] && break
+            rest=${path#"$check"/}
+            check=$check/${rest%%/*}
+        done
     fi
 
     if [ ! -w "$dir" ]; then
@@ -318,6 +425,7 @@ function parse_arguments() {
     PAUSE_ON_BATTERY=$DEFAULT_PAUSE_ON_BATTERY
     SERVICE_MODE=$DEFAULT_SERVICE_MODE
     NON_INTERACTIVE=$DEFAULT_NON_INTERACTIVE
+    SERVICE_AS_ROOT=no
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -370,6 +478,10 @@ function parse_arguments() {
             SERVICE_MODE="autostart"
             shift 1
             ;;
+        --service-as-root)
+            SERVICE_AS_ROOT=yes
+            shift 1
+            ;;
         -y | --yes | --non-interactive)
             NON_INTERACTIVE=true
             shift 1
@@ -403,6 +515,8 @@ function parse_arguments() {
     export PAUSE_ON_BATTERY
     export SERVICE_MODE
     export NON_INTERACTIVE
+    # Read by scripts/setup_service_debian.sh: only this flag makes the service run as root.
+    export SERVICE_AS_ROOT
 }
 
 # ===== MoneroOcean Miner Setup Functions =====
@@ -604,93 +718,124 @@ function build_project() {
     success "Project built successfully."
     return 0
 }
+function configs_exist() {
+    local dest_config_dir="$BASE_DIR/$REPO_NAME/configs"
+    [ -f "$dest_config_dir/config.json" ] && [ -f "$dest_config_dir/config_background.json" ]
+}
+
 function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
+    local name kept missing=()
 
     info "Generating miner configuration files..."
 
     # Create destination config directory if it doesn't exist
     mkdir -p "$dest_config_dir"
 
-    # Define full pool URL with port if needed
-    local full_pool_url="$POOL_URL"
-    if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "$POOL_URL" != *":"* ]]; then
-        full_pool_url="${POOL_URL}:${PORT}"
-        info "Using MoneroOcean with optimized port: $full_pool_url"
-    fi
+    # A config from an earlier run holds the user's wallet, pool and worker name, and maybe their
+    # own edits: it is kept as it is. The miner reads the one at the clone root, which is a link to
+    # configs/ unless an edit replaced it with a file (GNU sed -i on the link does): that file is
+    # the config the line names.
+    for name in config.json config_background.json; do
+        kept=""
+        if [ -f "$dest_config_dir/$name" ]; then
+            kept="$dest_config_dir/$name"
+        else
+            missing+=("$name")
+        fi
+        if [ -e "$target_dir/$name" ] && [ ! -L "$target_dir/$name" ]; then
+            kept="$target_dir/$name"
+        fi
+        if [ -n "$kept" ]; then
+            info "Keeping $kept. To regenerate it, run 'make clean-configs', then the installer again."
+        fi
+    done
 
     # Set log file path
     local log_file="$target_dir/logs/xmrig.log"
     mkdir -p "$target_dir/logs"
 
-    function generate_random_worker_name() {
-        local adjectives=("swift" "rapid" "blazing" "cosmic" "digital" "quantum" "stellar" "epic" "crypto" "atomic" "shadow" "hyper" "mega" "ultra" "power" "turbo")
-        local nouns=("miner" "rig" "node" "worker" "machine" "server" "core" "unit" "beast" "hawk" "titan" "phoenix" "dragon" "ninja" "master" "runner")
+    if [ ${#missing[@]} -gt 0 ]; then
+        # Define full pool URL with port if needed
+        local full_pool_url="$POOL_URL"
+        if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "$POOL_URL" != *":"* ]]; then
+            full_pool_url="${POOL_URL}:${PORT}"
+            info "Using MoneroOcean with optimized port: $full_pool_url"
+        fi
 
-        # Get random elements from arrays
-        local rand_adj=${adjectives[$((RANDOM % ${#adjectives[@]}))]}
-        local rand_noun=${nouns[$((RANDOM % ${#nouns[@]}))]}
+        function generate_random_worker_name() {
+            local adjectives=("swift" "rapid" "blazing" "cosmic" "digital" "quantum" "stellar" "epic" "crypto" "atomic" "shadow" "hyper" "mega" "ultra" "power" "turbo")
+            local nouns=("miner" "rig" "node" "worker" "machine" "server" "core" "unit" "beast" "hawk" "titan" "phoenix" "dragon" "ninja" "master" "runner")
 
-        # Add a random number (1-999) at the end
-        local rand_num=$((RANDOM % 999 + 1))
+            # Get random elements from arrays
+            local rand_adj=${adjectives[$((RANDOM % ${#adjectives[@]}))]}
+            local rand_noun=${nouns[$((RANDOM % ${#nouns[@]}))]}
 
-        # Combine elements to form the worker name
-        echo "${rand_adj}_${rand_noun}_${rand_num}"
-    }
-    # Create worker pass
-    local worker_name="$PASS"
-    if [ "$worker_name" = "$DEFAULT_PASS" ]; then
-        worker_name=$(generate_random_worker_name)
-        info "Generated random worker name: $worker_name"
+            # Add a random number (1-999) at the end
+            local rand_num=$((RANDOM % 999 + 1))
+
+            # Combine elements to form the worker name
+            echo "${rand_adj}_${rand_noun}_${rand_num}"
+        }
+        # Create worker pass
+        local worker_name="$PASS"
+        if [ "$worker_name" = "$DEFAULT_PASS" ]; then
+            worker_name=$(generate_random_worker_name)
+            info "Generated random worker name: $worker_name"
+        fi
+
+        # Cross-platform sed function
+        function sed_inplace() {
+            local pattern="$1"
+            local file="$2"
+
+            if [[ "$OS_TYPE" == "macos" ]]; then
+                sed -i '' "$pattern" "$file"
+            else
+                sed -i "$pattern" "$file"
+            fi
+        }
+
+        # Each missing file from its template, with the same settings
+        for name in "${missing[@]}"; do
+            cp "$source_config_dir/$name.template" "$dest_config_dir/$name"
+            sed_inplace 's/"max-threads-hint": [0-9]*,/"max-threads-hint": '$MAX_THREADS',/' "$dest_config_dir/$name"
+            sed_inplace 's/"donate-level": [0-9]*,/"donate-level": '$DONATE_LEVEL',/' "$dest_config_dir/$name"
+            sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/$name"
+            sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/$name"
+            sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/$name"
+            sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_name'",#' "$dest_config_dir/$name"
+            sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/$name"
+            sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/$name"
+        done
+        success "Configuration files generated successfully."
     fi
 
-    # Copy template files to destination
-    cp "$source_config_dir/config.json.template" "$dest_config_dir/config.json"
-    cp "$source_config_dir/config_background.json.template" "$dest_config_dir/config_background.json"
-
-    # Cross-platform sed function
-    function sed_inplace() {
-        local pattern="$1"
-        local file="$2"
-
-        if [[ "$OS_TYPE" == "macos" ]]; then
-            sed -i '' "$pattern" "$file"
-        else
-            sed -i "$pattern" "$file"
+    # Link each config at the clone root, where the miner reads it, unless something is already
+    # there: an earlier run's link, or a config edited in its place.
+    for name in config.json config_background.json; do
+        if [ ! -e "$target_dir/$name" ] && [ ! -L "$target_dir/$name" ]; then
+            ln -s "$dest_config_dir/$name" "$target_dir/$name"
         fi
-    }
+    done
 
-    # Update foreground config file
-    sed_inplace 's/"max-threads-hint": [0-9]*,/"max-threads-hint": '$MAX_THREADS',/' "$dest_config_dir/config.json"
-    sed_inplace 's/"donate-level": [0-9]*,/"donate-level": '$DONATE_LEVEL',/' "$dest_config_dir/config.json"
-    sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/config.json"
-    sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/config.json"
-    sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/config.json"
-    sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_name'",#' "$dest_config_dir/config.json"
-    sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/config.json"
-    sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/config.json"
-
-    # Update background config file (same changes)
-    sed_inplace 's/"max-threads-hint": [0-9]*,/"max-threads-hint": '$MAX_THREADS',/' "$dest_config_dir/config_background.json"
-    sed_inplace 's/"donate-level": [0-9]*,/"donate-level": '$DONATE_LEVEL',/' "$dest_config_dir/config_background.json"
-    sed_inplace 's#"log-file": null,#"log-file": "'$log_file'",#' "$dest_config_dir/config_background.json"
-    sed_inplace 's#"url": "[^"]*",#"url": "'$full_pool_url'",#' "$dest_config_dir/config_background.json"
-    sed_inplace 's#"user": "[^"]*",#"user": "'$WALLET'",#' "$dest_config_dir/config_background.json"
-    sed_inplace 's#"pass": "[^"]*",#"pass": "'$worker_name'",#' "$dest_config_dir/config_background.json"
-    sed_inplace 's/"pause-on-battery": [a-z]*,/"pause-on-battery": '$PAUSE_ON_BATTERY',/' "$dest_config_dir/config_background.json"
-    sed_inplace 's/"pause-on-active": [a-z]*,/"pause-on-active": '$PAUSE_ON_ACTIVE',/' "$dest_config_dir/config_background.json"
-
-    # Create symbolic links for easy access
-    ln -sf "$dest_config_dir/config.json" "$target_dir/config.json"
-    ln -sf "$dest_config_dir/config_background.json" "$target_dir/config_background.json"
-
-    success "Configuration files generated successfully."
     info "Main config: $dest_config_dir/config.json"
     info "Background config: $dest_config_dir/config_background.json"
     info "Log file: $log_file"
     return 0
+}
+
+# The service step is done when the unit or the plist is where the service setup puts it, or when
+# --only-manual asks for no service.
+function service_is_set_up() {
+    [ "$SERVICE_MODE" == "manual" ] && return 0
+    case "$OS_TYPE" in
+    linux) [ -f "$SYSTEMD_UNIT" ] ;;
+    macos) [ -f "$LAUNCHD_PLIST" ] ;;
+    *) return 1 ;;
+    esac
 }
 
 function setup_service() {
@@ -781,45 +926,52 @@ function set_script_permissions() {
     return 0
 }
 
+# A first install, or a re-run that carries out what an earlier run left undone (a failed build, a
+# service never set up), each missing step in the order a first install takes them.
 function install_project() {
+    local cloned=false built=false
+
     info "Checking project installation status..."
 
     if check_repo_exists; then
-        if check_if_built; then
-            success "Project is already installed. No further action required."
-            return 0
-        else
-            info "Project is cloned but not built. Proceeding with build..."
-            set_script_permissions
-            if ! build_project; then
-                error "Failed to build project."
-                return 1
-            fi
-        fi
-    else
+        cloned=true
+        check_if_built && built=true
+    fi
+
+    if [ "$cloned" = true ] && [ "$built" = true ] && configs_exist && service_is_set_up; then
+        success "Project is already installed. No further action required."
+        return 0
+    fi
+
+    if [ "$cloned" = false ]; then
         info "Project not found. Cloning and building..."
         if ! clone_repository; then
             error "Failed to clone repository."
             return 1
         fi
+    fi
 
-        set_script_permissions
+    set_script_permissions
 
-        if ! generate_config_files; then
-            error "Failed to generate configuration files."
-            return 1
-        fi
+    if ! generate_config_files; then
+        error "Failed to generate configuration files."
+        return 1
+    fi
 
+    if [ "$built" = false ]; then
         if ! build_project; then
             error "Failed to build project."
             return 1
         fi
+    fi
 
+    # A unit or plist found beside a fresh clone was left by an earlier install and runs that
+    # clone's binary and config: a fresh clone sets up its own.
+    if [ "$cloned" = false ] || ! service_is_set_up; then
         if ! setup_service; then
             warning "Service setup failed, but installation will continue."
             # Don't return error here to allow installation to complete
         fi
-
     fi
 
     success "Project installed successfully."
