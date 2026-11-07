@@ -425,6 +425,17 @@ function nearest_lookalike() {
     done
 }
 
+# The clone the script sits in when only the write check keeps it from being its own, or nothing:
+# the run then names that cause instead of falling back to the base clone.
+function open_own_clone() {
+    local dir
+    [ -n "$SELF_PATH" ] && [ -f "$SELF_PATH" ] || return 0
+    dir=$(cd -- "$(dirname -- "$SELF_PATH")" 2>/dev/null && pwd -P) || return 0
+    if [ "${dir##*/}" = "scripts" ] && [ -e "${dir%/*}/.git" ] && ! only_user_can_write "${dir%/*}"; then
+        printf '%s' "${dir%/*}"
+    fi
+}
+
 # A clone this run may write its settings into and start: a git clone owned by you or root (as
 # root, also by the user who ran sudo, who can become root anyway), that no other user can write
 # to, nor to its docker/ folder, where Compose reads its files.
@@ -451,7 +462,7 @@ function check_clone() {
 # adopted: when the nearest one at or above the current directory is not REPO_DIR, the run stops,
 # so a re-run from another copy never starts a fresh .env under the same Compose project.
 function ensure_repo() {
-    local own found base
+    local own open_own found base
     own=$(find_own_clone)
     if [ -n "$own" ]; then
         REPO_DIR="$own"
@@ -460,6 +471,14 @@ function ensure_repo() {
         REPO_DIR="$base/$REPO_NAME"
         if [ -d "$REPO_DIR" ]; then
             REPO_DIR=$(cd -P -- "$REPO_DIR" && pwd -P) || return 1
+        fi
+    fi
+
+    if [ -z "$own" ]; then
+        open_own=$(open_own_clone)
+        if [ -n "$open_own" ]; then
+            error "$open_own is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod go-w $open_own, then run again."
+            return 1
         fi
     fi
 

@@ -108,6 +108,7 @@ refused() {
   [ -z "${3:-}" ] || [ ! -e "$3/docker/.env" ] || [ -n "${KEPT:-}" ] || fail "$1: $3/docker/.env written"
 }
 look_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. Run again from outside $1, or, if it is your own clone, with its scripts/install.sh --docker."; }
+mode_line() { echo "$1 is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod go-w $1, then run again."; }
 open_line() { echo "$1 can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."; }
 home_clone="$w/home/Monero-miner-setup"
 
@@ -234,15 +235,15 @@ used root-sudo "$c" "Found existing clone at $c."
 ID_UID=54321 run own-other-owner "$w/own" "$w/own/scripts/docker_setup.sh"
 refused own-other-owner "$(open_line "$w/own")" "$w/own"
 unset ID_UID
-# An own clone others can write to is not the script's own: it stops when run from inside it, and
-# clones a fresh one when run from elsewhere.
+# An own clone others can write to is not used: the run names that cause and its remedy, from
+# inside it and from elsewhere, and clones nothing.
 chmod 777 "$w/own"
 run own-open-inside "$w/own" "$w/own/scripts/docker_setup.sh"
-refused own-open-inside "$(look_line "$w/own" "$home_clone")" "$w/own"
+refused own-open-inside "$(mode_line "$w/own")" "$w/own"
 rm -rf "$home_clone"
 run own-open-outside "$w/elsewhere" "$w/own/scripts/docker_setup.sh"
-want own-open-outside git "clone --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git $home_clone" "$(cat "$w/git.log" 2>/dev/null)"
-[ ! -e "$w/own/docker/.env" ] || fail "own-open-outside: the open clone's .env written"
+refused own-open-outside "$(mode_line "$w/own")" "$w/own"
+[ ! -e "$home_clone" ] || fail "own-open-outside: a base clone was made"
 chmod 755 "$w/own"
 
 # Nothing above ran in the repository itself.
