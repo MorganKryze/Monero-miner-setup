@@ -458,23 +458,30 @@ function only_user_can_write_file() {
     esac
 }
 
+# The path, or the file a link points to, is owned by you or root (as root, also by the user who
+# ran sudo, who can become root anyway).
+function trusted_owner() {
+    local owners
+    owners=(-user "$(id -u 2>/dev/null)" -o -user 0)
+    if [ "$(id -u 2>/dev/null)" = "0" ] && [ -n "${SUDO_USER:-}" ]; then
+        owners+=(-o -user "$SUDO_USER")
+    fi
+    [ "$(find -H "$1" -maxdepth 0 "(" "${owners[@]}" ")" -print 2>/dev/null)" = "$1" ]
+}
+
 # A clone this run may write its settings into and start: a git clone owned by you or root (as
 # root, also by the user who ran sudo, who can become root anyway), that no other user can write
 # to, nor to its docker/ folder, nor to the files there the root daemon acts on: the Compose files
 # (a privileged service, a host folder mounted) and the Dockerfile (the image's user). The rest of
 # the build context is not checked, as nothing in it runs as root.
 function check_clone() {
-    local dir="$1" f bad="" owners
+    local dir="$1" f bad=""
     if [ ! -d "$dir" ] || [ ! -e "$dir/.git" ]; then
         error "$dir is not a git clone. Move it away, or pass -d with another base directory."
         return 1
     fi
-    owners=(-user "$(id -u 2>/dev/null)" -o -user 0)
-    if [ "$(id -u 2>/dev/null)" = "0" ] && [ -n "${SUDO_USER:-}" ]; then
-        owners+=(-o -user "$SUDO_USER")
-    fi
     for f in "$dir" "$dir/docker"; do
-        if [ "$(find "$f/" -maxdepth 0 "(" "${owners[@]}" ")" -print 2>/dev/null)" != "$f/" ] || ! only_user_can_write "$f"; then
+        if ! trusted_owner "$f/" || ! only_user_can_write "$f"; then
             bad=$f
             break
         fi
@@ -483,7 +490,7 @@ function check_clone() {
         for f in "$dir/docker/compose.yml" "$dir/docker/compose.vpn.yml" "$dir/docker/Dockerfile"; do
             # A missing file is one only those who can write to docker/, checked above, could add.
             if [ ! -e "$f" ] && [ ! -L "$f" ]; then continue; fi
-            if [ "$(find -H "$f" -maxdepth 0 "(" "${owners[@]}" ")" -print 2>/dev/null)" != "$f" ] || ! only_user_can_write_file "$f"; then
+            if ! trusted_owner "$f" || ! only_user_can_write_file "$f"; then
                 bad=$f
                 break
             fi
@@ -560,6 +567,17 @@ function ensure_repo() {
 }
 
 # ===== Settings files =====
+# A kept settings file passes the same owner and write checks as the clone's Compose files: the
+# miner would otherwise start on a wallet someone else chose. --overwrite-env replaces it whole.
+function check_kept() {
+    local file="$1"
+    if [ ! -e "$file" ] && [ ! -L "$file" ]; then return 0; fi
+    if [ "$OVERWRITE_ENV" = "true" ]; then return 0; fi
+    if trusted_owner "$file" && only_user_can_write_file "$file"; then return 0; fi
+    error "$file can be changed by a user other than you, so this run does not use it. Make it yours with chown and chmod 600, or run again with --overwrite-env."
+    return 1
+}
+
 # A settings file from an earlier run is the user's: it is kept as it is unless --overwrite-env
 # says otherwise. Returns 0 when the file is to be written.
 function should_write() {
@@ -741,6 +759,8 @@ function main() {
 
     local env_file="$REPO_DIR/docker/.env" vpn_file="$REPO_DIR/docker/.env.vpn"
     local write_env=false write_vpn=false
+    check_kept "$env_file" || exit 1
+    if [ "$VPN_PROVIDER" != "none" ]; then check_kept "$vpn_file" || exit 1; fi
     if should_write "$env_file"; then write_env=true; fi
     if [ "$VPN_PROVIDER" != "none" ] && should_write "$vpn_file"; then write_vpn=true; fi
 
