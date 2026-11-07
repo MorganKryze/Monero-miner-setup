@@ -6,8 +6,9 @@
 # connection (IPv4 or IPv6), and unhealthy only when it is connected, not paused and idle. The
 # healthcheck is sourced and run against a fixture /proc tree and config, with a stub pgrep; PATH
 # holds only the stub and tool-link directories. The miner's config names no log file, and
-# neither the image nor the compose file has a log directory; compose keeps the config directory in
-# a named volume, not a bind mount. Nothing runs but the healthcheck.
+# neither the image nor the compose file has a log directory; compose rotates the miner's output
+# (json-file, 3 x 10 MB) and keeps the config directory in a named volume, not a bind mount.
+# Nothing runs but the healthcheck.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -129,6 +130,10 @@ got=$(sed -n '/^    volumes:$/,/^$/p' "$c")
   || fail "$c: the service's volumes are '$got'"
 got=$(sed -n '/^volumes:$/,$p' "$c")
 [ "$got" = "$(printf '%s\n' 'volumes:' '  xmrig-configs:')" ] || fail "$c: the top-level volumes are '$got'"
+# compose rotates the miner's output, the only bound on its log: three files of 10 MB.
+got=$(sed -n '/^    logging:$/,/^$/p' "$c")
+[ "$got" = "$(printf '%s\n' '    logging:' '      driver: json-file' '      options:' \
+  '        max-size: "10m"' '        max-file: "3"' '')" ] || fail "$c: the service's logging is '$got'"
 for f in docker/compose.yml docker/compose.vpn.yml; do
   bad=$(grep -nE '^[[:space:]]*-[[:space:]]*["'\'']?[.~/$][^:]*:/app' "$f")
   [ -z "$bad" ] || fail "$f: a bind mount onto /app: $bad"

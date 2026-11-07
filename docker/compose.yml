@@ -29,8 +29,9 @@ services:
     mem_limit: '${MEMORY_LIMIT:-3g}'
 
 
-    # The miner's config and MoneroOcean's calibration, kept across container recreation. A named
-    # volume starts as a copy of the image's directory, owned by the account the miner runs as.
+    # The miner's config directory. A named volume starts as a copy of the image's directory, owned
+    # by the account the miner runs as, so that account can write it on Linux too. It keeps nothing
+    # across starts: the entrypoint rewrites config.json at every start.
     volumes:
       - xmrig-configs:/app/configs
 
