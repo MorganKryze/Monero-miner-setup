@@ -4,7 +4,8 @@
 # fails here), both stages on one Ubuntu tag, the two package lists, the apt-get install lines
 # and the cmake line that links the shared libuv, so the miner loads the runtime's libuv1t64;
 # the copied miner and scripts stay root's (no --chown, mode 755), the runtime account owns only
-# the directories it writes; and the build context leaves out every docker/.env* file.
+# its config directory; and the build context leaves out every docker/.env* file and the host's
+# docker/logs and docker/docker-configs directories, with no Dockerfile-specific ignore file.
 # A bump of the Ubuntu tag or of the official frontend's version passes; any other change
 # updates this file with it.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
@@ -51,11 +52,11 @@ WORKDIR /app
 COPY --from=builder /src/build/xmrig /app/xmrig
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/healthcheck.sh /usr/local/bin/healthcheck.sh
-RUN mkdir -p /app/logs /app/configs \
+RUN mkdir -p /app/configs \
     && chmod 755 /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh /app/xmrig \
     && groupadd -r -g 999 xmrig \
     && useradd -r -u 999 -g xmrig -s /bin/false xmrig \
-    && chown xmrig:xmrig /app/logs /app/configs
+    && chown xmrig:xmrig /app/configs
 USER 999:999
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD ["/usr/local/bin/healthcheck.sh"]
@@ -82,5 +83,11 @@ d=.dockerignore
 [ "$(grep -cxF 'docker/.env*' "$d")" -eq 1 ] || { echo "FAIL $d: no 'docker/.env*' line"; rc=1; }
 bad=$(grep -E '^[[:space:]]*!' "$d")
 [ -z "$bad" ] || { echo "FAIL $d: an exception lets files back in: $bad"; rc=1; }
+# Directories a host may hold beside the compose file stay out of the context.
+for x in docker/logs/ docker/docker-configs/; do
+  [ "$(grep -cxF "$x" "$d")" -eq 1 ] || { echo "FAIL $d: no '$x' line"; rc=1; }
+done
+# A Dockerfile-specific ignore file would replace .dockerignore for this build.
+[ ! -e docker/Dockerfile.dockerignore ] || { echo "FAIL docker/Dockerfile.dockerignore replaces $d"; rc=1; }
 [ "$rc" -eq 0 ] && echo "PASS image-pins"
 exit "$rc"

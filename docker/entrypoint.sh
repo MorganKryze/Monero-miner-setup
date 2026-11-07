@@ -105,7 +105,7 @@ CONFIG_TEMPLATE='{
     },
     "donate-level": $donate,
     "donate-over-proxy": 1,
-    "log-file": "/app/logs/xmrig.log",
+    "log-file": null,
     "pools": [
         {
             "algo": null,

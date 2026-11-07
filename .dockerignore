@@ -11,6 +11,8 @@ xmrig
 logs/
 configs/
 docker-configs/
+docker/logs/
+docker/docker-configs/
 # Settings and secrets files, examples included: nothing in the image needs them.
 docker/.env*
 

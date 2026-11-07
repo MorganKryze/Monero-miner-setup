@@ -48,15 +48,15 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/healthcheck.sh /usr/local/bin/healthcheck.sh
 
 # Root owns the miner and its scripts, so the account that runs them cannot replace them for a
-# later start; it writes only its config and log directories.
-RUN mkdir -p /app/logs /app/configs \
+# later start; it writes only its config directory.
+RUN mkdir -p /app/configs \
     && chmod 755 /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh /app/xmrig \
     && groupadd -r -g 999 xmrig \
     && useradd -r -u 999 -g xmrig -s /bin/false xmrig \
-    && chown xmrig:xmrig /app/logs /app/configs
+    && chown xmrig:xmrig /app/configs
 
 # Numeric so the host can resolve it; 999 is the id the image already used,
-# so an existing ./logs volume stays writable.
+# so a config volume from an earlier image stays writable.
 USER 999:999
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

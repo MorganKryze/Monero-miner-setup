@@ -29,10 +29,11 @@ services:
     mem_limit: '${MEMORY_LIMIT:-3g}'
 
 
-    # Mount logs for persistence
+    # The miner's config and MoneroOcean's calibration, kept across container recreation. A named
+    # volume starts as a copy of the image's directory, owned by the account the miner runs as.
     volumes:
-      - ./logs:/app/logs
-      - ./docker-configs:/app/configs
+      - xmrig-configs:/app/configs
+
     
     # Security options
     security_opt:
@@ -52,11 +53,12 @@ services:
       retries: 3
       start_period: 60s
 
-    # Container stdout/stderr rotation (the /app/logs/xmrig.log file inside
-    # the container is separate; mount it read-only or truncate it externally
-    # if disk growth is a concern).
+    # The miner logs only to its output, rotated here.
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  xmrig-configs:
