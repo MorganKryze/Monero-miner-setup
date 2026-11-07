@@ -45,9 +45,9 @@ else
     else
         released=${BASH_REMATCH[1]}
         [ "$released" = "$native" ] || fail "CHANGELOG.md's latest release is $released, the scripts say ${native:-nothing}"
-        grep -qF "git clone --branch v$released --recurse-submodules " README.md ||
+        grep -qxF "git clone --branch v$released --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git" README.md ||
             fail "README.md: the pin to $released does not clone tag v$released"
-        grep -qF "monero-miner-setup:$released " README.md ||
+        grep -qxF "./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:$released -w YOUR_MONERO_WALLET --autostart" README.md ||
             fail "README.md: the pin to $released does not pass the image :$released"
         grep -qxF "[$released]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v$released" CHANGELOG.md ||
             fail "CHANGELOG.md: no link line for [$released] to its v$released tag"
