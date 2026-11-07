@@ -438,7 +438,7 @@ None of them claim the script does something it doesn't advertise. They're sayin
    cd Monero-miner-setup && less scripts/install.sh Makefile docker/Dockerfile
    ```
 
-The container runs as uid 999, `xmrig`. The compose file and the minimal run above set `no-new-privileges`; a bare `docker run` without that flag doesn't. Both installers and the container check the wallet, the worker name, the pool and every number and flag before they write them, and write them as values. As root on Linux, the installer refuses a base directory, a clone, or a directory above them that another user can change, and the service setup refuses a binary anyone but root can change when it runs it as another account. The installer still warns before running as root.
+The container runs as uid 999, `xmrig`. The compose file and the minimal run above set `no-new-privileges`; a bare `docker run` without that flag doesn't. Both installers and the container check the wallet, the worker name, the pool and every number and flag before they write them, and write every value that reaches the miner's config as a value. As root on Linux, the native installer refuses a base directory, a clone, or a directory above them that another user can change, and the service setup refuses a binary anyone but root can change when it runs it as another account. The installer still warns before running as root.
 
 ## Troubleshooting
 

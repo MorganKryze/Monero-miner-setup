@@ -21,7 +21,7 @@ some steps are yours to run.
 ### Changed
 
 - The native service runs the miner as its own account: you, when you install as yourself or with sudo, otherwise a system account `xmrig` with no login. systemd creates and removes its directories: `/etc/xmrig`, `/var/lib/xmrig/<account>`, `/var/log/xmrig/<account>`. The account owns nothing in the clone.
-- As root on Linux with no `-d`, the native install goes to `/opt/Monero-miner-setup`, which the account can enter. A clone an earlier install left in root's home keeps being used, and the service setup stops there until you move it.
+- As root on Linux with no `-d`, the native install goes to `/opt/Monero-miner-setup`, which the account can enter. A clone an earlier install left in root's home keeps being used, and the service setup stops there: run `make service-disable`, then install again with `-d /opt`.
 - The native service runs XMRig in the foreground, so systemd and launchd supervise it. The setup turns background mode off in the service config and reports miners an earlier background start left running, with the command to stop them. It stops none of them.
 - Native service logs go to `/var/log/xmrig/<account>/xmrig.log`, rotated daily as the account; the service restarts after each rotation (one short pool reconnect a day).
 - `install.sh` and `make update` build the XMRig commit this repository pins, never XMRig's upstream master. The native build runs one job per CPU, at most one per GiB of available memory.
@@ -51,7 +51,7 @@ some steps are yours to run.
 
 - The native installer loads bash-toolbox from its own clone's submodule, when only you can write to that clone, or from the commit it pins, with `curl -fsSL`; a failed or empty fetch stops the install. It never loads the toolbox from the current directory.
 - As root on Linux, the native installer refuses a base directory, a clone or a directory above them that a user other than root or the one who ran sudo can change, and the service setup refuses to run, as another account, a binary anyone but root can change.
-- Wallet, worker name, pool and every number and flag are checked on both install paths and written as values, never as code: a crafted `--pool` can no longer make sed run a command.
+- Wallet, worker name, pool and every number and flag are checked on both install paths, and every value that reaches the miner's config is written as a value, never as code: a crafted `--pool` or `--name` can no longer make sed run a command.
 - `docker/.env` and `docker/.env.vpn` are created mode 600 before their first byte; a kept file with a looser mode gets a warning. No `docker/.env*` file reaches the image's build context.
 - The image's miner and scripts belong to root, so the account that runs them cannot replace them.
 - Dependabot auto-merges only GitHub Actions patch and minor bumps, once CI is green. XMRig, bash-toolbox, base image and Gluetun bumps wait for review.
