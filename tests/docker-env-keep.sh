@@ -236,5 +236,15 @@ want vpn-dangling stderr "[  ERROR  ] Could not write $vpn: it is a link. Edit t
 [ ! -e "$w/elsewhere/vpn.none" ] || fail "vpn-dangling: a file was written where the link points"
 want vpn-dangling leftovers "" "$(leftovers)"
 rm -f "$vpn" "$env"
+# A temp file an interrupted write leaves next to the settings holds the same secrets: git ignores
+# it as it ignores .env and .env.vpn, and still tracks the two examples.
+if git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+  for f in docker/.env docker/.env.vpn docker/.env.Ab12Cd docker/.env.vpn.Ab12Cd; do
+    git -C "$root" check-ignore -q "$f" || fail "gitignore: $f is not ignored"
+  done
+  for f in docker/.env.example docker/.env.vpn.example; do
+    git -C "$root" check-ignore -q "$f" && fail "gitignore: $f is ignored"
+  done
+fi
 [ "$rc" -eq 0 ] && echo "PASS docker-env-keep"
 exit "$rc"
