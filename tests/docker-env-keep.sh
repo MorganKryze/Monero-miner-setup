@@ -215,5 +215,26 @@ want vpn-linkdir "link target content" "" "$(ls -A "$w/elsewhere")"
 [ -L "$vpn" ] || fail "vpn-linkdir: the link was replaced"
 want vpn-linkdir leftovers "" "$(leftovers)"
 rm -f "$vpn" "$env"
+
+# A link to a file, or to nothing, is refused too: a rename would put a new file in the link's
+# place, and the file the link points to would keep the old wallet with nothing reading it.
+printf 'WALLET_ADDRESS=old\n' > "$w/elsewhere/env.real"
+cp -p "$w/elsewhere/env.real" "$w/env.real.first"
+ln -s "$w/elsewhere/env.real" "$env"
+run env-linkfile -w "$wallet" -y --overwrite-env
+want env-linkfile exit 1 "$code"
+want env-linkfile stderr "[  ERROR  ] Could not write $env: it is a link. Edit the file it points to, or remove the link and run again." "$err"
+[ -L "$env" ] || fail "env-linkfile: the link was replaced"
+cmp -s "$w/elsewhere/env.real" "$w/env.real.first" || fail "env-linkfile: the link's target changed"
+want env-linkfile leftovers "" "$(leftovers)"
+rm -f "$env"
+ln -s "$w/elsewhere/vpn.none" "$vpn"
+KEY=wgkey-sixth ADDR=10.64.0.6/32 run vpn-dangling -w "$wallet" -y --vpn mullvad --overwrite-env
+want vpn-dangling exit 1 "$code"
+want vpn-dangling stderr "[  ERROR  ] Could not write $vpn: it is a link. Edit the file it points to, or remove the link and run again." "$err"
+[ -L "$vpn" ] || fail "vpn-dangling: the link was replaced"
+[ ! -e "$w/elsewhere/vpn.none" ] || fail "vpn-dangling: a file was written where the link points"
+want vpn-dangling leftovers "" "$(leftovers)"
+rm -f "$vpn" "$env"
 [ "$rc" -eq 0 ] && echo "PASS docker-env-keep"
 exit "$rc"

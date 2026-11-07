@@ -319,9 +319,15 @@ function should_write() {
 function write_settings_file() {
     local file="$1" content="$2" tmp existed=false
 
-    if [ -e "$file" ] || [ -L "$file" ]; then existed=true; fi
+    if [ -e "$file" ]; then existed=true; fi
     if [ -d "$file" ]; then
         error "Could not write $file: it is a directory."
+        return 1
+    fi
+    # The rename would replace the link itself, and the file it points to would keep the old
+    # values with nothing reading it.
+    if [ -L "$file" ]; then
+        error "Could not write $file: it is a link. Edit the file it points to, or remove the link and run again."
         return 1
     fi
     if ! tmp=$(mktemp "$file.XXXXXX"); then
