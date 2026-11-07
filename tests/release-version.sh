@@ -59,6 +59,17 @@ else
     done
 fi
 
+# The security notes claim only what the scripts do. The root refusal of a directory others can
+# change runs in the native installer on Linux alone (the gate below), and only the toolbox load
+# avoids the current directory: the Docker installer adopts a checkout found above it.
+gate='    if [ "$(id -u)" == "0" ] && [ "$(uname -s)" == "Linux" ]; then'
+grep -qxF -- "$gate" scripts/install.sh || fail "scripts/install.sh: the root directory check is no longer gated on Linux alone"
+for line in \
+    '- The native installer loads bash-toolbox from its own clone'"'"'s submodule, when only you can write to that clone, or from the commit it pins, with `curl -fsSL`; a failed or empty fetch stops the install. It never loads the toolbox from the current directory.' \
+    '- As root on Linux, the native installer refuses a base directory, a clone or a directory above them that a user other than root or the one who ran sudo can change, and the service setup refuses to run, as another account, a binary anyone but root can change.'; do
+    grep -qxF -- "$line" CHANGELOG.md 2>/dev/null || fail "CHANGELOG.md: no security line: $line"
+done
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
