@@ -38,12 +38,14 @@ echo "\$*" >> "$w/docker.log"
 case "\$*" in --version) echo "Docker version stub" ;; esac
 exit 0
 STUB
-# The stub git records its arguments and lays out a clone where it was asked to.
+# The stub git records its arguments and lays out a clone where it was asked to, its root and
+# docker/ at mode GIT_MODE (755 unless set).
 cat > "$w/bin/git" <<STUB
 #!/bin/bash
 echo "\$*" >> "$w/git.log"
 for last; do :; done
-"$(command -v mkdir)" -p "\$last/.git" "\$last/docker" "\$last/scripts" && : > "\$last/docker/compose.yml" && : > "\$last/docker/Dockerfile"
+"$(command -v mkdir)" -p "\$last/.git" "\$last/docker" "\$last/scripts" && : > "\$last/docker/compose.yml" && : > "\$last/docker/Dockerfile" &&
+  "$(command -v chmod)" "\${GIT_MODE:-755}" "\$last" "\$last/docker"
 STUB
 # ID_UID: the uid id -u gives (another user's, or root's); ID_MODE=private: the user's primary
 # group is their own, as Ubuntu gives each user.
@@ -75,7 +77,7 @@ run() {
   local dir=$2 script=$3; shift 3
   rm -f "$w/docker.log" "$w/git.log"
   (cd "$dir" && env -i HOME="$w/home" PATH="$w/bin:$w/tools" ${ID_UID:+ID_UID=$ID_UID} ${ID_MODE:+ID_MODE=$ID_MODE} \
-    ${SUDO:+SUDO_USER=$SUDO} ${LPWD:+PWD=$LPWD} "$BASH" "$script" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
+    ${SUDO:+SUDO_USER=$SUDO} ${LPWD:+PWD=$LPWD} ${GIT_MODE:+GIT_MODE=$GIT_MODE} "$BASH" "$script" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
 }
@@ -91,12 +93,17 @@ used() {
   want "$1" stderr "" "$err"
   rm -f "$2/docker/.env"
 }
-# refused <name> <error line> [folder that must stay as it was]: one error line, exit 1, no clone,
-# only the two availability checks reached docker, no settings file written.
+# refused <name> <error line> [folder that must stay as it was]: one error line, exit 1, no clone
+# (CLONED=<dir>: only the clone into <dir>), only the two availability checks reached docker, no
+# settings file written.
 refused() {
   want "$1" exit 1 "$code"
   want "$1" stderr "[  ERROR  ] $2" "$err"
-  [ ! -e "$w/git.log" ] || fail "$1: git ran: $(cat "$w/git.log")"
+  if [ -n "${CLONED:-}" ]; then
+    want "$1" git "clone --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git $CLONED" "$(cat "$w/git.log" 2>/dev/null)"
+  else
+    [ ! -e "$w/git.log" ] || fail "$1: git ran: $(cat "$w/git.log")"
+  fi
   want "$1" "docker calls" "compose version"$'\n'"--version" "$(cat "$w/docker.log" 2>/dev/null)"
   [ -z "${3:-}" ] || [ ! -e "$3/docker/.env" ] || [ -n "${KEPT:-}" ] || fail "$1: $3/docker/.env written"
 }
@@ -170,6 +177,22 @@ used found-inside "$home_clone" "Found existing clone at $home_clone."
 mkdir -p "$w/base"; clone "$w/base/Monero-miner-setup"
 run dir-flag "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
 used dir-flag "$w/base/Monero-miner-setup" "Found existing clone at $w/base/Monero-miner-setup."
+# A fresh clone is checked like any other before anything is written into it or started from it:
+# laid out open to others (umask 0000, or an empty folder someone else made first), or owned by
+# another user.
+for case in fresh-open fresh-other-owner; do
+  mkdir "$w/$case"; c="$w/$case/Monero-miner-setup"
+  if [ "$case" = fresh-open ]; then GIT_MODE=777; else ID_UID=54321; fi
+  run "$case" "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/$case" --autostart
+  unset GIT_MODE ID_UID
+  CLONED=$c refused "$case" "$(open_line "$c")" "$c"
+done
+# A base directory not made yet, under a link: the fresh clone is used by its physical path.
+mkdir "$w/real"; ln -s "$w/real" "$w/to-real"
+run fresh-link "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/to-real/new"
+want fresh-link exit 0 "$code"
+has fresh-link "$out" "[ SUCCESS ] Wrote $w/real/new/Monero-miner-setup/docker/.env (mode 0600)."
+want fresh-link stderr "" "$err"
 # A link in the base directory: the clone it points to is checked and used, by its own path.
 mkdir "$w/linked"; ln -s "$w/base/Monero-miner-setup" "$w/linked/Monero-miner-setup"
 run dir-link "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/linked"

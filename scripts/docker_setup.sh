@@ -485,6 +485,9 @@ function ensure_repo() {
         error "Failed to clone $REPO_URL."
         return 1
     fi
+    # A fresh clone gets the same checks: git keeps the mode of an empty folder someone else made
+    # at that path first, and lays out the rest under the user's umask.
+    REPO_DIR=$(cd -P -- "$REPO_DIR" && pwd -P) && check_clone "$REPO_DIR" || return 1
     success "Clone complete."
 }
 
