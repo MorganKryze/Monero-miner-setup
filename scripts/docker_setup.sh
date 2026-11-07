@@ -489,10 +489,15 @@ function check_clone() {
             fi
         done
     fi
-    if [ -n "$bad" ]; then
+    if [ -z "$bad" ]; then return 0; fi
+    # A run in another base directory would start a fresh .env under the same Compose project and
+    # replace the running miner's settings, so that remedy is offered only when there are none.
+    if [ -e "$dir/docker/.env" ]; then
+        error "$bad can be changed by a user other than you, so this run does not use it. Restrict it to you, then run again."
+    else
         error "$bad can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."
-        return 1
     fi
+    return 1
 }
 
 # Sets REPO_DIR to the clone this run uses: the one this script sits in, else

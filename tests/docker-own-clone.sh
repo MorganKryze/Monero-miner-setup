@@ -113,6 +113,9 @@ look_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run use
 kept_line() { echo "$1 looks like a copy of Monero-miner-setup, but this run uses $2. If it is your own clone, run its scripts/install.sh --docker."; }
 mode_line() { echo "$1 is this script's clone, but a user other than you can change it, so this run does not use it. Run chmod -R go-w '$1', then run again."; }
 open_line() { echo "$1 can be changed by a user other than you, so this run does not use it. Restrict it to you, or pass -d with another base directory."; }
+# With settings in it, a run in another base directory would start a fresh set under the same
+# Compose project: only the restrict remedy is offered.
+settings_line() { echo "$1 can be changed by a user other than you, so this run does not use it. Restrict it to you, then run again."; }
 home_clone="$w/home/Monero-miner-setup"
 
 # The script's own clone, run from inside it or from elsewhere.
@@ -241,6 +244,21 @@ chmod 644 "$w/open.yml"
 run file-closed-link "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
 used file-closed-link "$c" "Found existing clone at $c."
 rm "$c/docker/compose.yml"; mv "$w/compose.yml.real" "$c/docker/compose.yml"
+# A clone holding settings that someone else can change: refused with no -d remedy, its .env kept.
+printf 'WORKER_NAME="rig7"\n' > "$c/docker/.env"
+cp -p "$c/docker/.env" "$w/settings.env"
+chmod 775 "$c/docker"
+run settings-docker-open "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
+KEPT=1 refused settings-docker-open "$(settings_line "$c/docker")" "$c"
+chmod 755 "$c/docker"; chmod 777 "$c"
+run settings-root-open "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
+KEPT=1 refused settings-root-open "$(settings_line "$c")" "$c"
+chmod 755 "$c"; chmod 666 "$c/docker/compose.yml"
+run settings-file-open "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
+KEPT=1 refused settings-file-open "$(settings_line "$c/docker/compose.yml")" "$c"
+chmod 644 "$c/docker/compose.yml"
+cmp -s "$c/docker/.env" "$w/settings.env" || fail "settings: the .env changed"
+rm "$c/docker/.env" "$w/settings.env"
 ID_MODE=private; chmod 664 "$c/docker/compose.yml"
 run file-private-group "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
 used file-private-group "$c" "Found existing clone at $c."
