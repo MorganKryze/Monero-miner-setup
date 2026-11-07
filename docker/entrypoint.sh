@@ -7,6 +7,12 @@ set -e
 XMRIG_BIN=/app/xmrig
 CONFIG_DIR=/app/configs
 WALLET_SECRET=/run/secrets/wallet_address
+# What the container may use, as the kernel tells it.
+CGROUP_DIR=/sys/fs/cgroup
+MEMINFO=/proc/meminfo
+# RandomX's fast mode needs this much memory for its dataset (measured: 2.30 GiB in use); under
+# it the miner runs in light mode.
+FAST_MODE_MIB=2560
 
 # Colors for logging
 GREEN='\033[0;32m'
@@ -51,7 +57,7 @@ CONFIG_TEMPLATE='{
     "randomx": {
         "init": -1,
         "init-avx2": -1,
-        "mode": "auto",
+        "mode": $mode,
         "1gb-pages": false,
         "rdmsr": true,
         "wrmsr": true,
@@ -143,7 +149,7 @@ CONFIG_TEMPLATE='{
     "watch": true,
     "pause-on-battery": $battery,
     "pause-on-active": $active
-} | if $threads == null then . else .cpu["*"] = {"threads": $threads, "affinity": -1} end'
+} | .cpu["*"] = {"threads": $threads, "affinity": -1}'
 
 # The value rules, the same in scripts/install.sh, scripts/docker_setup.sh and here. Every
 # value that reaches the miner's config passes one of them first.
@@ -171,6 +177,105 @@ function is_pool() {
 function is_whole_number() {
     local LC_ALL=C re='^[0-9]{1,5}$'
     [[ $1 =~ $re ]] && [ "$((10#$1))" -ge "$2" ] && [ "$((10#$1))" -le "$3" ]
+}
+
+# The container's CPU quota in hundredths of a CPU (cgroup v2, else v1), or nothing without one.
+function cpu_quota_hundredths() {
+    local quota="" period=""
+    if [ -r "$CGROUP_DIR/cpu.max" ]; then
+        read -r quota period <"$CGROUP_DIR/cpu.max"
+    elif [ -r "$CGROUP_DIR/cpu/cpu.cfs_quota_us" ] && [ -r "$CGROUP_DIR/cpu/cpu.cfs_period_us" ]; then
+        quota=$(cat "$CGROUP_DIR/cpu/cpu.cfs_quota_us")
+        period=$(cat "$CGROUP_DIR/cpu/cpu.cfs_period_us")
+    fi
+    if [[ $quota =~ ^[0-9]+$ ]] && [[ $period =~ ^[1-9][0-9]*$ ]] && [ "$quota" -gt 0 ]; then
+        echo $(((quota * 100 + period - 1) / period))
+    fi
+}
+
+# The number of RandomX threads xmrig picks itself for the CPUs it sees: on x86 from the CPU
+# caches, on ARM one per CPU. xmrig saves that profile into an autosaved config as soon as it
+# starts; this one runs its offline benchmark in light mode, connects nowhere, and is stopped as
+# soon as the profile is saved, before the light-mode cache is ready, so it hashes nothing
+# (measured: stopped after 0.16 s, no worker started). Prints nothing when it cannot be read.
+function xmrig_own_count() {
+    local dir pid count="" i
+    dir=$(mktemp -d "${TMPDIR:-/tmp}/xmrig-count.XXXXXX") || return 0
+    printf '%s\n' '{"autosave": true, "background": false, "colors": false, "cpu": {"enabled": true, "max-threads-hint": 100}}' >"$dir/config.json"
+    "$XMRIG_BIN" --config="$dir/config.json" --bench=1M --randomx-mode=light --no-color >/dev/null 2>&1 &
+    pid=$!
+    for i in $(seq 1 50); do
+        count=$(jq -r '.cpu.rx | if type == "array" and length > 0 then length else empty end' "$dir/config.json" 2>/dev/null) || count=""
+        [ -n "$count" ] && break
+        sleep 0.1
+    done
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    rm -rf -- "$dir"
+    if [[ $count =~ ^[1-9][0-9]*$ ]]; then echo "$count"; fi
+}
+
+# The memory RandomX may use, in MiB: the lower of the container's memory limit and the host's
+# available memory, plus the host's free huge pages, which the limit does not count. Prints nothing
+# when neither the limit nor the available memory can be read.
+function usable_memory_mib() {
+    local limit="" avail="" pages="" page_kib="" mib=""
+    if [ -r "$CGROUP_DIR/memory.max" ]; then
+        limit=$(cat "$CGROUP_DIR/memory.max")
+    elif [ -r "$CGROUP_DIR/memory/memory.limit_in_bytes" ]; then
+        limit=$(cat "$CGROUP_DIR/memory/memory.limit_in_bytes")
+    fi
+    if [ -r "$MEMINFO" ]; then
+        avail=$(awk '$1 == "MemAvailable:" {print $2}' "$MEMINFO")
+        pages=$(awk '$1 == "HugePages_Free:" {print $2}' "$MEMINFO")
+        page_kib=$(awk '$1 == "Hugepagesize:" {print $2}' "$MEMINFO")
+    fi
+    if [[ $avail =~ ^[0-9]+$ ]]; then mib=$((avail / 1024)); fi
+    if [[ $limit =~ ^[0-9]{1,18}$ ]] && { [ -z "$mib" ] || [ $((limit / 1048576)) -lt "$mib" ]; }; then
+        mib=$((limit / 1048576))
+    fi
+    [ -n "$mib" ] || return 0
+    if [[ $pages =~ ^[0-9]+$ ]] && [[ $page_kib =~ ^[0-9]+$ ]]; then
+        mib=$((mib + pages * page_kib / 1024))
+    fi
+    echo "$mib"
+}
+
+function pick_thread_count() {
+    local cpus counted max own pct=$((10#$MAX_THREADS_PERCENT))
+    if [ -n "$FORCE_THREAD_COUNT" ]; then
+        THREAD_COUNT=$((10#$FORCE_THREAD_COUNT))
+        log_info "Mining with $THREAD_COUNT threads, forced by FORCE_THREAD_COUNT."
+        return 0
+    fi
+    cpus=$(cpu_quota_hundredths)
+    if [ -n "$cpus" ]; then
+        counted="its CPU quota of $((cpus / 100)).$(printf '%02d' $((cpus % 100))) CPUs"
+    else
+        cpus=$(($(nproc) * 100))
+        counted="its $((cpus / 100)) online CPUs"
+    fi
+    THREAD_COUNT=$(((cpus * pct + 9999) / 10000))
+    max=$(((cpus + 99) / 100))
+    if [ "$THREAD_COUNT" -gt "$max" ]; then THREAD_COUNT=$max; fi
+    if [ "$THREAD_COUNT" -lt 1 ]; then THREAD_COUNT=1; fi
+    own=$(xmrig_own_count)
+    if [ -z "$own" ]; then
+        log_warning "Could not read xmrig's own thread count: mining with $THREAD_COUNT threads, ${pct}% of $counted, rounded up, without that cap."
+        return 0
+    fi
+    if [ "$THREAD_COUNT" -gt "$own" ]; then THREAD_COUNT=$own; fi
+    log_info "Mining with $THREAD_COUNT threads: ${pct}% of $counted, rounded up, at most xmrig's own count of $own."
+}
+
+function pick_randomx_mode() {
+    local mib
+    RANDOMX_MODE=auto
+    mib=$(usable_memory_mib)
+    if [ -n "$mib" ] && [ "$mib" -lt "$FAST_MODE_MIB" ]; then
+        RANDOMX_MODE=light
+        log_warning "This container can use ${mib} MiB, under the ${FAST_MODE_MIB} MiB RandomX's fast mode needs: mining in light mode, at a fraction of the hashrate. Give it more memory (MEMORY_LIMIT in docker/.env, or --memory), such as 3g."
+    fi
 }
 
 function check_values() {
@@ -229,20 +334,8 @@ function main() {
     if [ -n "$FORCE_THREAD_COUNT" ]; then FORCE_THREAD_COUNT=$((10#$FORCE_THREAD_COUNT)); fi
     log_info "Using wallet address: $WALLET_ADDRESS"
 
-    # Calculate thread count
-    AVAILABLE_CPUS=$(nproc)
-    log_info "Available CPU cores: $AVAILABLE_CPUS"
-
-    if [ -n "$FORCE_THREAD_COUNT" ]; then
-        THREAD_COUNT=$FORCE_THREAD_COUNT
-        log_info "Using forced thread count: $THREAD_COUNT"
-    else
-        THREAD_COUNT=$((AVAILABLE_CPUS * MAX_THREADS_PERCENT / 100))
-        if [ "$THREAD_COUNT" -lt 1 ]; then
-            THREAD_COUNT=1
-        fi
-        log_info "Calculated thread count: $THREAD_COUNT (${MAX_THREADS_PERCENT}% of $AVAILABLE_CPUS cores)"
-    fi
+    pick_thread_count
+    pick_randomx_mode
 
     # Handle pool URL and port
     local hostport=${POOL_URL#stratum+???://}
@@ -309,7 +402,6 @@ function main() {
 
     log_success "Configuration generated successfully"
     log_info "Worker name: $WORKER_NAME"
-    log_info "Thread count: $THREAD_COUNT"
     log_info "Pool URL: $FULL_POOL_URL"
     log_info "Donate level: ${DONATE_LEVEL}%"
 
@@ -322,15 +414,14 @@ function main() {
 # holding exactly that value. It is written beside the old one and renamed over it, so a failed
 # write leaves no partial config and the miner does not start.
 function write_config() {
-    local tmp forced=null
-    if [ -n "$FORCE_THREAD_COUNT" ]; then forced=$THREAD_COUNT; fi
+    local tmp
     mkdir -p "$CONFIG_DIR" && tmp=$(mktemp "$CONFIG_DIR/config.json.XXXXXX") || {
         log_error "Could not write the miner's config in $CONFIG_DIR."
         return 1
     }
     if ! jq -n \
         --arg url "$FULL_POOL_URL" --arg user "$WALLET_ADDRESS" --arg pass "$WORKER_NAME" \
-        --argjson donate "$DONATE_LEVEL" --argjson hint "$MAX_THREADS_PERCENT" --argjson threads "$forced" \
+        --argjson donate "$DONATE_LEVEL" --argjson hint "$MAX_THREADS_PERCENT" --argjson threads "$THREAD_COUNT" --arg mode "$RANDOMX_MODE" \
         --argjson battery "$PAUSE_ON_BATTERY" --argjson active "$PAUSE_ON_ACTIVE" "$CONFIG_TEMPLATE" >"$tmp" \
         || ! chmod 644 "$tmp" || ! mv -f "$tmp" "$CONFIG_DIR/config.json"; then
         rm -f "$tmp"
