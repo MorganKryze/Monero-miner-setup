@@ -3,8 +3,9 @@
 # one error line names the flag and the rule, never a secret's value, and nothing is written.
 # What it writes, Compose reads back byte for byte: every value double-quoted with \, " and $
 # escaped. --threads writes a percentage and no forced count; a --memory under 2560 MiB warns
-# that the miner will run in light mode. The installer runs from a fixture checkout with a stub
-# docker; PATH holds only the stub and tool-link directories. Nothing is pulled, built or started.
+# that the miner will run in light mode. A copy of the installer runs from its own scratch clone with
+# a stub docker; PATH holds only the stub and tool-link directories. Nothing is pulled, built or
+# started, and the repository's docker/ stays as it was.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -12,10 +13,16 @@ fail() { echo "FAIL $*"; rc=1; }
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
-mkdir -p "$w/bin" "$w/tools" "$w/repo/docker"
+: > "$w/stamp"
+# The fixture clone holds a copy of this tree's installer: the installer uses only the clone it
+# sits in, so a run of the repository's own copy would write into the repository's docker/.
+mkdir -p "$w/bin" "$w/tools" "$w/repo/docker" "$w/repo/scripts" "$w/repo/.git"
 : > "$w/repo/docker/compose.yml"
 : > "$w/repo/docker/Dockerfile"
-for t in cat cut date dirname head ls mktemp mv rm tr; do
+cp "$root/scripts/docker_setup.sh" "$w/repo/scripts/docker_setup.sh"
+chmod 755 "$w/repo" "$w/repo/docker"
+chmod 644 "$w/repo/docker/compose.yml" "$w/repo/docker/Dockerfile"
+for t in cat cut date dirname find head id ls mktemp mv rm tr uname; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
@@ -38,7 +45,7 @@ run() {
   (cd "$w/repo" && env -i HOME="$w" PATH="$w/bin:$w/tools" ${utf8:+LC_ALL=$utf8} \
     ${WG_KEY+"WIREGUARD_PRIVATE_KEY=$WG_KEY"} ${WG_ADDR+"WIREGUARD_ADDRESSES=$WG_ADDR"} \
     ${VPN_USER+"OPENVPN_USER=$VPN_USER"} ${VPN_PASS+"OPENVPN_PASSWORD=$VPN_PASS"} \
-    "$BASH" "$root/scripts/docker_setup.sh" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
+    "$BASH" "$w/repo/scripts/docker_setup.sh" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
 }
@@ -142,5 +149,8 @@ VPN_USER=user VPN_PASS=p run nordvpn --vpn nordvpn --vpn-location Switzerland
 want nordvpn .env.vpn "$(printf '%s\n' 'VPN_SERVICE_PROVIDER="nordvpn"' 'VPN_TYPE="openvpn"' 'OPENVPN_USER="user"' \
   'OPENVPN_PASSWORD="p"' 'SERVER_COUNTRIES="Switzerland"' 'TZ="UTC"' 'LOG_LEVEL="info"')" "$(body "$vpn")"
 want nordvpn stderr "[ WARNING ] NordVPN's terms may prohibit crypto-mining on your plan. Verify before running long." "$err"
+# Nothing above ran in the repository itself.
+changed=$(find "$root/docker" "$root/scripts" -newer "$w/stamp" 2>&1)
+[ -z "$changed" ] || fail "real tree: changed in the repository: $(printf '%s' "$changed" | tr '\n' ' ')"
 [ "$rc" -eq 0 ] && echo "PASS docker-env-values"
 exit "$rc"

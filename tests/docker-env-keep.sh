@@ -1,11 +1,12 @@
 #!/bin/bash
 # A re-run of the Docker installer keeps docker/.env and docker/.env.vpn byte for byte, mode and
 # all, with one line each naming --overwrite-env, and asks for no VPN secret it does not need; a
-# kept file others can read gets a warning and stays as it is. --overwrite-env rewrites the files
+# kept file others can read gets a warning and stays as it is, one another user owns or can change
+# stops the run. --overwrite-env rewrites the files
 # this run writes, and only those. A new file is mode 600 from its first byte and replaces the old
-# one whole: a failed write leaves the old one, or none, and one error line. The installer runs from
-# a fixture checkout with a stub docker; PATH holds only the stub and tool-link directories.
-# Nothing is pulled, built or started.
+# one whole: a failed write leaves the old one, or none, and one error line. A copy of the installer
+# runs from its own scratch clone with a stub docker; PATH holds only the stub and tool-link
+# directories. Nothing is pulled, built or started, and the repository's docker/ stays as it was.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -13,14 +14,39 @@ fail() { echo "FAIL $*"; rc=1; }
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
-mkdir -p "$w/bin" "$w/tools" "$w/repo/docker"
+: > "$w/stamp"
+# The fixture clone holds a copy of this tree's installer: the installer uses only the clone it
+# sits in, so a run of the repository's own copy would write into the repository's docker/.
+mkdir -p "$w/bin" "$w/tools" "$w/repo/docker" "$w/repo/scripts" "$w/repo/.git"
 : > "$w/repo/docker/compose.yml"
 : > "$w/repo/docker/Dockerfile"
-for t in cat chmod cut date dirname head ls mktemp mv rm tr; do
+cp "$root/scripts/docker_setup.sh" "$w/repo/scripts/docker_setup.sh"
+chmod 755 "$w/repo" "$w/repo/docker"
+chmod 644 "$w/repo/docker/compose.yml" "$w/repo/docker/Dockerfile"
+for t in cat chmod cut date dirname find head ls mktemp mv rm tr uname; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
-real_mv=$(command -v mv)
+real_mv=$(command -v mv) me=$(id -un) real_id=$(command -v id)
+# The user's primary group is a shared one, unless ID_MODE=private says it is their own, as Ubuntu
+# gives each user.
+cat > "$w/bin/id" <<STUB
+#!/bin/bash
+case \$* in
+  -gn) if [ "\${ID_MODE:-shared}" = private ]; then echo "$me"; else echo shared-group; fi ;;
+  *) exec "$real_id" "\$@" ;;
+esac
+STUB
+# OTHER_OWNS=<file>: find's owner test says another user owns that file (no chown needed).
+real_find=$(command -v find)
+cat > "$w/bin/find" <<STUB
+#!/bin/bash
+if [ -n "\${OTHER_OWNS:-}" ] && [ "\$2" = "\$OTHER_OWNS" ]; then
+  for a in "\$@"; do [ "\$a" = -user ] && exit 0; done
+fi
+exec "$real_find" "\$@"
+STUB
+chmod +x "$w/bin/id" "$w/bin/find"
 # The stub docker answers the two availability checks and records every call.
 cat > "$w/bin/docker" <<STUB
 #!/bin/bash
@@ -36,8 +62,8 @@ env="$w/repo/docker/.env" vpn="$w/repo/docker/.env.vpn"
 run() {
   local name=$1; shift
   rm -f "$w/docker.log"
-  (cd "$w/repo" && env -i HOME="$w" PATH="$w/bin:$w/tools" ${KEY:+WIREGUARD_PRIVATE_KEY=$KEY} \
-    ${ADDR:+WIREGUARD_ADDRESSES=$ADDR} "$BASH" "$root/scripts/docker_setup.sh" "$@") > "$w/out" 2> "$w/err"
+  (cd "$w/repo" && env -i HOME="$w" PATH="$w/bin:$w/tools" ${ID_MODE:+ID_MODE=$ID_MODE} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} ${KEY:+WIREGUARD_PRIVATE_KEY=$KEY} \
+    ${ADDR:+WIREGUARD_ADDRESSES=$ADDR} "$BASH" "$w/repo/scripts/docker_setup.sh" "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
   # Only the two availability checks may reach docker, or nothing when the run stops before them.
@@ -51,6 +77,11 @@ has() { # name, stream text, whole line
 }
 mode() { ls -l "$1" | cut -c1-10; }
 leftovers() { (cd "$w/repo/docker" && ls -A | grep -vxE 'compose.yml|Dockerfile|\.env|\.env\.vpn' | tr '\n' ' '); }
+# The refusal offers first the remedy that keeps none of the file's values: a chmod alone would
+# start the miner on values someone else may have written. --overwrite-env, which rewrites the
+# other settings file too, is offered only for a file the user cannot chmod: another user's.
+refuse_line() { echo "[  ERROR  ] $1 can be changed by a user other than you, so this run does not use it. Remove it and run again, or, if you wrote its values and have checked them, restrict it with: chmod 600 $1"; }
+refuse_owner_line() { echo "[  ERROR  ] $1 belongs to another user, so this run does not use it. Remove it and run again, or run again with --overwrite-env, which rewrites docker/.env, and docker/.env.vpn with --vpn, from this run's flags."; }
 keep_line() { echo "[  INFO   ] Keeping $1: this run's flags are not applied to it. To rewrite it from them, run again with --overwrite-env."; }
 
 # A first run writes .env, mode 600.
@@ -75,8 +106,8 @@ run rerun-no-wallet -y
 want rerun-no-wallet exit 1 "$code"
 cmp -s "$env" "$w/env.first" || fail "rerun-no-wallet: .env changed"
 
-# A kept file the group or others can read or write: one warning, mode unchanged.
-for m in 644:-rw-r--r-- 604:-rw----r-- 606:-rw----rw- 640:-rw-r----- 620:-rw--w----; do
+# A kept file the group or others can only read: one warning, mode unchanged.
+for m in 644:-rw-r--r-- 604:-rw----r-- 640:-rw-r-----; do
   chmod "${m%%:*}" "$env"
   run "loose-${m%%:*}" -w "$wallet" -y
   want "loose-${m%%:*}" exit 0 "$code"
@@ -85,6 +116,46 @@ for m in 644:-rw-r--r-- 604:-rw----r-- 606:-rw----rw- 640:-rw-r----- 620:-rw--w-
   cmp -s "$env" "$w/env.first" || fail "loose-${m%%:*}: .env changed"
 done
 chmod 600 "$env"
+
+# refused <name> <file> <expected mode>: one error line, exit 1, nothing written or started (the
+# cases pass --autostart, so a refusal after the start step reaches docker), the
+# file byte for byte and mode as it was.
+refused() {
+  want "$1" exit 1 "$code"
+  want "$1" stderr "$(${LINE:-refuse_line} "$2")" "$err"
+  want "$1" mode "$3" "$(mode "$2")"
+  printf '%s\n' "$out" | grep -q 'Wrote \|Replaced ' && fail "$1: a file was written"
+}
+# A kept file another user owns or can change is refused: the run would start the miner on
+# settings someone else chose. Group write passes only for the user's private group.
+OTHER_OWNS=$env run env-other-owner -w "$wallet" -y --autostart
+LINE=refuse_owner_line refused env-other-owner "$env" "-rw-------"
+cmp -s "$env" "$w/env.first" || fail "env-other-owner: .env changed"
+chmod 620 "$env"
+run env-group -w "$wallet" -y --autostart
+refused env-group "$env" "-rw--w----"
+cmp -s "$env" "$w/env.first" || fail "env-group: .env changed"
+ID_MODE=private run env-group-private -w "$wallet" -y
+want env-group-private exit 0 "$code"
+chmod 606 "$env"
+ID_MODE=private run env-world -w "$wallet" -y --autostart
+refused env-world "$env" "-rw----rw-"
+cmp -s "$env" "$w/env.first" || fail "env-world: .env changed"
+chmod 600 "$env"
+if [ "$(uname -s)" = Darwin ]; then
+  chmod +a "everyone allow write" "$env"
+  run env-acl -w "$wallet" -y --autostart
+  want env-acl exit 1 "$code"
+  want env-acl stderr "$(refuse_line "$env")" "$err"
+  cmp -s "$env" "$w/env.first" || fail "env-acl: .env changed"
+  chmod -N "$env"
+fi
+# --overwrite-env replaces such a file whole, so it is not refused.
+chmod 606 "$env"
+run env-world-overwrite -w "$wallet" -y --overwrite-env --worker-name first
+want env-world-overwrite exit 0 "$code"
+want env-world-overwrite mode "-rw-------" "$(mode "$env")"
+cp -p "$env" "$w/env.first"
 
 # --overwrite-env rewrites it from this run's flags, with one line naming it.
 run overwrite -w "$wallet" -y --worker-name second --overwrite-env
@@ -124,6 +195,25 @@ want vpn-loose mode "-rw----r--" "$(mode "$vpn")"
 want vpn-loose stderr "[ WARNING ] $vpn can be read or changed by other users. Restrict it with: chmod 600 $vpn" "$err"
 cmp -s "$vpn" "$w/vpn.first" || fail "vpn-loose: .env.vpn changed"
 chmod 600 "$vpn"
+# A kept .env.vpn others can write to is refused, and .env with it stays as it was.
+chmod 606 "$vpn"
+run vpn-world -w "$wallet" -y --vpn mullvad --autostart
+refused vpn-world "$vpn" "-rw----rw-"
+cmp -s "$vpn" "$w/vpn.first" || fail "vpn-world: .env.vpn changed"
+cmp -s "$env" "$w/env.vpnrun" || fail "vpn-world: .env changed"
+# The remedy it gives touches only .env.vpn: removed and written again, .env stays as it was.
+chmod 664 "$vpn"
+run vpn-group -w "$wallet" -y --vpn mullvad --autostart
+refused vpn-group "$vpn" "-rw-rw-r--"
+rm "$vpn"
+KEY=wgkey-first ADDR=10.64.0.1/32 run vpn-removed -w "$wallet" -y --vpn mullvad
+want vpn-removed exit 0 "$code"
+cmp -s "$env" "$w/env.vpnrun" || fail "vpn-removed: .env changed"
+want vpn-removed "mode .env.vpn" "-rw-------" "$(mode "$vpn")"
+cp -p "$vpn" "$w/vpn.first"
+OTHER_OWNS=$vpn run vpn-other-owner -w "$wallet" -y --vpn mullvad --autostart
+LINE=refuse_owner_line refused vpn-other-owner "$vpn" "-rw-------"
+cmp -s "$vpn" "$w/vpn.first" || fail "vpn-other-owner: .env.vpn changed"
 
 # --overwrite-env without a provider leaves .env.vpn as it is.
 run overwrite-novpn -w "$wallet" -y --overwrite-env --worker-name third
@@ -246,5 +336,8 @@ if git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
     git -C "$root" check-ignore -q "$f" && fail "gitignore: $f is ignored"
   done
 fi
+# Nothing above ran in the repository itself.
+changed=$(find "$root/docker" "$root/scripts" -newer "$w/stamp" 2>&1)
+[ -z "$changed" ] || fail "real tree: changed in the repository: $(printf '%s' "$changed" | tr '\n' ' ')"
 [ "$rc" -eq 0 ] && echo "PASS docker-env-keep"
 exit "$rc"

@@ -29,6 +29,48 @@ DEFAULT_XMRIG_IMAGE="ghcr.io/morgankryze/monero-miner-setup:latest"
 # it the container mines in light mode.
 FAST_MODE_MIB=2560
 
+# ===== Own clone =====
+# The same two functions as scripts/install.sh, byte for byte (tests/docker-own-clone.sh fails when
+# they differ). BASH_SOURCE is read here, at the top level: inside a function, bash 5 gives a script
+# read from a pipe its $0 ("bash", or the first argument of `bash -c`), which may name a file in the
+# current directory.
+SELF_PATH="${BASH_SOURCE[0]-}"
+
+# Prints the clone this file sits in (<clone>/scripts/docker_setup.sh), or nothing. Piped into
+# bash, fetched by install.sh --docker, or saved outside a clone, it has no clone of its own. Nor
+# has it one when someone else can write to the clone root, as in /tmp.
+function find_own_clone() {
+    local dir root
+    [ -n "$SELF_PATH" ] && [ -f "$SELF_PATH" ] || return 0
+    dir=$(cd -- "$(dirname -- "$SELF_PATH")" 2>/dev/null && pwd -P) || return 0
+    root="${dir%/*}"
+    if [ "${dir##*/}" = "scripts" ] && [ -e "$root/.git" ] && only_user_can_write "$root"; then
+        printf '%s' "$root"
+    fi
+}
+
+# Other users can never write to the folder. Its group can only when the group is the user's own
+# (Ubuntu's private group and umask 0002); a shared group, an ACL or a failed check is a no.
+function only_user_can_write() {
+    local group_ok listing
+    group_ok=(! -perm -0020)
+    if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
+        group_ok=("(" ! -perm -0020 -o -group "$(id -g)" ")")
+    fi
+    [ "$(find "$1/" -maxdepth 0 ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1/" ] || return 1
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        listing=$(ls -lde -- "$1/" 2>/dev/null) || return 1
+    else
+        listing=$(ls -ld -- "$1/" 2>/dev/null) || return 1
+    fi
+    case $listing in
+        *$'\n'*) return 1 ;;
+    esac
+    case ${listing%% *} in
+        *+) return 1 ;;
+    esac
+}
+
 set -o errexit
 set -o pipefail
 
@@ -368,20 +410,158 @@ function parse_args() {
 }
 
 # ===== Ensure repo checkout =====
-# Sets REPO_DIR to the absolute path of the repo root. Clones if not already inside one.
-function ensure_repo() {
-    local search="$PWD"
-    while [ "$search" != "/" ]; do
+# The nearest folder at or above the current directory holding this project's two Docker files,
+# by its physical path, or nothing.
+function nearest_lookalike() {
+    local search
+    search=$(pwd -P) || return 0
+    while true; do
         if [ -f "$search/docker/compose.yml" ] && [ -f "$search/docker/Dockerfile" ]; then
-            REPO_DIR="$search"
-            info "Using existing checkout at $REPO_DIR."
+            printf '%s' "$search"
             return 0
         fi
+        if [ "$search" = "/" ]; then return 0; fi
         search=$(dirname "$search")
     done
+}
 
-    REPO_DIR="$BASE_DIR/$REPO_NAME"
-    if [ -d "$REPO_DIR/.git" ]; then
+# The clone the script sits in when only the write check keeps it from being its own, or nothing:
+# the run then names that cause instead of falling back to the base clone.
+function open_own_clone() {
+    local dir
+    [ -n "$SELF_PATH" ] && [ -f "$SELF_PATH" ] || return 0
+    dir=$(cd -- "$(dirname -- "$SELF_PATH")" 2>/dev/null && pwd -P) || return 0
+    if [ "${dir##*/}" = "scripts" ] && [ -e "${dir%/*}/.git" ] && ! only_user_can_write "${dir%/*}"; then
+        printf '%s' "${dir%/*}"
+    fi
+}
+
+# only_user_can_write for a file, the one a link points to: that one takes folders only. Group
+# write passes only for a private group, as there.
+function only_user_can_write_file() {
+    local group_ok listing
+    group_ok=(! -perm -0020)
+    if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
+        group_ok=("(" ! -perm -0020 -o -group "$(id -g)" ")")
+    fi
+    [ "$(find -H "$1" -maxdepth 0 -type f ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1" ] || return 1
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        listing=$(ls -leL -- "$1" 2>/dev/null) || return 1
+    else
+        listing=$(ls -lL -- "$1" 2>/dev/null) || return 1
+    fi
+    case $listing in
+        *$'\n'*) return 1 ;;
+    esac
+    case ${listing%% *} in
+        *+) return 1 ;;
+    esac
+}
+
+# The path, or the file a link points to, is owned by you or root (as root, also by the user who
+# ran sudo, who can become root anyway).
+function trusted_owner() {
+    local owners
+    owners=(-user "$(id -u 2>/dev/null)" -o -user 0)
+    if [ "$(id -u 2>/dev/null)" = "0" ] && [ -n "${SUDO_USER:-}" ]; then
+        owners+=(-o -user "$SUDO_USER")
+    fi
+    [ "$(find -H "$1" -maxdepth 0 "(" "${owners[@]}" ")" -print 2>/dev/null)" = "$1" ]
+}
+
+# A clone this run may write its settings into and start: a git clone owned by you or root (as
+# root, also by the user who ran sudo, who can become root anyway), that no other user can write
+# to, nor to its docker/ folder, nor to the files there the root daemon acts on: the Compose files
+# (a privileged service, a host folder mounted) and the Dockerfile (the image's user). The rest of
+# the build context is not checked, as nothing in it runs as root.
+function check_clone() {
+    local dir="$1" f bad=""
+    if [ ! -d "$dir" ] || [ ! -e "$dir/.git" ]; then
+        error "$dir is not a git clone. Move it away, or pass -d with another base directory."
+        return 1
+    fi
+    for f in "$dir" "$dir/docker"; do
+        if ! trusted_owner "$f/" || ! only_user_can_write "$f"; then
+            bad=$f
+            break
+        fi
+    done
+    if [ -z "$bad" ]; then
+        for f in "$dir/docker/compose.yml" "$dir/docker/compose.vpn.yml" "$dir/docker/Dockerfile"; do
+            # A missing file is one only those who can write to docker/, checked above, could add.
+            if [ ! -e "$f" ] && [ ! -L "$f" ]; then continue; fi
+            if ! trusted_owner "$f" || ! only_user_can_write_file "$f"; then
+                bad=$f
+                break
+            fi
+        done
+    fi
+    if [ -z "$bad" ]; then return 0; fi
+    # Files others could change may already have been, and the checks above read only owners and
+    # modes: restricting the clone would let those changes through, so the remedy is a fresh clone.
+    # A run in another base directory would start a fresh .env under the same Compose project and
+    # replace the running miner's settings, so that remedy is offered only when there are none.
+    if [ -e "$dir/docker/.env" ]; then
+        error "$bad can be changed by a user other than you, so this run does not use it. The clone's files and settings may have been changed: move $dir away and clone this project again."
+    else
+        error "$bad can be changed by a user other than you, so this run does not use it. The clone's files may have been changed: move $dir away and clone this project again, or pass -d with another base directory."
+    fi
+    return 1
+}
+
+# Sets REPO_DIR to the clone this run uses: the one this script sits in, else
+# $BASE_DIR/$REPO_NAME, cloned when missing. A folder that only looks like this project is never
+# adopted: when the nearest one at or above the current directory is not REPO_DIR, the run stops,
+# so a re-run from another copy never starts a fresh .env under the same Compose project.
+function ensure_repo() {
+    local own open_own found base
+    own=$(find_own_clone)
+    if [ -n "$own" ]; then
+        REPO_DIR="$own"
+    else
+        base=$(cd -P -- "$BASE_DIR" 2>/dev/null && pwd -P) || base="$BASE_DIR"
+        REPO_DIR="$base/$REPO_NAME"
+        if [ -d "$REPO_DIR" ]; then
+            REPO_DIR=$(cd -P -- "$REPO_DIR" && pwd -P) || return 1
+        fi
+    fi
+
+    if [ -z "$own" ]; then
+        open_own=$(open_own_clone)
+        if [ -n "$open_own" ]; then
+            error "$open_own is this script's clone, but a user other than you can change it, so this run does not use it. Its files may have been changed: move it away and clone this project again."
+            return 1
+        fi
+    fi
+
+    found=$(nearest_lookalike)
+    if [ -n "$found" ] && [ "$found" != "$REPO_DIR" ]; then
+        # A run from outside a folder holding settings would start a second set under the same
+        # Compose project, so that remedy is offered only when there are none.
+        # Its installer is named only for a git clone its own run would accept: any other folder
+        # may hold a script someone else planted or changed, so no remedy runs anything from it.
+        if ! { [ -e "$found/.git" ] && trusted_owner "$found/" && trusted_owner "$found/docker/" &&
+            only_user_can_write "$found" && only_user_can_write "$found/docker"; }; then
+            if [ -e "$found/docker/.env" ]; then
+                error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. It is not a git clone only you can change: if it is your own, move it away and clone this project again."
+            else
+                error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. It is not a git clone only you can change: run again from outside $found."
+            fi
+        elif [ -e "$found/docker/.env" ]; then
+            error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. If it is your own clone, run its scripts/install.sh --docker."
+        else
+            error "$found looks like a copy of $REPO_NAME, but this run uses $REPO_DIR. Run again from outside $found, or, if it is your own clone, with its scripts/install.sh --docker."
+        fi
+        return 1
+    fi
+
+    if [ -n "$own" ]; then
+        check_clone "$REPO_DIR" || return 1
+        info "Using this script's clone at $REPO_DIR."
+        return 0
+    fi
+    if [ -e "$REPO_DIR" ] || [ -L "$REPO_DIR" ]; then
+        check_clone "$REPO_DIR" || return 1
         info "Found existing clone at $REPO_DIR."
         return 0
     fi
@@ -391,10 +571,30 @@ function ensure_repo() {
         error "Failed to clone $REPO_URL."
         return 1
     fi
+    # A fresh clone gets the same checks: git keeps the mode of an empty folder someone else made
+    # at that path first, and lays out the rest under the user's umask.
+    REPO_DIR=$(cd -P -- "$REPO_DIR" && pwd -P) && check_clone "$REPO_DIR" || return 1
     success "Clone complete."
 }
 
 # ===== Settings files =====
+# A kept settings file passes the same owner and write checks as the clone's Compose files: the
+# miner would otherwise start on a wallet someone else chose. --overwrite-env replaces it whole.
+# Removing the file comes first: a chmod alone would keep values someone else may have written. As
+# --overwrite-env rewrites the other settings file too, it is offered only when no chmod can help.
+function check_kept() {
+    local file="$1"
+    if [ ! -e "$file" ] && [ ! -L "$file" ]; then return 0; fi
+    if [ "$OVERWRITE_ENV" = "true" ]; then return 0; fi
+    if ! trusted_owner "$file"; then
+        error "$file belongs to another user, so this run does not use it. Remove it and run again, or run again with --overwrite-env, which rewrites docker/.env, and docker/.env.vpn with --vpn, from this run's flags."
+        return 1
+    fi
+    if only_user_can_write_file "$file"; then return 0; fi
+    error "$file can be changed by a user other than you, so this run does not use it. Remove it and run again, or, if you wrote its values and have checked them, restrict it with: chmod 600 $(printf '%q' "$file")"
+    return 1
+}
+
 # A settings file from an earlier run is the user's: it is kept as it is unless --overwrite-env
 # says otherwise. Returns 0 when the file is to be written.
 function should_write() {
@@ -576,6 +776,8 @@ function main() {
 
     local env_file="$REPO_DIR/docker/.env" vpn_file="$REPO_DIR/docker/.env.vpn"
     local write_env=false write_vpn=false
+    check_kept "$env_file" || exit 1
+    if [ "$VPN_PROVIDER" != "none" ]; then check_kept "$vpn_file" || exit 1; fi
     if should_write "$env_file"; then write_env=true; fi
     if [ "$VPN_PROVIDER" != "none" ] && should_write "$vpn_file"; then write_vpn=true; fi
 
