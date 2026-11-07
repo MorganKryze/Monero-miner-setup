@@ -263,6 +263,25 @@ ID_MODE=private; chmod 664 "$c/docker/compose.yml"
 run file-private-group "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
 used file-private-group "$c" "Found existing clone at $c."
 unset ID_MODE; chmod 644 "$c/docker/compose.yml"
+# Each part of the file check on its own: shared-group write, world write under a private group,
+# a dangling link, and (macOS) an ACL.
+chmod 664 "$c/docker/compose.yml"
+run file-group "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
+refused file-group "$(open_line "$c/docker/compose.yml")" "$c"
+ID_MODE=private; chmod 666 "$c/docker/compose.yml"
+run file-world-private "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
+refused file-world-private "$(open_line "$c/docker/compose.yml")" "$c"
+unset ID_MODE; chmod 644 "$c/docker/compose.yml"
+mv "$c/docker/compose.vpn.yml" "$w/vpn.real"; ln -s "$w/nowhere.yml" "$c/docker/compose.vpn.yml"
+run file-dangling "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
+refused file-dangling "$(open_line "$c/docker/compose.vpn.yml")" "$c"
+rm "$c/docker/compose.vpn.yml"; mv "$w/vpn.real" "$c/docker/compose.vpn.yml"
+if [ "$(uname -s)" = Darwin ]; then
+  chmod +a "everyone allow write" "$c/docker/Dockerfile"
+  run file-acl "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
+  refused file-acl "$(open_line "$c/docker/Dockerfile")" "$c"
+  chmod -N "$c/docker/Dockerfile"
+fi
 ID_MODE=private; chmod 775 "$c" "$c/docker"
 run private-group "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
 used private-group "$c" "Found existing clone at $c."
