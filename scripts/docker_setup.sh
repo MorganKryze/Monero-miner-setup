@@ -320,7 +320,7 @@ function write_settings_file() {
     local file="$1" content="$2" tmp existed=false
 
     if [ -e "$file" ] || [ -L "$file" ]; then existed=true; fi
-    if [ -d "$file" ] && [ ! -L "$file" ]; then
+    if [ -d "$file" ]; then
         error "Could not write $file: it is a directory."
         return 1
     fi

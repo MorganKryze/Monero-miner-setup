@@ -196,5 +196,24 @@ want mktemp-fails exit 1 "$code"
 want mktemp-fails stderr "[  ERROR  ] Could not write $env: it is left as it was." "$err"
 [ ! -e "$env" ] || fail "mktemp-fails: .env exists"
 rm -f "$w/bin/mktemp"
+
+# A directory in a settings file's place, or a link to one, is refused even with --overwrite-env:
+# nothing is moved into it and nothing is written outside docker/.
+mkdir "$env"
+run env-dir -w "$wallet" -y --overwrite-env
+want env-dir exit 1 "$code"
+want env-dir stderr "[  ERROR  ] Could not write $env: it is a directory." "$err"
+want env-dir "directory content" "" "$(ls -A "$env")"
+want env-dir leftovers "" "$(leftovers)"
+rmdir "$env"
+mkdir "$w/elsewhere"
+ln -s "$w/elsewhere" "$vpn"
+KEY=wgkey-fifth ADDR=10.64.0.5/32 run vpn-linkdir -w "$wallet" -y --vpn mullvad --overwrite-env
+want vpn-linkdir exit 1 "$code"
+want vpn-linkdir stderr "[  ERROR  ] Could not write $vpn: it is a directory." "$err"
+want vpn-linkdir "link target content" "" "$(ls -A "$w/elsewhere")"
+[ -L "$vpn" ] || fail "vpn-linkdir: the link was replaced"
+want vpn-linkdir leftovers "" "$(leftovers)"
+rm -f "$vpn" "$env"
 [ "$rc" -eq 0 ] && echo "PASS docker-env-keep"
 exit "$rc"
