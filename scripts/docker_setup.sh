@@ -574,12 +574,14 @@ function ensure_repo() {
 # ===== Settings files =====
 # A kept settings file passes the same owner and write checks as the clone's Compose files: the
 # miner would otherwise start on a wallet someone else chose. --overwrite-env replaces it whole.
+# A chmod alone would keep values someone else may have written, so it comes second, for a file
+# whose values the user has checked.
 function check_kept() {
     local file="$1"
     if [ ! -e "$file" ] && [ ! -L "$file" ]; then return 0; fi
     if [ "$OVERWRITE_ENV" = "true" ]; then return 0; fi
     if trusted_owner "$file" && only_user_can_write_file "$file"; then return 0; fi
-    error "$file can be changed by a user other than you, so this run does not use it. Make it yours with chown and chmod 600, or run again with --overwrite-env."
+    error "$file can be changed by a user other than you, so this run does not use it. Run again with --overwrite-env, or, if you wrote its values and have checked them, restrict it with: chmod 600 $(printf '%q' "$file")"
     return 1
 }
 

@@ -77,7 +77,9 @@ has() { # name, stream text, whole line
 }
 mode() { ls -l "$1" | cut -c1-10; }
 leftovers() { (cd "$w/repo/docker" && ls -A | grep -vxE 'compose.yml|Dockerfile|\.env|\.env\.vpn' | tr '\n' ' '); }
-refuse_line() { echo "[  ERROR  ] $1 can be changed by a user other than you, so this run does not use it. Make it yours with chown and chmod 600, or run again with --overwrite-env."; }
+# The refusal offers first the remedy that keeps none of the file's values: a chmod alone would
+# start the miner on values someone else may have written.
+refuse_line() { echo "[  ERROR  ] $1 can be changed by a user other than you, so this run does not use it. Run again with --overwrite-env, or, if you wrote its values and have checked them, restrict it with: chmod 600 $1"; }
 keep_line() { echo "[  INFO   ] Keeping $1: this run's flags are not applied to it. To rewrite it from them, run again with --overwrite-env."; }
 
 # A first run writes .env, mode 600.
