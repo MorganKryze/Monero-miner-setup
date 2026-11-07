@@ -76,6 +76,13 @@ run edges WALLET_ADDRESS="$wallet.Rig42" WORKER_NAME="rig@home:1+a.b-c_d" POOL_U
   DONATE_LEVEL=5 MAX_THREADS_PERCENT=100 FORCE_THREAD_COUNT=3 PAUSE_ON_BATTERY=true PAUSE_ON_ACTIVE=true
 want edges exit 0 "$code"
 want edges values "{\"url\":\"stratum+ssl://pool.example.com:443\",\"user\":\"$wallet.Rig42\",\"pass\":\"rig@home:1+a.b-c_d\",\"donate\":5,\"hint\":100,\"forced\":{\"threads\":3,\"affinity\":-1},\"battery\":true,\"active\":true,\"pools\":1}" "$(picked)"
+# Numbers written with leading zeros are read as decimal, never as octal.
+run zeros WALLET_ADDRESS="$wallet" DONATE_LEVEL=05 MAX_THREADS_PERCENT=075 FORCE_THREAD_COUNT=09
+want zeros exit 0 "$code"
+want zeros values "{\"url\":\"gulf.moneroocean.stream:10128\",\"user\":\"$wallet\",\"pass\":\"docker_miner\",\"donate\":5,\"hint\":75,\"forced\":{\"threads\":9,\"affinity\":-1},\"battery\":false,\"active\":false,\"pools\":1}" "$(picked)"
+run zeros-percent WALLET_ADDRESS="$wallet" MAX_THREADS_PERCENT=08
+want zeros-percent exit 0 "$code"
+want zeros-percent hint 8 "$(printf '%s\n' "$config" | jq -c '.cpu."max-threads-hint"')"
 # A scheme before a pool without a port still gets the port.
 run scheme WALLET_ADDRESS="$wallet" POOL_URL="stratum+tcp://gulf.moneroocean.stream"
 want scheme url '"stratum+tcp://gulf.moneroocean.stream:10001"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"

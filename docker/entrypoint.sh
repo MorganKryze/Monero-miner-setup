@@ -223,6 +223,10 @@ function main() {
     FORCE_THREAD_COUNT=${FORCE_THREAD_COUNT:-}
 
     check_values || exit 1
+    # The rules accept leading zeros, which bash arithmetic would read as octal: 08 fails, 075 is 61.
+    DONATE_LEVEL=$((10#$DONATE_LEVEL))
+    MAX_THREADS_PERCENT=$((10#$MAX_THREADS_PERCENT))
+    if [ -n "$FORCE_THREAD_COUNT" ]; then FORCE_THREAD_COUNT=$((10#$FORCE_THREAD_COUNT)); fi
     log_info "Using wallet address: $WALLET_ADDRESS"
 
     # Calculate thread count
