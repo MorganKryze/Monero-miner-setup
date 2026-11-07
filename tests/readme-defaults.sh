@@ -66,6 +66,7 @@ grep -qF 'echo "  --name STRING         Display name for the mining worker (defa
 
 # Docker install (scripts/docker_setup.sh).
 D=scripts/docker_setup.sh
+line_holds '- `--pool URL`' "$(constant $D DEFAULT_POOL_URL)"
 line_holds '- `--worker-name NAME`' "$(constant $D DEFAULT_WORKER_NAME)"
 line_holds '- `--cpus N` / `--memory LIMIT`' "$(constant $D DEFAULT_CPU_COUNT)" "$(constant $D DEFAULT_MEMORY_LIMIT)"
 line_holds '- `--threads PCT` / `--force-threads N`' "$(constant $D DEFAULT_MAX_THREADS)" "$(constant $D DEFAULT_FORCE_THREAD_COUNT)"
