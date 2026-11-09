@@ -4,6 +4,17 @@ Every release of Monero-miner-setup, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Upgrading a native install on arm64 keeps the configs you have, and with them a miner on every core. The installer says so and names the remedy: `make clean-configs`, the installer again, then `make service-setup`.
+
+### Fixed
+
+- On arm64, `--threads` changed nothing: XMRig started a thread on every core whatever its hint. The native installer now writes the cores to mine on into new configs, that share of them rounded up, the biggest first. The Docker miner puts each thread on its own CPU, the biggest the container may use, at most one per CPU.
+- `make doctor` on arm64 reported missing AES-NI and x86 checks that don't apply. It now checks AES from the CPU's features, names the board, sizes huge pages by the kernel's page size, and skips AES-NI, AVX2, 1 GB pages and MSR. On every host it shows the CPUs each native config mines on.
+
 ## [0.1.0] - 2026-11-07
 
 The first tagged release. Installed before it? Read
