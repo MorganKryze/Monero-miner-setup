@@ -29,9 +29,138 @@ THP_ENABLED=/sys/kernel/mm/transparent_hugepage/enabled
 GB_PAGES=/sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages
 MSR_DEV=/dev/cpu/0/msr
 CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/configs"
+DT_COMPATIBLE=/proc/device-tree/compatible
+CPUFREQ_DIR=/sys/devices/system/cpu/cpufreq
+RX_FLOOR_MIB=2560
+PROFILE_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/board_profiles.conf"
 
 function is_arm64() {
     [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]
+}
+
+# ----- Board profiles -----
+# These eight functions are the installer's, byte for byte (tests/board-doctor.sh).
+
+# Prints the device tree's compatible strings that are well formed, one per line.
+function board_compatible() {
+    local word
+    [ -r "$DT_COMPATIBLE" ] || return 0
+    while read -r word; do
+        [[ "$word" =~ ^[a-z0-9,._-]{1,64}$ ]] && echo "$word"
+    done < <(tr '\0' '\n' <"$DT_COMPATIBLE")
+    return 0
+}
+
+# Prints the device tree's model, printable characters only and no backslash (echo -e would revive escapes), 64 at most, or nothing.
+function board_model() {
+    local model
+    [ -r "$DT_MODEL" ] || return 0
+    model=$(tr -cd '[:print:]' <"$DT_MODEL" 2>/dev/null | tr -d '\\' | cut -c1-64)
+    [ -z "$model" ] || echo "$model"
+    return 0
+}
+
+# Prints the value of <key> in <profile>'s first line of PROFILE_FILE; exit 1 when absent.
+function profile_value() {
+    local line
+    [ -r "$PROFILE_FILE" ] || return 1
+    while read -r line || [ -n "$line" ]; do
+        if [[ "$line" == "$1.$2="* ]]; then
+            printf '%s\n' "${line#*=}"
+            return 0
+        fi
+    done <"$PROFILE_FILE"
+    return 1
+}
+
+# Prints the first profile whose compatible words include one of the board's, compared as fixed
+# strings; nothing when none does.
+function find_profile() {
+    local line name word board words
+    board=$(board_compatible)
+    [ -n "$board" ] && [ -r "$PROFILE_FILE" ] || return 0
+    while read -r line || [ -n "$line" ]; do
+        [[ "$line" == *.compatible=* ]] || continue
+        name=${line%%.*}
+        [[ "$name" =~ ^[a-z0-9]{1,16}$ ]] || continue
+        read -ra words <<<"${line#*=}"
+        for word in "${words[@]}"; do
+            if [[ "$word" =~ ^[a-z0-9,._-]{1,64}$ ]] && [[ $'\n'"$board"$'\n' == *$'\n'"$word"$'\n'* ]]; then
+                echo "$name"
+                return 0
+            fi
+        done
+    done <"$PROFILE_FILE"
+    return 0
+}
+
+# Prints the CPU numbers of a kernel-form cpulist ("0,1,4-7"), ascending, one per line; exit 1
+# when the list is malformed or a range runs backwards.
+function expand_cpus() {
+    local part cpu out=""
+    [[ "$1" =~ ^[0-9]{1,4}(-[0-9]{1,4})?(,[0-9]{1,4}(-[0-9]{1,4})?)*$ ]] || return 1
+    for part in ${1//,/ }; do
+        [ "$((10#${part%-*}))" -le "$((10#${part#*-}))" ] || return 1
+    done
+    for part in ${1//,/ }; do
+        for ((cpu = 10#${part%-*}; cpu <= 10#${part#*-}; cpu++)); do
+            out+="$cpu"$'\n'
+        done
+    done
+    printf '%s' "$out" | sort -n -u
+}
+
+# Exit 0 when every value of <profile> passes its check: compatible strings, max and eco CPU
+# lists, layouts as CPU lists, eco-cap as policyN=kHz, measured as printable text.
+function profile_ok() {
+    local line key value word words seen=""
+    [ -r "$PROFILE_FILE" ] || return 1
+    while read -r line || [ -n "$line" ]; do
+        [[ "$line" == "$1."* ]] || continue
+        key=${line#*.}
+        key=${key%%=*}
+        value=${line#*=}
+        seen+=" $key"
+        case "$key" in
+        compatible)
+            read -ra words <<<"$value"
+            [ "${#words[@]}" -ge 1 ] || return 1
+            for word in "${words[@]}"; do [[ "$word" =~ ^[a-z0-9,._-]{1,64}$ ]] || return 1; done
+            ;;
+        max | eco) expand_cpus "$value" >/dev/null || return 1 ;;
+        layouts)
+            read -ra words <<<"$value"
+            for word in "${words[@]}"; do expand_cpus "$word" >/dev/null || return 1; done
+            ;;
+        eco-cap)
+            read -ra words <<<"$value"
+            for word in "${words[@]}"; do [[ "$word" =~ ^policy[0-9]{1,4}=[0-9]{1,9}$ ]] || return 1; done
+            ;;
+        measured) [ "${#value}" -le 1024 ] && [[ "$value" =~ ^[[:print:]]*$ ]] || return 1 ;;
+        *) return 1 ;;
+        esac
+    done <"$PROFILE_FILE"
+    [[ "$seen " == *" compatible "* && "$seen " == *" max "* && "$seen " == *" eco "* ]]
+}
+
+# Prints "measured on <model>" when <model> is one of the profile's measured models (compared
+# whole, as a fixed string), else "untested".
+function profile_status() {
+    local list model
+    IFS=';' read -ra list <<<"$(profile_value "$1" measured)"
+    for model in "${list[@]}"; do
+        if [ -n "$2" ] && [ "$model" = "$2" ]; then
+            echo "measured on $2"
+            return 0
+        fi
+    done
+    echo "untested"
+}
+
+# Prints the installed memory in MiB, or nothing when it cannot be read.
+function total_mem_mib() {
+    awk '/^MemTotal:/ && $2 ~ /^[0-9]+$/ { print int($2 / 1024) }' "$MEMINFO" 2>/dev/null
+    return 0
 }
 
 # ----- Linux checks -----
@@ -88,14 +217,15 @@ function check_cpu_arm() {
 # The huge page size is the kernel's (2 MB on x86, 2 MB or 32 MB on arm64 by page granule); XMRig
 # wants 2560 MiB of them for RandomX. A kernel without huge page support names no size.
 function check_hugepages_linux() {
-    local size label need
+    local size label need mem
+    mem=$(total_mem_mib)
     size=$(awk '/^Hugepagesize:/ {print $2; exit}' "$MEMINFO" 2>/dev/null)
     if [ -z "$size" ]; then
         label=""
         header "Huge pages"
     else
         if [ $((size % 1024)) -eq 0 ]; then label="$((size / 1024)) MB"; else label="$size kB"; fi
-        need=$(((2560 * 1024 + size - 1) / size))
+        need=$(((RX_FLOOR_MIB * 1024 + size - 1) / size))
         header "Huge pages ($label)"
     fi
 
@@ -117,7 +247,9 @@ function check_hugepages_linux() {
         warn "THP sysfs entry missing"
     fi
 
-    if [ -z "$size" ]; then
+    if [[ "$mem" =~ ^[0-9]{1,9}$ ]] && [ $((10#$mem)) -lt "$RX_FLOOR_MIB" ]; then
+        warn "Memory $mem MiB is under the $RX_FLOOR_MIB MiB floor: the miner runs in RandomX light mode"
+    elif [ -z "$size" ]; then
         note "Huge page size: none (kernel)"
     elif [ -f "$NR_HUGEPAGES" ]; then
         local reserved
@@ -172,6 +304,67 @@ function check_msr_linux() {
         RECOMMENDATIONS+=("sudo modprobe msr  # load now")
         RECOMMENDATIONS+=("echo msr | sudo tee /etc/modules-load.d/msr.conf  # persist across reboots")
     fi
+}
+
+# The board, its profile and what the profile says about this host: memory against the floor, the
+# eco cap beside each cpufreq policy's maximum, and which list each native config holds (compared
+# as CPU sets). Reads only.
+function check_board() {
+    header "Board"
+    local profile model mem entry pol cap now file name list nums max eco
+    profile=$(find_profile)
+    if [ -z "$profile" ]; then
+        note "No board profile for this board: the CPU list follows --threads."
+        return 0
+    fi
+    if ! profile_ok "$profile"; then
+        warn "The $profile profile in $PROFILE_FILE is not valid and is ignored."
+        return 0
+    fi
+    model=$(board_model)
+    note "Board: ${model:-unknown model}, profile $profile, $(profile_status "$profile" "$model")"
+    mem=$(total_mem_mib)
+    if [[ "$mem" =~ ^[0-9]{1,9}$ ]] && [ $((10#$mem)) -ge "$RX_FLOOR_MIB" ]; then
+        ok "Memory: $mem MiB (floor $RX_FLOOR_MIB MiB)"
+    fi
+
+    local capped=" "
+    for entry in $(profile_value "$profile" eco-cap); do
+        pol=${entry%%=*}
+        cap=${entry#*=}
+        capped+="$pol "
+        now=$(cat "$CPUFREQ_DIR/$pol/scaling_max_freq" 2>/dev/null)
+        [[ "$now" =~ ^[0-9]{1,9}$ ]] || continue
+        note "$pol: max now $((10#$now / 1000)) MHz, eco cap $((10#$cap / 1000)) MHz"
+    done
+    for file in "$CPUFREQ_DIR"/policy[0-9]*/scaling_max_freq; do
+        [ -f "$file" ] || continue
+        pol=${file%/scaling_max_freq}
+        pol=${pol##*/}
+        [[ "$capped" == *" $pol "* ]] && continue
+        now=$(cat "$file" 2>/dev/null)
+        [[ "$now" =~ ^[0-9]{1,9}$ ]] || continue
+        note "$pol: max now $((10#$now / 1000)) MHz"
+    done
+
+    max=$(expand_cpus "$(profile_value "$profile" max)" | tr '\n' ' ')
+    eco=$(expand_cpus "$(profile_value "$profile" eco)" | tr '\n' ' ')
+    for name in config.json config_background.json; do
+        file="$CONFIG_DIR/$name"
+        [ -f "$file" ] || continue
+        list=$(sed -n 's/^[ \t]*"rx": \(\[[-0-9, ]*\]\),\{0,1\}$/\1/p' "$file" | head -n 1)
+        [ -n "$list" ] || continue
+        nums=$(printf '%s' "$list" | tr -cd '0-9,' | tr ',' '\n' | sort -n -u | tr '\n' ' ')
+        if [ "$nums" = "$max" ] && [ "$nums" = "$eco" ]; then
+            note "$name: the profile's max and eco list"
+        elif [ "$nums" = "$eco" ]; then
+            note "$name: the profile's eco list"
+        elif [ "$nums" = "$max" ]; then
+            note "$name: the profile's max list"
+        else
+            note "$name: another list"
+        fi
+    done
 }
 
 # ----- macOS checks -----
@@ -285,12 +478,18 @@ function run_linux_checks() {
     fi
 }
 
+# The Board section where the host is arm64 or matches a profile, then the CPU sections.
+function linux_sections() {
+    if is_arm64 || [ -n "$(find_profile)" ]; then check_board; fi
+    run_linux_checks
+}
+
 # Sourced (by the regression checks), the script only defines its functions.
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0
 
 case "$OS" in
     Linux)
-        run_linux_checks
+        linux_sections
         check_thread_lists
         check_docker
         ;;
