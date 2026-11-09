@@ -982,11 +982,11 @@ function board_compatible() {
     return 0
 }
 
-# Prints the device tree's model, printable characters only, 64 at most, or nothing.
+# Prints the device tree's model, printable characters only and no backslash (echo -e would revive escapes), 64 at most, or nothing.
 function board_model() {
     local model
     [ -r "$DT_MODEL" ] || return 0
-    model=$(tr -cd '[:print:]' <"$DT_MODEL" 2>/dev/null | cut -c1-64)
+    model=$(tr -cd '[:print:]' <"$DT_MODEL" 2>/dev/null | tr -d '\\' | cut -c1-64)
     [ -z "$model" ] || echo "$model"
     return 0
 }

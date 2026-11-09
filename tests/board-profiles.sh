@@ -45,6 +45,8 @@ for c in 0 1 2 3; do cpu pi5 "$c" 1024 2400000; done
 board pi5 0-3 'raspberrypi,5-model-b\0brcm,bcm2712\0' 'Raspberry Pi 5 Model B Rev 1.0\0'
 cp -R "$w/fx/pi5" "$w/fx/evil-model"
 printf 'Evil\033[31m Board\0' > "$w/fx/evil-model/model"
+cp -R "$w/fx/pi5" "$w/fx/evil-text"
+printf 'Evil\\033[2J\\e[1m\\x1b\\a Board\0' > "$w/fx/evil-text/model"
 for f in opi5plus rk3588s; do
   for c in 0 1 2 3; do cpu "$f" "$c" 530 1800000; done
   for c in 4 5; do cpu "$f" "$c" 1024 2400000; done
@@ -60,7 +62,7 @@ mkdir -p "$w/fx/x86"
 on() {
   local fx=$1 arch=$2; shift 2
   ( PATH="$w/tools"
-    info() { echo "[INFO] $1"; }; success() { echo "[SUCCESS] $1"; }; warning() { echo "[WARNING] $1"; }
+    info() { echo -e "[INFO] $1"; }; success() { echo "[SUCCESS] $1"; }; warning() { echo "[WARNING] $1"; }
     error() { echo "[ERROR] $1"; return 1; }
     # shellcheck source=/dev/null
     source "$w/functions.sh"
@@ -174,6 +176,10 @@ fresh; gen x86 x86_64 75; want "x86" exit 0 "$code"; want "x86" "board line" "" 
 fresh; gen evil-model aarch64 75 MODE=eco
 want "evil model" "esc bytes" 0 "$(bline | LC_ALL=C grep -c $'\033')"
 want "evil model" line "[INFO] Board: Evil[31m Board, profile bcm2712, mode eco, untested." "$(bline)"
+# Escapes written as text: the toolbox prints with echo -e, which would turn them back into bytes.
+fresh; gen evil-text aarch64 75 MODE=eco
+want "evil text" "control bytes" 0 "$(bline | LC_ALL=C grep -c '[[:cntrl:]]')"
+want "evil text" line "[INFO] Board: Evil033[2Je[1mx1ba Board, profile bcm2712, mode eco, untested." "$(bline)"
 
 # Hostile data: nothing runs, the profile is unusable.
 for bad in "4-7; touch $w/pwned" "\$(touch $w/pwned)" 9-4 00000-7; do
