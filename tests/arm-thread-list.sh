@@ -32,10 +32,11 @@ fns="$shared pick_cpu_list write_miner_config generate_config_files"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done
 } > "$w/functions.sh"
 for f in $fns; do grep -qx "function $f() {" "$w/functions.sh" || fail "no function $f in scripts/install.sh"; done
-# Each shared function the container's entrypoint holds is the installer's, byte for byte.
+# The container's entrypoint holds each shared function, the installer's byte for byte.
 for f in $shared; do
   theirs=$(sed -n "/^function $f() {\$/,/^}\$/p" "$root/docker/entrypoint.sh")
-  [ -z "$theirs" ] || [ "$theirs" = "$(sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh")" ] \
+  [ -n "$theirs" ] || { fail "no function $f in docker/entrypoint.sh"; continue; }
+  [ "$theirs" = "$(sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh")" ] \
     || fail "$f differs between scripts/install.sh and docker/entrypoint.sh"
 done
 
