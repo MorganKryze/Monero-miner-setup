@@ -283,6 +283,12 @@ want "spaced key" exit 1 "$code"; want "spaced key" warnings 1 "$(count '^\[WARN
 # An empty list for the mode refuses with one error and writes nothing.
 sed 's/^rk3588.eco=.*/rk3588.eco=/' "$root/scripts/board_profiles.conf" > "$w/data.conf"; fresh "$w/data.conf"; gen opi5plus aarch64 75 MODE=eco
 want "empty list" exit 1 "$code"; [ ! -e "$clone/configs/config.json" ] || fail "empty list: a config was written"
+# The same list, reached past resolve_board: mode_cpu_list refuses and the refusal reaches the caller.
+fresh "$w/data.conf"; gen opi5plus aarch64 75 "MODE=eco BOARD_RESOLVED=yes BOARD_PROFILE=rk3588 PROFILE_FILE='$clone/scripts/board_profiles.conf'"
+want "empty list, past resolve" exit 1 "$code"
+want "empty list, past resolve" "error lines" "[ERROR] The eco list of profile rk3588 is empty or not valid: nothing is written." "$(printf '%s\n' "$out" | grep '^\[ERROR\]')"
+want "empty list, past resolve" success 0 "$(count 'SUCCESS')"
+[ ! -e "$clone/configs/config.json" ] || fail "empty list, past resolve: a config was written"
 # The model is cut to 64 characters.
 cp -R "$w/fx/pi5" "$w/fx/long-model"; printf 'M%.0s' $(seq 1 100) > "$w/fx/long-model/model"
 fresh; gen long-model aarch64 75 MODE=eco
