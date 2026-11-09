@@ -186,6 +186,7 @@ function layouts_for() {
         fi
         return 0
     fi
+    [ -z "$profile" ] || echo "[ WARNING ] The $profile profile in scripts/board_profiles.conf fails its check: benching every CPU and the highest-capacity CPUs instead." >&2
     for cpu in $(ranked_cpus | sort -n); do
         cap=$(cat "$CPU_SYS_DIR/cpu$cpu/cpu_capacity" 2>/dev/null) || cap=""
         [[ "$cap" =~ ^[0-9]{1,9}$ ]] || cap=0

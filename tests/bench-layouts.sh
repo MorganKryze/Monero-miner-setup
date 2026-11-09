@@ -126,6 +126,11 @@ after() {
   fi
   [ "$(printf '%s\n' "$out" | grep -c 'H/s')" -ge 0 ] || true
 }
+# A board profile that fails its check: one warning line, then the fallback layouts.
+mkclone; printf 'rk3588.eco =4-7\n' | tee -a "$w/clone/scripts/board_profiles.conf" >> "$w/before/board_profiles.conf"
+bench opi5plus
+has "bad profile" "$out" "[ WARNING ] The rk3588 profile in scripts/board_profiles.conf fails its check: benching every CPU and the highest-capacity CPUs instead."
+after "bad profile"
 refuse() { # <name> <needle> ; one line, miner never called
   [ "$code" -ne 0 ] || fail "$1: exit 0"
   [ "$(printf '%s\n' "$out" | grep -c .)" -eq 1 ] || fail "$1: not one line: $out"
