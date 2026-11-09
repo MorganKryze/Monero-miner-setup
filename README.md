@@ -293,7 +293,7 @@ For the native install, run from the repo root. Targets work on both Linux (syst
 | `make doctor`          | Check host tuning (huge pages, MSR, AES, the board and its profile, the CPUs each native config mines on) and print recommendations |
 | `make benchmark`       | 1-minute RandomX benchmark. Prints a hashrate score                   |
 | `make benchmark-long`  | 10-minute RandomX benchmark. More stable for hardware comparisons     |
-| `make bench-layouts`   | Bench each CPU layout of the board profile offline, one XMRig run per layout (`MODE=eco`, `BENCH=1M`). Refuses root |
+| `make bench-layouts`   | Bench each CPU layout of the board profile offline, one XMRig run per layout (`MODE=eco`, `BENCH=1M`). arm64 Linux only; refuses root |
 | `make update`          | `git pull`, the pinned submodule commits, rebuild, `make service-setup` again |
 | `make service-disable` | Stop and disable the service, remove the unit and the logrotate file; systemd removes `/etc/xmrig`, `/var/lib/xmrig/<account>` and `/var/log/xmrig/<account>` |
 | `make clean-build`     | Remove the build directory and the `xmrig` symlink                    |
@@ -356,7 +356,7 @@ Nothing here sets a CPU frequency, a governor or huge pages. The `eco` cap is on
 
 Under 2560 MiB of memory RandomX's fast mode does not fit: the installer warns and new configs use light mode, slower but within memory. `make doctor` warns about it too.
 
-To compare the layouts on your board, run `make bench-layouts [MODE=eco] [BENCH=1M]` as a normal user (it refuses root). It runs XMRig once per layout of the profile (`MODE=eco`: the `eco` list), offline, from a throwaway folder, and prints the hashrate of each. `BENCH` is 250K by default, or 500K, or 1M to 10M; the time per layout grows with it, so start with the default.
+To compare the layouts on your board, run `make bench-layouts [MODE=eco] [BENCH=1M]` on the arm64 Linux board as a normal user (it refuses root and other hosts). It runs XMRig once per layout of the profile (`MODE=eco`: the `eco` list), offline, from a throwaway folder, and prints the hashrate of each. `BENCH` is 250K by default, or 500K, or 1M to 10M; the time per layout grows with it, so start with the default.
 
 ## Configuration
 
