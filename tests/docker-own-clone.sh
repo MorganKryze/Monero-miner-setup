@@ -87,7 +87,7 @@ lookalike() { mkdir -p "$1/docker"; : > "$1/docker/compose.yml"; : > "$1/docker/
 run() {
   local dir=$2 script=$3; shift 3
   rm -f "$w/docker.log" "$w/git.log"
-  (cd "$dir" && env -i HOME="$w/home" PATH="$w/bin:$w/tools" ${ID_UID:+ID_UID=$ID_UID} ${ID_MODE:+ID_MODE=$ID_MODE} \
+  (cd "$dir" && env -i HOME="$w/home" PATH="${PATH_HEAD:+$PATH_HEAD:}$w/bin:$w/tools" ${ID_UID:+ID_UID=$ID_UID} ${ID_MODE:+ID_MODE=$ID_MODE} \
     ${SUDO:+SUDO_USER=$SUDO} ${LPWD:+PWD=$LPWD} ${GIT_MODE:+GIT_MODE=$GIT_MODE} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} "$BASH" "$script" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
@@ -341,6 +341,18 @@ if [ "$(uname -s)" = Darwin ]; then
   chmod +a "everyone allow write" "$c/docker/Dockerfile"
   run file-acl "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
   refused file-acl "$(open_line "$c/docker/Dockerfile" "$c")" "$c"
+  chmod -N "$c/docker/Dockerfile"
+fi
+# A GNU ls ahead of /bin in PATH (Homebrew's gnubin, nix) has no -e: the folders' and the files'
+# ACLs are still read, with the system's own ls, and a clone that has none is used.
+mkdir "$w/gnu" && printf '#!/bin/bash\nfor a; do case $a in --) break ;; -*e*) echo "ls: invalid option -- %s" >&2; exit 2 ;; esac; done\nexec %q "$@"\n' "'e'" "$(command -v ls)" > "$w/gnu/ls"
+chmod 755 "$w/gnu" "$w/gnu/ls"
+PATH_HEAD="$w/gnu" run gnu-ls "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base"
+used gnu-ls "$c" "Found existing clone at $c."
+if [ "$(uname -s)" = Darwin ]; then
+  chmod +a "everyone allow write" "$c/docker/Dockerfile"
+  PATH_HEAD="$w/gnu" run gnu-ls-acl "$w/elsewhere" "$w/fetched/docker_setup.sh" -d "$w/base" --autostart
+  refused gnu-ls-acl "$(open_line "$c/docker/Dockerfile" "$c")" "$c"
   chmod -N "$c/docker/Dockerfile"
 fi
 ID_MODE=private; chmod 775 "$c" "$c/docker"

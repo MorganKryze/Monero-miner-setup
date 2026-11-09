@@ -438,7 +438,7 @@ function open_own_clone() {
 }
 
 # only_user_can_write for a file, the one a link points to: that one takes folders only. Group
-# write passes only for a private group, as there.
+# write passes only for a private group, and macOS lists the ACL with /bin/ls -e, as there.
 function only_user_can_write_file() {
     local group_ok listing
     group_ok=(! -perm -0020)
@@ -447,7 +447,7 @@ function only_user_can_write_file() {
     fi
     [ "$(find -H "$1" -maxdepth 0 -type f ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1" ] || return 1
     if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-        listing=$(ls -leL -- "$1" 2>/dev/null) || return 1
+        listing=$(/bin/ls -leL -- "$1" 2>/dev/null) || return 1
     else
         listing=$(ls -lL -- "$1" 2>/dev/null) || return 1
     fi
