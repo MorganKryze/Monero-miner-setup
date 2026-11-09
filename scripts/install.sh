@@ -1242,6 +1242,11 @@ function warning_before_install() {
 
 # ===== Main script execution =====
 function main() {
+    # git lays out the clone, and make the build, under this umask: with group write on (umask 002),
+    # a shared group (macOS's staff) could add a hook or rewrite .git/config while git still runs,
+    # and git would run it as you. A stricter umask stays.
+    umask g-w,o-w
+
     load_toolbox
 
     display_header

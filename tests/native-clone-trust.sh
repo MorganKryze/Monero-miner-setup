@@ -51,7 +51,8 @@ for last; do :; done
 "$(command -v mkdir)" -p "\$last/.git" "\$last/scripts" && : > "\$last/Makefile" &&
   "$(command -v chmod)" "\${GIT_MODE:-755}" "\$last" "\$last/.git" "\$last/scripts" && "$(command -v chmod)" 644 "\$last/Makefile"
 STUB
-printf '#!/bin/sh\nexit 0\n' > "$w/bin/sleep"
+# The stub sleep records the umask the run holds when it pauses.
+printf '#!/bin/sh\numask >> %q\nexit 0\n' "$w/umask.log" > "$w/bin/sleep"
 chmod 755 "$w/bin/id" "$w/bin/find" "$w/bin/git" "$w/bin/sleep"
 wallet=4AdUndXHHZ6cfufTMvppY6JwXNouMBzSkbLYfpAV5Usx3skxNgYeYTRj5UzqtReoS44qo9mtmXCqY45DJ852K5Jv2684Rge
 
@@ -186,7 +187,15 @@ if [ "$(uname -s)" = Darwin ]; then
   chmod -N "$c"
 fi
 # Nothing at the path: the run goes on (it would clone there).
-mv "$c" "$w/away"; run missing; kept missing; mv "$w/away" "$c"
+mv "$c" "$w/away"; run missing; kept missing
+# git lays out the clone under the run's umask, while the clone is still being written: the run
+# turns off group and other write before it, and keeps a stricter umask.
+for m in 002:022 000:022 027:027 077:077; do
+  rm -f "$w/umask.log"
+  (umask "${m%%:*}"; run "umask ${m%%:*}")
+  want "umask ${m%%:*}" umask "$(sh -c "umask ${m#*:}; umask")" "$(sort -u "$w/umask.log" 2>/dev/null)"
+done
+mv "$w/away" "$c"
 
 # Functions taken from scripts/install.sh: root, sudo and a fresh clone.
 fns="only_user_can_write dir_acl check_base_clone clone_repository check_repo_exists install_project"
