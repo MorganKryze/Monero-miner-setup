@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ===== Constants =====
-VERSION="0.1.0"
+VERSION="0.1.1"
 LOW_DELAY=0.5
 HIGH_DELAY=15
 # The commit dependencies/bash-toolbox pins: a fetch by commit cannot change under a running

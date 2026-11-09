@@ -6,6 +6,8 @@ Every release of Monero-miner-setup, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-09
+
 ### Changed
 
 - Upgrading a native install on arm64 keeps the configs you have, and with them a miner on every core. The installer says so and names the remedy: `make clean-configs`, the installer again, then `make service-setup` and `make restart`.
@@ -74,4 +76,5 @@ some steps are yours to run.
 - Dependabot auto-merges only GitHub Actions patch and minor bumps, once CI is green. XMRig, bash-toolbox, base image and Gluetun bumps wait for review.
 - The README's install commands use `curl -fsSL` and stop with an error when the download fails or comes back empty.
 
+[0.1.1]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.0

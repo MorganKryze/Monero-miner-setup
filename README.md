@@ -56,9 +56,9 @@ An image older than 0.1.0 under the new compose file writes its log file inside 
 To pin a release, clone it and run its own installer: the commands above fetch `docker_setup.sh` from `main`, so `--image` alone pins only the image, not the installer. A tag checkout has no branch, so `make update` doesn't apply to it: check out the next tag instead.
 
 ```bash
-git clone --branch v0.1.0 --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
+git clone --branch v0.1.1 --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
 cd Monero-miner-setup
-./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:0.1.0 -w YOUR_MONERO_WALLET --autostart
+./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:0.1.1 -w YOUR_MONERO_WALLET --autostart
 ```
 
 ### Docker (build from source)
