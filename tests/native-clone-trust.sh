@@ -112,7 +112,6 @@ kept() {
 
 clone "$c"
 run clean; kept clean
-mkdir -p "$w/base/empty" && chmod 755 "$w/base/empty" && rmdir "$w/base/empty"
 mv "$c/.git" "$w/git.away"
 run no-git; refused no-git "[ERROR] $c is not a git clone, so this run does not use it. $remedy"
 mv "$w/git.away" "$c/.git"
@@ -197,12 +196,14 @@ call() { # name, function and arguments: sets out, err, code
   (cd "$w/home" && env -i "${vars[@]}" "$BASH" "$w/drive.sh" "$@") > "$w/out" 2> "$w/err"
   code=$?; out=$(cat "$w/out"); err=$(cat "$w/err")
 }
-ID_UID=0 call root-alone check_base_clone "$c"; want root-alone stderr "$(owner_line "$c")" "$err"
+ID_UID=0 call root-alone check_base_clone "$c"; want root-alone exit 1 "$code"
+want root-alone stderr "$(owner_line "$c")" "$err"
 ID_UID=0 SUDO=$me call root-sudo check_base_clone "$c"; want root-sudo exit 0 "$code"
 # As root, the sudo user's clone their group can also write is still refused (that group is
 # root's own lookup's business, not this check's: the root walk refuses it first on Linux).
 chmod 775 "$c" "$c/scripts"; chmod 664 "$c/Makefile"
-ID_UID=0 SUDO=$me call root-sudo-group check_base_clone "$c"; want root-sudo-group stderr "$(open_line "$c")" "$err"
+ID_UID=0 SUDO=$me call root-sudo-group check_base_clone "$c"; want root-sudo-group exit 1 "$code"
+want root-sudo-group stderr "$(open_line "$c")" "$err"
 chmod 755 "$c" "$c/scripts"; chmod 644 "$c/Makefile"
 # The walk from / down: the first directory that belongs to neither id -u (54321) nor root.
 d= p="$w/base" first=
