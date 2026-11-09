@@ -83,7 +83,7 @@ owner_line() { echo "[ERROR] $1 belongs to another user, so this run does not us
 base_line="[INFO] Using base directory: $w/base."
 went_on="[ERROR] This script requires 'curl' utility to work correctly."
 env_vars() {
-  printf '%s\n' HOME="$w/home" PATH="$w/bin:$w/tools" ${ID_UID:+ID_UID=$ID_UID} ${ID_MODE:+ID_MODE=$ID_MODE} \
+  printf '%s\n' HOME="$w/home" PATH="${PATH_HEAD:+$PATH_HEAD:}$w/bin:$w/tools" ${ID_UID:+ID_UID=$ID_UID} ${ID_MODE:+ID_MODE=$ID_MODE} \
     ${SUDO:+SUDO_USER=$SUDO} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} ${GIT_MODE:+GIT_MODE=$GIT_MODE}
 }
 # run <name>: the whole installer with -d $w/base. Sets out, err, code; snap: the clone before.
@@ -186,8 +186,19 @@ if [ "$(uname -s)" = Darwin ]; then
   run acl; refused acl "$(open_line "$c")"
   chmod -N "$c"
 fi
+# A GNU ls ahead of /bin in PATH (Homebrew's gnubin, nix) has no -e: the ACL is still read, with
+# the system's own ls, and a clone that has none is kept.
+mkdir "$w/gnu" && printf '#!/bin/bash\nfor a; do case $a in --) break ;; -*e*) echo "ls: invalid option -- %s" >&2; exit 2 ;; esac; done\nexec %q "$@"\n' "'e'" "$(command -v ls)" > "$w/gnu/ls"
+chmod 755 "$w/gnu" "$w/gnu/ls"
+PATH_HEAD="$w/gnu" run gnu-ls; kept gnu-ls
+if [ "$(uname -s)" = Darwin ]; then
+  chmod +a "everyone allow add_file" "$c"
+  PATH_HEAD="$w/gnu" run gnu-ls-acl; refused gnu-ls-acl "$(open_line "$c")"
+  chmod -N "$c"
+fi
 # Nothing at the path: the run goes on (it would clone there).
 mv "$c" "$w/away"; run missing; kept missing
+PATH_HEAD="$w/gnu" run gnu-ls-missing; kept gnu-ls-missing
 # git lays out the clone under the run's umask, while the clone is still being written: the run
 # turns off group and other write before it, and keeps a stricter umask.
 for m in 002:022 000:022 027:027 077:077; do

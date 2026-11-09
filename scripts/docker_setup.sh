@@ -50,7 +50,8 @@ function find_own_clone() {
 }
 
 # Other users can never write to the folder. Its group can only when the group is the user's own
-# (Ubuntu's private group and umask 0002); a shared group, an ACL or a failed check is a no.
+# (Ubuntu's private group and umask 0002); a shared group, an ACL or a failed check is a no. macOS
+# lists the ACL with /bin/ls -e: a GNU ls ahead of it in PATH has no -e.
 function only_user_can_write() {
     local group_ok listing
     group_ok=(! -perm -0020)
@@ -59,7 +60,7 @@ function only_user_can_write() {
     fi
     [ "$(find "$1/" -maxdepth 0 ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1/" ] || return 1
     if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-        listing=$(ls -lde -- "$1/" 2>/dev/null) || return 1
+        listing=$(/bin/ls -lde -- "$1/" 2>/dev/null) || return 1
     else
         listing=$(ls -ld -- "$1/" 2>/dev/null) || return 1
     fi

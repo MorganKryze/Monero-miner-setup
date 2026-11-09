@@ -55,7 +55,8 @@ function find_own_clone() {
 # prints the folder only when it is safe, so a failed check, or a failed id, falls back to the fetch.
 # The mode bits miss an ACL, which can let anyone add files to the folder: one on the folder is a no
 # too. macOS lists each entry on a line of its own under ls -e (its + marker gives way to @ when
-# the folder has extended attributes); Linux ends the mode with +.
+# the folder has extended attributes), from /bin/ls: a GNU ls ahead of it in PATH has no -e;
+# Linux ends the mode with +.
 function only_user_can_write() {
     local group_ok listing
     group_ok=(! -perm -0020)
@@ -64,7 +65,7 @@ function only_user_can_write() {
     fi
     [ "$(find "$1/" -maxdepth 0 ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1/" ] || return 1
     if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-        listing=$(ls -lde -- "$1/" 2>/dev/null) || return 1
+        listing=$(/bin/ls -lde -- "$1/" 2>/dev/null) || return 1
     else
         listing=$(ls -ld -- "$1/" 2>/dev/null) || return 1
     fi
@@ -678,10 +679,11 @@ function check_repo_exists() {
 }
 
 # A directory above the clone may carry an ACL its mode bits don't show. macOS lists each entry
-# under ls -e; one that allows adding, removing or rewriting entries, or rewriting the ACL or the
-# owner, lets another user in (1), while a deny entry doesn't (/Users/<you> carries
-# group:everyone deny delete). On Linux the group bits then show the ACL's mask and the mode ends
-# with + (2), so a group write there is no longer the private group's alone. 0: no ACL that counts.
+# under /bin/ls -e (a GNU ls ahead of it in PATH has no -e); one that allows adding, removing or
+# rewriting entries, or rewriting the ACL or the owner, lets another user in (1), while a deny
+# entry doesn't (/Users/<you> carries group:everyone deny delete). On Linux the group bits then
+# show the ACL's mask and the mode ends with + (2), so a group write there is no longer the private
+# group's alone. 0: no ACL that counts.
 function dir_acl() {
     local listing line
     if [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
@@ -691,7 +693,7 @@ function dir_acl() {
         esac
         return 0
     fi
-    listing=$(ls -lde -- "$1/" 2>/dev/null) || return 1
+    listing=$(/bin/ls -lde -- "$1/" 2>/dev/null) || return 1
     case $listing in
         *$'\n'*) listing=${listing#*$'\n'} ;;
         *) return 0 ;;
