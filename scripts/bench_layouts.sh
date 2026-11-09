@@ -15,7 +15,7 @@ RX_FLOOR_MIB=2560
 SCRIPT_DIR=$(CDPATH= cd -- "${BASH_SOURCE[0]%/*}" && pwd)
 PROFILE_FILE="$SCRIPT_DIR/board_profiles.conf"
 XMRIG="${SCRIPT_DIR%/*}/xmrig"
-SIZES=" 250K 500K 1M 2M 4M 8M 10M 20M 30M 40M 50M 60M 70M 80M 90M 100M "
+SIZE_RE="^(250K|500K|[1-9]M|10M)\$"
 TMP=""
 PID=""
 
@@ -250,8 +250,8 @@ function main() {
         ;;
     esac
     BENCH=${BENCH:-250K}
-    if [[ "$SIZES" != *" $BENCH "* ]]; then
-        err "BENCH=$BENCH is not a size XMRig accepts:${SIZES% }."
+    if ! [[ "$BENCH" =~ $SIZE_RE ]]; then
+        err "BENCH=$BENCH is not a size XMRig accepts: 250K, 500K or 1M to 10M."
         return 1
     fi
     command -v taskset >/dev/null || { err "taskset is missing: install util-linux."; return 1; }

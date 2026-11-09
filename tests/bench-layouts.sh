@@ -3,7 +3,7 @@
 # pinned to its CPUs with taskset, from a throwaway folder holding a config that never saves, with
 # no pool and no submit; one result line per layout (CPUs, H/s, huge pages, cpufreq maxima). It
 # refuses, with one line and nothing run, when a miner runs, the miner is not built, MODE or BENCH
-# is invalid, the host is not arm64 Linux, or taskset or pgrep is missing. The clone's configs and
+# is invalid (BENCH is exactly 250K, 500K or 1M to 10M), the host is not arm64 Linux, or taskset or pgrep is missing. The clone's configs and
 # logs stay byte for byte as found and the throwaway folders are gone. A stub XMRig that keeps
 # running after its result, as the real one does, must not hang the bench. The board functions are
 # the installer's, byte for byte. Stubs only; nothing is read from this host's /proc or /sys.
@@ -179,6 +179,13 @@ mkclone; bench opi5plus MODE=fast; refuse mode "MODE=max|eco"; after mode
 mkclone; bench opi5plus ARCH_T=x86_64; refuse arch "make benchmark"; after arch
 mkclone; bench opi5plus OS_T=Darwin; refuse darwin "make benchmark"; after darwin
 mkclone; bench opi5plus BENCH=3K; refuse size "250K"; after size
+for v in 20M 100M 0M 11M '250K 1M' '1M ' 1m; do
+  mkclone; bench opi5plus "BENCH=$v"; refuse "size $v" "250K"; after "size $v"
+done
+for v in 250K 500K 1M 3M 7M 9M 10M; do
+  mkclone; bench pi5 "BENCH=$v"; [ "$code" -eq 0 ] || fail "size $v refused: $out"
+  grep -qF -- "--bench=$v" "$w/calls" || fail "size $v not passed"
+done
 mkclone; mv "$w/tools/taskset" "$w/taskset.off"; bench opi5plus; refuse taskset "util-linux"; after taskset; mv "$w/taskset.off" "$w/tools/taskset"
 mkclone; mv "$w/tools/pgrep" "$w/pgrep.off"; bench opi5plus; refuse pgrep "procps"; after pgrep; mv "$w/pgrep.off" "$w/tools/pgrep"
 
