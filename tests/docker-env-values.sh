@@ -45,7 +45,7 @@ run() {
   (cd "$w/repo" && env -i HOME="$w" PATH="$w/bin:$w/tools" ${utf8:+LC_ALL=$utf8} \
     ${WG_KEY+"WIREGUARD_PRIVATE_KEY=$WG_KEY"} ${WG_ADDR+"WIREGUARD_ADDRESSES=$WG_ADDR"} \
     ${VPN_USER+"OPENVPN_USER=$VPN_USER"} ${VPN_PASS+"OPENVPN_PASSWORD=$VPN_PASS"} \
-    "$BASH" "$w/repo/scripts/docker_setup.sh" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
+    "$BASH" --norc --noprofile "$w/repo/scripts/docker_setup.sh" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
 }

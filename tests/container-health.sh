@@ -59,7 +59,7 @@ config() { # pause-on-battery, pause-on-active
 # check <name> <want exit> <want line> [VAR=value...]: one healthcheck run with that environment.
 check() {
   local name=$1 code_want=$2 line_want=$3 out code; shift 3
-  out=$(env -i PATH="$w/bin:$w/tools" "$@" "$BASH" -c '
+  out=$(env -i PATH="$w/bin:$w/tools" "$@" "$BASH" --norc --noprofile -c '
     source "$1/docker/healthcheck.sh"
     PROC_DIR=$2/proc CONFIG=$2/config.json STATE=$2/state
     main' healthcheck "$root" "$w" 2>&1)
@@ -118,7 +118,7 @@ state bad-state '654 15'
 
 # The miner's log goes to the container's output only.
 entry=docker/entrypoint.sh
-got=$(env -i PATH="$w/tools" "$BASH" -c 'source "$1"; jq -n --arg url u --arg user u --arg pass p --argjson donate 0 --argjson hint 75 --argjson threads 1 --arg mode auto --argjson battery false --argjson active false "$CONFIG_TEMPLATE" | jq -c "[has(\"log-file\"), .\"log-file\"]"' entry "$root/$entry" 2>&1)
+got=$(env -i PATH="$w/tools" "$BASH" --norc --noprofile -c 'source "$1"; jq -n --arg url u --arg user u --arg pass p --argjson donate 0 --argjson hint 75 --argjson threads 1 --arg mode auto --argjson battery false --argjson active false "$CONFIG_TEMPLATE" | jq -c "[has(\"log-file\"), .\"log-file\"]"' entry "$root/$entry" 2>&1)
 [ "$got" = '[true,null]' ] || fail "$entry: log-file is $got, not [true,null]"
 for f in docker/compose.yml docker/compose.vpn.yml docker/Dockerfile "$entry"; do
   [ "$(grep -c '/app/logs' "$f")" -eq 0 ] || fail "$f: names /app/logs"

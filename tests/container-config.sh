@@ -43,7 +43,7 @@ run() {
   rm -rf "$w/configs" "$w/xmrig.args" "$w/xmrig.config"
   mkdir -p "$w/configs" "$w/tmp"
   [ -z "${OLD_CONFIG:-}" ] || printf '%s\n' "$OLD_CONFIG" > "$w/configs/config.json"
-  env -i PATH="$w/bin:$w/tools" TMPDIR="$w/tmp" ${utf8:+LC_ALL=$utf8} "$@" "$BASH" -c '
+  env -i PATH="$w/bin:$w/tools" TMPDIR="$w/tmp" ${utf8:+LC_ALL=$utf8} "$@" "$BASH" --norc --noprofile -c '
     source "$1/docker/entrypoint.sh"
     XMRIG_BIN=$2/bin/xmrig CONFIG_DIR=$2/configs WALLET_SECRET=$2/secret CGROUP_DIR=$2/cgroup MEMINFO=$2/meminfo
     main' entrypoint "$root" "$w" > "$w/out" 2> "$w/err"

@@ -63,7 +63,7 @@ run() {
   local name=$1; shift
   rm -f "$w/docker.log"
   (cd "$w/repo" && env -i HOME="$w" PATH="$w/bin:$w/tools" ${ID_MODE:+ID_MODE=$ID_MODE} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} ${KEY:+WIREGUARD_PRIVATE_KEY=$KEY} \
-    ${ADDR:+WIREGUARD_ADDRESSES=$ADDR} "$BASH" "$w/repo/scripts/docker_setup.sh" "$@") > "$w/out" 2> "$w/err"
+    ${ADDR:+WIREGUARD_ADDRESSES=$ADDR} "$BASH" --norc --noprofile "$w/repo/scripts/docker_setup.sh" "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
   # Only the two availability checks may reach docker, or nothing when the run stops before them.

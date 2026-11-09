@@ -69,13 +69,13 @@ TABLE
 for s in $scripts; do
   defs=$(for f in is_wallet is_worker_name is_pool; do fn "$s" "$f"; done)
   while read -r rule verdict value; do
-    if env -i ${utf8:+LC_ALL=$utf8} "$BASH" -c "$defs"$'\n''"$1" "$2"' rules "$rule" "$value"; then got=yes; else got=no; fi
+    if env -i ${utf8:+LC_ALL=$utf8} "$BASH" --norc --noprofile -c "$defs"$'\n''"$1" "$2"' rules "$rule" "$value"; then got=yes; else got=no; fi
     [ "$got" = "$verdict" ] || fail "$s: $rule '$value' gave $got"
   done < <(table)
   # Values no table line can hold: empty, and with a space or a newline.
   for rule in is_wallet is_worker_name is_pool; do
     for value in '' 'a b' $'a\nb'; do
-      env -i "$BASH" -c "$defs"$'\n''"$1" "$2"' rules "$rule" "$value" && fail "$s: $rule accepts '$value'"
+      env -i "$BASH" --norc --noprofile -c "$defs"$'\n''"$1" "$2"' rules "$rule" "$value" && fail "$s: $rule accepts '$value'"
     done
   done
 done
