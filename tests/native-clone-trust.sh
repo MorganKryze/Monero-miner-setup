@@ -20,7 +20,7 @@ w=$(cd "$w" && pwd -P)
 : > "$w/stamp"
 mkdir -p "$w/bin" "$w/tools" "$w/home" "$w/base"
 chmod 755 "$w/home" "$w/base"
-for t in awk cat cut dirname grep head ls mkdir sed tr uname wc; do
+for t in awk cat cut dirname grep head ls mkdir rmdir sed tr uname wc; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
@@ -43,10 +43,11 @@ fi
 exec "$real_find" "\$@"
 STUB
 # The stub git records its arguments and lays out a clone where it was asked to, its folders at
-# GIT_MODE (755 unless set), its files 644.
+# GIT_MODE (755 unless set), its files 644; with GIT_FAIL=1 it fails and lays out nothing.
 cat > "$w/bin/git" <<STUB
 #!/bin/bash
 echo "\$*" >> "$w/git.log"
+[ "\${GIT_FAIL:-}" = 1 ] && exit 1
 for last; do :; done
 "$(command -v mkdir)" -p "\$last/.git" "\$last/scripts" && : > "\$last/Makefile" &&
   "$(command -v chmod)" "\${GIT_MODE:-755}" "\$last" "\$last/.git" "\$last/scripts" && "$(command -v chmod)" 644 "\$last/Makefile"
@@ -84,7 +85,7 @@ base_line="[INFO] Using base directory: $w/base."
 went_on="[ERROR] This script requires 'curl' utility to work correctly."
 env_vars() {
   printf '%s\n' HOME="$w/home" PATH="${PATH_HEAD:+$PATH_HEAD:}$w/bin:$w/tools" ${ID_UID:+ID_UID=$ID_UID} ${ID_MODE:+ID_MODE=$ID_MODE} \
-    ${SUDO:+SUDO_USER=$SUDO} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} ${GIT_MODE:+GIT_MODE=$GIT_MODE}
+    ${SUDO:+SUDO_USER=$SUDO} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} ${GIT_MODE:+GIT_MODE=$GIT_MODE} ${GIT_FAIL:+GIT_FAIL=$GIT_FAIL}
 }
 # run <name>: the whole installer with -d $w/base. Sets out, err, code; snap: the clone before.
 run() {
@@ -177,6 +178,15 @@ DIR="$w/open/lb" run link-base-open; want link-base-open exit 1 "$code"
 want link-base-open stderr "$resolved"$'\n'"$(open_line "$c/Makefile")" "$err"
 [ ! -e "$w/git.log" ] || fail "link-base-open: git ran: $(cat "$w/git.log")"
 chmod 644 "$c/Makefile"; rm "$w/open/lb"; rmdir "$w/open"
+# A relative -d with CDPATH exported to a folder that holds a same-named one: the run uses the
+# base directory under the current directory, and cd prints no stray path into it.
+mkdir "$w/home/base" && chmod 755 "$w/home/base"
+rm -f "$w/git.log"
+(cd "$w" && env -i HOME="$w/home" PATH="$w/bin:$w/tools" CDPATH="$w/home" "$BASH" --norc --noprofile "$r/scripts/install.sh" -w "$wallet" -y -d base) > "$w/out" 2> "$w/err"
+want cdpath exit 1 "$?"
+want cdpath stderr "[INFO] Using base directory: base."$'\n'"[INFO] Resolved to $w/base."$'\n'"$went_on" "$(cat "$w/err")"
+[ ! -e "$w/git.log" ] || fail "cdpath: git ran: $(cat "$w/git.log")"
+rmdir "$w/home/base"
 # A directory above the base directory counts the same.
 chmod 0777 "$w"; run parent-above
 refused parent-above "[ERROR] $w can be changed by a user other than you, so this run does not use $c. Pass -d with a directory only you can change."
@@ -271,6 +281,12 @@ want fresh-taken exit 1 "$code"
 want fresh-taken stderr "[ERROR] $c is already there or cannot be made, so this run does not clone into it. Move $c away and run the installer again, or pass -d with another base directory." "$err"
 [ ! -e "$w/git.log" ] || fail "fresh-taken: git ran: $(cat "$w/git.log")"
 rmdir "$c"
+# A clone that fails leaves the folder this run made empty: the run removes it, so a re-run can clone.
+GIT_FAIL=1 call fresh-failed clone_repository
+want fresh-failed exit 1 "$code"
+want fresh-failed stderr "[ERROR] Failed to clone repository (with submodules) from https://example.invalid/repo.git." "$err"
+[ ! -e "$c" ] || fail "fresh-failed: $c is still there"
+rm -rf "$c"
 call appeared appear
 want appeared exit 1 "$code"
 want appeared stderr "$(open_line "$c/Makefile")" "$err"
