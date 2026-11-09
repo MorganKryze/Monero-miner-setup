@@ -112,6 +112,13 @@ base root "$w/link"
 same "root, -d through a link: directory" "$w/given" "$got"
 same "root, -d through a link: line" "[INFO] Using base directory: $w/link.
 [INFO] Resolved to $w/given." "$err"
+# Every user, on every OS, goes on with the real path its clone checks read.
+for h in user macroot; do
+  base "$h" "$w/link"
+  same "$h, -d through a link: directory" "$w/given" "$got"
+  same "$h, -d through a link: line" "[INFO] Using base directory: $w/link.
+[INFO] Resolved to $w/given." "$err"
+done
 rm "$w/link"
 printf '%s\n' "$w/given/Monero-miner-setup alice 755" > "$w/stat"
 SUDO_USER=alice base root "$w/given"

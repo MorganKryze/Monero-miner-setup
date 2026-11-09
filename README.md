@@ -97,7 +97,7 @@ bash -c "${installer:?the download came back empty}" -- \
   -w YOUR_MONERO_WALLET
 ```
 
-Clones to `$HOME/Monero-miner-setup`, builds the XMRig commit the repository pins, writes `config.json` + `config_background.json`, registers a `systemd` (Linux) or `launchd` (macOS) service. Needs `git`, `curl`, `make` on the `PATH`. As root on Linux with no `-d`, the clone goes to `/opt/Monero-miner-setup`, unless an earlier install left one in root's home: a re-run keeps using that one. As root on Linux, the installer refuses a base directory, a clone, or a directory above them that a user other than root or the `sudo` user can change.
+Clones to `$HOME/Monero-miner-setup`, builds the XMRig commit the repository pins, writes `config.json` + `config_background.json`, registers a `systemd` (Linux) or `launchd` (macOS) service. Needs `git`, `curl`, `make` on the `PATH`. As root on Linux with no `-d`, the clone goes to `/opt/Monero-miner-setup`, unless an earlier install left one in root's home: a re-run keeps using that one. As root on Linux, the installer refuses a base directory, a clone, or a directory above them that a user other than root or the `sudo` user can change. A re-run reuses `Monero-miner-setup` in the base directory only when it's a git clone in which every file and folder belongs to you or root (or the `sudo` user) and no other user can change one; otherwise the installer stops with one error line, before it clones or builds anything. It stops the same way when the clone's path is a link, or when another user can change the base directory or a directory above it (a sticky one such as `/tmp` is fine). It clones and builds with group and other write turned off in its umask (a stricter umask stays), so no other user can change the clone while it's being written.
 
 The service runs the miner as you. Installed with `sudo`, it runs as the user who ran `sudo`; installed as root with no `sudo` user, it runs as the system account `xmrig` (no login shell, no home), created once and reused. That account owns nothing in the clone. systemd creates `/etc/xmrig`, `/var/lib/xmrig/<account>` (its config and calibration) and `/var/log/xmrig/<account>`, and removes them on `make service-disable`.
 
@@ -438,7 +438,7 @@ None of them claim the script does something it doesn't advertise. They're sayin
    cd Monero-miner-setup && less scripts/install.sh Makefile docker/Dockerfile
    ```
 
-The container runs as uid 999, `xmrig`. The compose file and the minimal run above set `no-new-privileges`; a bare `docker run` without that flag doesn't. Both installers and the container check the wallet, the worker name, the pool and every number and flag before they write them, and write every value that reaches the miner's config as a value. As root on Linux, the native installer refuses a base directory, a clone, or a directory above them that another user can change, and the service setup refuses a binary anyone but root can change when it runs it as another account. The installer still warns before running as root.
+The container runs as uid 999, `xmrig`. The compose file and the minimal run above set `no-new-privileges`; a bare `docker run` without that flag doesn't. Both installers and the container check the wallet, the worker name, the pool and every number and flag before they write them, and write every value that reaches the miner's config as a value. The native installer reuses a clone only when nothing in it belongs to, or can be changed by, another user. As root on Linux, it also refuses a base directory, a clone, or a directory above them that another user can change, and the service setup refuses a binary anyone but root can change when it runs it as another account. The installer still warns before running as root.
 
 ## Troubleshooting
 
@@ -453,6 +453,14 @@ The container runs as uid 999, `xmrig`. The compose file and the minimal run abo
 **Build fails on macOS.** `make deps-macos` installs `cmake`, `libuv`, `openssl`, `hwloc` with Homebrew, and stops with Homebrew's install command when `brew` isn't on your `PATH`.
 
 **`The account <account> cannot run <clone>/xmrig; move the clone where it can, such as /opt.`** The miner's account can't reach the clone. Installed as root in `/root`? Follow the `/root` step of [Upgrading](#upgrading-an-install-made-before-010). Otherwise run `make service-disable` in that clone, then the installer again with `-d /opt` and your wallet and flags: a moved clone keeps its config links to the old path.
+
+**`<path> can be changed by a user other than you, so this run does not use <clone>.`** (or `belongs to another user`, `is not a git clone`) Someone else could have changed that clone, so the native installer won't build or run it. Don't fix its modes and reuse it: files may already have been changed. Move it away and run the installer again with your wallet and flags, or pass `-d` with another base directory. Right after a fresh clone, the cause is your umask: remove the clone, run `umask 022`, then the installer again.
+
+**`<clone> is already there or cannot be made, so this run does not clone into it.`** Something turned up at the clone's path after the installer checked it, and whoever made it could change what git puts there. Move it away and run the installer again, or pass `-d` with another base directory.
+
+**`<clone> is a link, so this run does not use it.`** The installer won't act through a link at the clone's path. Pass `-d` with the folder that holds the one the link points to (the error line names it), so the installer finds the clone there. A link to nothing: move it away and run the installer again.
+
+**`<directory> can be changed by a user other than you, so this run does not use <clone>.`** followed by `Pass -d with a directory only you can change.` Another user could swap the clone inside that directory between the check and the build. A sticky directory such as `/tmp` is fine. Pass `-d` with a directory that only you (or root) can change.
 
 ## Development
 
