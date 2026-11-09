@@ -152,6 +152,10 @@ chmod 0777 "$w/base"; run parent-open; refused parent-open "$parent_line"
 chmod 1777 "$w/base"; run parent-sticky; kept parent-sticky
 chmod 0775 "$w/base"; run parent-group; refused parent-group "$parent_line"
 chmod 0755 "$w/base"
+# A directory above the base directory counts the same.
+chmod 0777 "$w"; run parent-above
+refused parent-above "[ERROR] $w can be changed by a user other than you, so this run does not use $c. Pass -d with a directory only you can change."
+chmod 0700 "$w"
 if [ "$(uname -s)" = Darwin ]; then
   chmod +a "everyone allow add_file" "$c"
   run acl; refused acl "$(open_line "$c")"
@@ -188,6 +192,23 @@ ID_UID=0 SUDO=$me call root-sudo check_base_clone "$c"; want root-sudo exit 0 "$
 chmod 775 "$c" "$c/scripts"; chmod 664 "$c/Makefile"
 ID_UID=0 SUDO=$me call root-sudo-group check_base_clone "$c"; want root-sudo-group stderr "$(open_line "$c")" "$err"
 chmod 755 "$c" "$c/scripts"; chmod 644 "$c/Makefile"
+# The walk from / down: the first directory that belongs to neither id -u (54321) nor root.
+d= p="$w/base" first=
+while :; do
+  [ -n "$(find "$d/" -maxdepth 0 -user 0 -print)" ] || { first=${d:-/}; break; }
+  [ "${d:-/}" = "$p" ] && break
+  rest=${p#"$d"/}; d=$d/${rest%%/*}
+done
+[ -n "$first" ] || fail "parent-owner: root owns every directory down to $w/base"
+ID_UID=54321 call parent-owner check_base_clone "$w/base/none"
+want parent-owner exit 1 "$code"
+want parent-owner stderr "[ERROR] $first can be changed by a user other than you, so this run does not use $w/base/none. Pass -d with a directory only you can change." "$err"
+# Every directory above the base directory is read, not only the base directory itself.
+mkdir "$w/base/deep" && chmod 755 "$w/base/deep" && chmod 0777 "$w"
+call parent-deep check_base_clone "$w/base/deep/none"
+want parent-deep exit 1 "$code"
+want parent-deep stderr "[ERROR] $w can be changed by a user other than you, so this run does not use $w/base/deep/none. Pass -d with a directory only you can change." "$err"
+chmod 0700 "$w"; rmdir "$w/base/deep"
 mv "$c" "$w/away"
 GIT_MODE=755 call fresh clone_repository; want fresh exit 0 "$code"; want fresh stderr "" "$err"
 rm -rf "$c"
