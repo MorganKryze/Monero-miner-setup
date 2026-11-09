@@ -91,8 +91,10 @@ fx opi5plus 16272000 rockchip,rk3588 1024 1024 1024 1024 1024 1024 1024 1024
 fx pi5 2030592 brcm,bcm2712 1024 1024 1024 1024
 fx other 16272000 vendor,thing 530 530 530 530 1024 1024 1024 1024
 fx same 16272000 vendor,thing 1024 1024 1024 1024
+fx edge 2621440 rockchip,rk3588 1024 1024 1024 1024 1024 1024 1024 1024
+fx below 2620416 rockchip,rk3588 1024 1024 1024 1024 1024 1024 1024 1024
 for p in 0:1800000 4:2400000 6:2400000; do
-  for b in opi5plus pi5 other same; do
+  for b in opi5plus pi5 other same edge below; do
     mkdir -p "$w/$b/cpufreq/policy${p%:*}"; echo "${p#*:}" > "$w/$b/cpufreq/policy${p%:*}/scaling_max_freq"
   done
 done
@@ -124,7 +126,6 @@ after() {
     done
     ! grep -qE -- ' -o |--url|--submit|--config=.*clone|-l .*clone' "$w/calls" || fail "$1: pool, submit or clone path in a call"
   fi
-  [ "$(printf '%s\n' "$out" | grep -c 'H/s')" -ge 0 ] || true
 }
 # A board profile that fails its check: one warning line, then the fallback layouts.
 mkclone; printf 'rk3588.eco =4-7\n' | tee -a "$w/clone/scripts/board_profiles.conf" >> "$w/before/board_profiles.conf"
@@ -171,6 +172,16 @@ after pi5
 mkclone; bench opi5plus
 hasnt big "$(cat "$w/calls")" "light"
 after big
+
+# The floor itself: 2560 MiB is not under it, 2559 MiB is.
+mkclone; bench edge MODE=eco
+hasnt edge "$(cat "$w/calls")" "light"
+hasnt edge "$out" "floor"
+after edge
+mkclone; bench below MODE=eco
+grep -qF -- '--randomx-mode=light' "$w/calls" || fail "below: no light mode"
+has below "$out" "[  INFO   ] Memory is 2559 MiB: the bench runs in light mode under the 2560 MiB floor."
+after below
 
 # No profile: every usable CPU, then the highest capacity ones.
 mkclone; bench other

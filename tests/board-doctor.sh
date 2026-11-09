@@ -104,6 +104,33 @@ fx x86rk x86_64 16272000 "" rockchip,rk3588
 cp "$w/x86/cpuinfo" "$w/x86rk/cpuinfo"
 has x86-profile "$(doctor x86rk linux_sections)" "━━ Board ━━"
 
+# The floor itself: 2560 MiB is not under it, 2559 MiB is. The huge page, 1 GB page and Board
+# sections each read the same threshold.
+fx edge x86_64 2621440 "" generic,pc
+cp "$w/x86/cpuinfo" "$w/edge/cpuinfo"
+printf 'MemTotal: 2621440 kB\nHugepagesize:       2048 kB\n' > "$w/edge/meminfo"
+echo 0 > "$w/edge/nr_hugepages"; echo 0 > "$w/edge/gb_pages"
+out=$(doctor edge linux_sections)
+hasnt edge "$out" "floor"
+hasnt edge "$out" "light mode"
+has edge "$out" "  1. sudo sysctl -w vm.nr_hugepages=1280  # add to /etc/sysctl.d/99-xmrig.conf to persist"
+has edge "$out" "  WARN No 1 GB pages reserved. Enabling gives ~1–5% RandomX uplift."
+fx below x86_64 2620416 "" generic,pc
+cp "$w/x86/cpuinfo" "$w/below/cpuinfo"
+printf 'MemTotal: 2620416 kB\nHugepagesize:       2048 kB\n' > "$w/below/meminfo"
+echo 0 > "$w/below/nr_hugepages"; echo 0 > "$w/below/gb_pages"
+out=$(doctor below linux_sections)
+has below "$out" "  WARN Memory 2559 MiB is under the 2560 MiB floor: the miner runs in RandomX light mode"
+has below "$out" "       Memory is under the 2560 MiB floor: no 1 GB pages advised"
+hasnt below "$out" "nr_hugepages"
+fx edgeboard aarch64 2621440 "Xunlong Orange Pi 5 Plus" rockchip,rk3588
+printf 'processor\t: 0\nFeatures\t: fp asimd aes\n' > "$w/edgeboard/cpuinfo"
+out=$(doctor edgeboard check_board)
+has edgeboard "$out" "  OK   Memory: 2560 MiB (floor 2560 MiB)"
+fx belowboard aarch64 2620416 "Xunlong Orange Pi 5 Plus" rockchip,rk3588
+printf 'processor\t: 0\nFeatures\t: fp asimd aes\n' > "$w/belowboard/cpuinfo"
+hasnt belowboard "$(doctor belowboard check_board)" "Memory:"
+
 # Another arm64 board: the header and one note.
 fx other aarch64 16272000 "Some Board" vendor,thing
 printf 'processor\t: 0\nFeatures\t: fp asimd aes\n' > "$w/other/cpuinfo"
