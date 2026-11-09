@@ -92,7 +92,7 @@ run() {
   rm -f "$w/git.log"
   snap=$(ls -laR "$c" 2>/dev/null)
   local vars=(); while IFS= read -r v; do vars+=("$v"); done < <(env_vars)
-  (cd "$w/home" && env -i "${vars[@]}" "$BASH" "$r/scripts/install.sh" -w "$wallet" -y -d "${DIR:-$w/base}") > "$w/out" 2> "$w/err"
+  (cd "$w/home" && env -i "${vars[@]}" "$BASH" --norc --noprofile "$r/scripts/install.sh" -w "$wallet" -y -d "${DIR:-$w/base}") > "$w/out" 2> "$w/err"
   code=$?; out=$(cat "$w/out"); err=$(cat "$w/err")
 }
 want() { # name, label, expected, got
@@ -236,7 +236,7 @@ call() { # name, function and arguments: sets out, err, code
   rm -f "$w/git.log"
   local vars=(); while IFS= read -r v; do vars+=("$v"); done < <(env_vars)
   local name=$1; shift
-  (cd "$w/home" && env -i "${vars[@]}" "$BASH" "$w/drive.sh" "$@") > "$w/out" 2> "$w/err"
+  (cd "$w/home" && env -i "${vars[@]}" "$BASH" --norc --noprofile "$w/drive.sh" "$@") > "$w/out" 2> "$w/err"
   code=$?; out=$(cat "$w/out"); err=$(cat "$w/err")
 }
 ID_UID=0 call root-alone check_base_clone "$c"; want root-alone exit 1 "$code"

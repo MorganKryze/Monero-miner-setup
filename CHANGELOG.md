@@ -6,6 +6,17 @@ Every release of Monero-miner-setup, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-09
+
+### Changed
+
+- Upgrading a native install on arm64 keeps the configs you have, and with them a miner on every core. The installer says so and names the remedy: `make clean-configs`, the installer again, then `make service-setup` and `make restart`.
+
+### Fixed
+
+- On arm64, `--threads` changed nothing: XMRig started a thread on every core whatever its hint. The native installer now writes the cores to mine on into new configs, that share of them rounded up, the biggest first. The Docker miner puts each thread on its own CPU, the biggest the container may use, at most one per CPU.
+- `make doctor` on arm64 reported missing AES-NI and x86 checks that don't apply. It now checks AES from the CPU's features, names the board, sizes huge pages by the kernel's page size, and skips AES-NI, AVX2, 1 GB pages and MSR. On every host it shows the CPUs each native config mines on.
+
 ### Security
 
 - The native installer reuses the `Monero-miner-setup` clone in its base directory only when it is a git clone in which every file and folder belongs to you or root (as root, also to the user who ran `sudo`) and none can be changed by another user; otherwise it stops with one error line before it clones, builds or sets up anything. It checks a fresh clone the same way.
@@ -65,4 +76,5 @@ some steps are yours to run.
 - Dependabot auto-merges only GitHub Actions patch and minor bumps, once CI is green. XMRig, bash-toolbox, base image and Gluetun bumps wait for review.
 - The README's install commands use `curl -fsSL` and stop with an error when the download fails or comes back empty.
 
+[0.1.1]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.0

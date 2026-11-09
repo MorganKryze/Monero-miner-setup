@@ -18,16 +18,30 @@ function bad()    { echo -e "  ${RED}FAIL${RESET} $*"; }
 function note()   { echo -e "       $*"; }
 
 OS=$(uname -s)
+HOST_ARCH=$(uname -m 2>/dev/null) || HOST_ARCH=""
 RECOMMENDATIONS=()
+
+CPUINFO=/proc/cpuinfo
+MEMINFO=/proc/meminfo
+DT_MODEL=/proc/device-tree/model
+NR_HUGEPAGES=/proc/sys/vm/nr_hugepages
+THP_ENABLED=/sys/kernel/mm/transparent_hugepage/enabled
+GB_PAGES=/sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages
+MSR_DEV=/dev/cpu/0/msr
+CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/configs"
+
+function is_arm64() {
+    [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]
+}
 
 # ----- Linux checks -----
 
 function check_cpu_linux() {
     header "CPU"
     local model threads flags
-    model=$(awk -F': ' '/^model name/ {print $2; exit}' /proc/cpuinfo)
-    threads=$(grep -c '^processor' /proc/cpuinfo)
-    flags=$(awk -F': ' '/^flags/ {print $2; exit}' /proc/cpuinfo)
+    model=$(awk -F': ' '/^model name/ {print $2; exit}' "$CPUINFO")
+    threads=$(grep -c '^processor' "$CPUINFO")
+    flags=$(awk -F': ' '/^flags/ {print $2; exit}' "$CPUINFO")
 
     note "Model:   ${model:-unknown}"
     note "Threads: $threads"
@@ -51,12 +65,43 @@ function check_cpu_linux() {
     fi
 }
 
-function check_hugepages_linux() {
-    header "Huge pages (2 MB)"
+# ARM boards list their CPU extensions on a "Features" line and name the board in the device tree.
+function check_cpu_arm() {
+    header "CPU"
+    local model="" threads features
+    [ -f "$DT_MODEL" ] && model=$(tr -d '\0' <"$DT_MODEL")
+    [ -n "$model" ] || model=$(awk -F': ' '/^(model name|Model)[ \t]*:/ {print $2; exit}' "$CPUINFO" 2>/dev/null)
+    threads=$(grep -c '^processor' "$CPUINFO" 2>/dev/null)
+    features=$(awk -F': ' '/^Features/ {print $2; exit}' "$CPUINFO" 2>/dev/null)
 
-    if [ -f /sys/kernel/mm/transparent_hugepage/enabled ]; then
+    note "Model:   ${model:-unknown}"
+    note "Threads: $threads"
+
+    if echo " $features " | grep -qw aes; then
+        ok "AES supported (ARMv8 Crypto Extensions, critical for RandomX throughput)"
+    else
+        bad "AES missing — RandomX will be very slow on this CPU"
+    fi
+    note "AES-NI, AVX2, 1 GB page and MSR checks are x86-only: skipped"
+}
+
+# The huge page size is the kernel's (2 MB on x86, 2 MB or 32 MB on arm64 by page granule); XMRig
+# wants 2560 MiB of them for RandomX. A kernel without huge page support names no size.
+function check_hugepages_linux() {
+    local size label need
+    size=$(awk '/^Hugepagesize:/ {print $2; exit}' "$MEMINFO" 2>/dev/null)
+    if [ -z "$size" ]; then
+        label=""
+        header "Huge pages"
+    else
+        if [ $((size % 1024)) -eq 0 ]; then label="$((size / 1024)) MB"; else label="$size kB"; fi
+        need=$(((2560 * 1024 + size - 1) / size))
+        header "Huge pages ($label)"
+    fi
+
+    if [ -f "$THP_ENABLED" ]; then
         local thp active
-        thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled)
+        thp=$(cat "$THP_ENABLED")
         active=$(echo "$thp" | sed -n 's/.*\[\([^]]*\)\].*/\1/p')
         note "Transparent huge pages: $thp"
         case "$active" in
@@ -72,15 +117,17 @@ function check_hugepages_linux() {
         warn "THP sysfs entry missing"
     fi
 
-    if [ -f /proc/sys/vm/nr_hugepages ]; then
+    if [ -z "$size" ]; then
+        note "Huge page size: none (kernel)"
+    elif [ -f "$NR_HUGEPAGES" ]; then
         local reserved
-        reserved=$(cat /proc/sys/vm/nr_hugepages)
-        note "Reserved 2 MB pages: $reserved"
-        if [ "$reserved" -lt 1280 ]; then
-            warn "XMRig recommends ~1280 reserved 2 MB pages for RandomX"
-            RECOMMENDATIONS+=("sudo sysctl -w vm.nr_hugepages=1280  # add to /etc/sysctl.d/99-xmrig.conf to persist")
+        reserved=$(cat "$NR_HUGEPAGES")
+        note "Reserved $label pages: $reserved"
+        if [ "$reserved" -lt "$need" ]; then
+            warn "XMRig recommends ~$need reserved $label pages for RandomX"
+            RECOMMENDATIONS+=("sudo sysctl -w vm.nr_hugepages=$need  # add to /etc/sysctl.d/99-xmrig.conf to persist")
         else
-            ok "Sufficient 2 MB huge pages reserved ($reserved)"
+            ok "Sufficient $label huge pages reserved ($reserved)"
         fi
     fi
 }
@@ -88,14 +135,14 @@ function check_hugepages_linux() {
 function check_1gb_pages_linux() {
     header "1 GB huge pages"
 
-    if ! grep -qw pdpe1gb /proc/cpuinfo; then
+    if ! grep -qw pdpe1gb "$CPUINFO"; then
         warn "CPU does not support 1 GB pages — skipping"
         return 0
     fi
 
-    if [ -f /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages ]; then
+    if [ -f "$GB_PAGES" ]; then
         local reserved
-        reserved=$(cat /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages)
+        reserved=$(cat "$GB_PAGES")
         note "Reserved 1 GB pages: $reserved"
         if [ "$reserved" -eq 0 ]; then
             warn "No 1 GB pages reserved. Enabling gives ~1–5% RandomX uplift."
@@ -112,9 +159,9 @@ function check_1gb_pages_linux() {
 function check_msr_linux() {
     header "MSR (Model-Specific Registers)"
 
-    if [ -c /dev/cpu/0/msr ]; then
+    if [ -c "$MSR_DEV" ]; then
         ok "/dev/cpu/0/msr present"
-        if [ -w /dev/cpu/0/msr ]; then
+        if [ -w "$MSR_DEV" ]; then
             ok "MSR writable — XMRig can apply RandomX MSR tweaks (5–15% uplift on Ryzen/EPYC)"
         else
             warn "MSR present but not writable as current user"
@@ -174,6 +221,27 @@ function check_macos_tuning_notes() {
 
 # ----- Shared -----
 
+# The installer writes the CPUs to mine on as the "rx" list of each native config; with none, the
+# miner's thread hint applies on x86, and every CPU mines on arm64.
+function check_thread_lists() {
+    header "Thread lists"
+    local name file list found=false
+    for name in config.json config_background.json; do
+        file="$CONFIG_DIR/$name"
+        [ -f "$file" ] || continue
+        found=true
+        list=$(sed -n 's/^[ \t]*"rx": \(\[[-0-9, ]*\]\),\{0,1\}$/\1/p' "$file" | head -n 1)
+        if [ -n "$list" ]; then
+            note "$name: CPUs $list"
+        elif is_arm64; then
+            warn "$name: no CPU list, the miner runs on every CPU. To apply --threads, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
+        else
+            note "$name: no CPU list (the miner's thread hint applies)"
+        fi
+    done
+    [ "$found" = true ] || note "No native config found in $CONFIG_DIR"
+}
+
 function check_docker() {
     header "Docker"
     if command -v docker >/dev/null 2>&1; then
@@ -204,17 +272,32 @@ function print_summary() {
     echo
 }
 
-case "$OS" in
-    Linux)
+# The Linux sections for this CPU: arm64 has no AES-NI, 1 GB page or MSR checks.
+function run_linux_checks() {
+    if is_arm64; then
+        check_cpu_arm
+        check_hugepages_linux
+    else
         check_cpu_linux
         check_hugepages_linux
         check_1gb_pages_linux
         check_msr_linux
+    fi
+}
+
+# Sourced (by the regression checks), the script only defines its functions.
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
+
+case "$OS" in
+    Linux)
+        run_linux_checks
+        check_thread_lists
         check_docker
         ;;
     Darwin)
         check_cpu_macos
         check_macos_tuning_notes
+        check_thread_lists
         check_docker
         ;;
     *)

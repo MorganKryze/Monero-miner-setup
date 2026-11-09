@@ -38,7 +38,7 @@ Common flags (run `install.sh --docker --help` for the complete list):
 - `--worker-name NAME`: label shown on the pool (default: `docker_miner`)
 - `--pool URL`: pool override (default: `gulf.moneroocean.stream`). A `stratum+ssl://` URL is kept as given, so give its port; only a bare or `stratum+tcp://` MoneroOcean URL gets the computed port
 - `--cpus N` / `--memory LIMIT`: container caps (defaults: `2.0`, `3g`). Under 2560 MiB the miner runs in RandomX light mode, at a fraction of the hashrate
-- `--threads PCT` / `--force-threads N`: threads as a percentage of the container's CPU quota, at most the count XMRig picks itself, or exactly N threads (defaults: `75`, none)
+- `--threads PCT` / `--force-threads N`: threads as a percentage of the container's CPU quota, at most the count XMRig picks itself, or exactly N threads (defaults: `75`, none). On arm64 each thread gets its own CPU, the biggest first, so the count is at most the CPUs the container may use
 - `--pause-battery` / `--pause-active`: pause mining when on battery or when the user is active
 - `--vpn PROVIDER`: route mining through a VPN, see [VPN config](#vpn-config-docker)
 - `--image REF`: pin a specific tag or point at a fork (default: `ghcr.io/morgankryze/monero-miner-setup:latest`)
@@ -56,9 +56,9 @@ An image older than 0.1.0 under the new compose file writes its log file inside 
 To pin a release, clone it and run its own installer: the commands above fetch `docker_setup.sh` from `main`, so `--image` alone pins only the image, not the installer. A tag checkout has no branch, so `make update` doesn't apply to it: check out the next tag instead.
 
 ```bash
-git clone --branch v0.1.0 --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
+git clone --branch v0.1.1 --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
 cd Monero-miner-setup
-./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:0.1.0 -w YOUR_MONERO_WALLET --autostart
+./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:0.1.1 -w YOUR_MONERO_WALLET --autostart
 ```
 
 ### Docker (build from source)
@@ -105,7 +105,7 @@ The service runs the miner as you. Installed with `sudo`, it runs as the user wh
 
 Common flags (run `install.sh --help` for the complete list):
 
-- `-t, --threads PERCENT`: `max-threads-hint` 1–100, a percentage of the host's cores (default: `75`)
+- `-t, --threads PERCENT`: `max-threads-hint` 1–100, a percentage of the host's cores (default: `75`). On arm64, where XMRig would start a thread on every core whatever the hint, the config lists the cores to mine on instead: that share of them, rounded up, the biggest first
 - `-p, --pool URL`: pool override (default: `gulf.moneroocean.stream`). A `stratum+ssl://` URL is used as given, so give its port.
 - `--name STRING`: worker name (default: random `adjective_noun_NNN`)
 - `-d, --dir DIR`: where the clone goes (default: `$HOME`; as root on Linux, `/opt`)
@@ -289,7 +289,7 @@ For the native install, run from the repo root. Targets work on both Linux (syst
 | `make restart`         | `stop` + `start`                                                      |
 | `make status`          | Service state, PIDs, and the last 5 log lines (systemd: `/var/log/xmrig/<account>/xmrig.log`) |
 | `make test`            | Run XMRig in the foreground. Ctrl-C to exit                           |
-| `make doctor`          | Check host tuning (huge pages, MSR, AES-NI) and print recommendations |
+| `make doctor`          | Check host tuning (huge pages, MSR, AES, the CPUs each native config mines on) and print recommendations |
 | `make benchmark`       | 1-minute RandomX benchmark. Prints a hashrate score                   |
 | `make benchmark-long`  | 10-minute RandomX benchmark. More stable for hardware comparisons     |
 | `make update`          | `git pull`, the pinned submodule commits, rebuild, `make service-setup` again |
@@ -320,6 +320,7 @@ An update keeps your wallet, pool and worker settings. A few steps are yours.
 - `make update` sets the service up without `--service-as-root`. To keep a root service, run `SERVICE_AS_ROOT=yes make update` as root.
 - The setup turns background mode off in `configs/config_background.json`, that one setting alone, and says so. Miners an earlier background start left running are reported with the command that stops them (add `sudo` if they run as another user). Nothing is stopped for you.
 - The service keeps running the old binary until you run `make restart`.
+- On arm64, a kept config has no CPU list, or one naming every CPU, so the miner runs on every core whatever `--threads` says. The installer warns: `--threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'.` Do that, passing your wallet and flags again.
 - Installed as root with the clone in `/root`? The miner's account can't enter root's home, so `make update` stops with `The account xmrig cannot run /root/Monero-miner-setup/xmrig; move the clone where it can, such as /opt.` and your old service keeps running. Run `make service-disable` in the old clone, then the installer again as root with `-d /opt` (or without `-d` once `/root/Monero-miner-setup` is gone), passing your wallet and flags again.
 
 **Docker.**
@@ -332,7 +333,7 @@ An update keeps your wallet, pool and worker settings. A few steps are yours.
 
 ## Tuning for performance
 
-Run `make doctor` first. It inspects your host and prints a numbered list of concrete commands to apply. Common wins on Linux:
+Run `make doctor` first. It inspects your host and prints a numbered list of concrete commands to apply. On arm64 Linux it checks AES (the ARMv8 Crypto Extensions) and huge pages in the kernel's page size, skips the x86-only checks, and warns about a native config with no CPU list. Common wins on Linux:
 
 - **Reserve 2 MB huge pages**: `sudo sysctl -w vm.nr_hugepages=1280`. Persist in `/etc/sysctl.d/99-xmrig.conf`.
 - **Load the `msr` module**: `sudo modprobe msr`. Persist via `echo msr | sudo tee /etc/modules-load.d/msr.conf`. It helps only a service installed with `--service-as-root`. Worth 5–15% on Ryzen and EPYC.

@@ -5,7 +5,7 @@
 # the stack up.
 
 # ===== Constants =====
-VERSION="0.1.0"
+VERSION="0.1.1"
 REPO_URL="https://github.com/MorganKryze/Monero-miner-setup.git"
 REPO_NAME="Monero-miner-setup"
 PROJECT_URL="https://github.com/MorganKryze/Monero-miner-setup"
@@ -104,7 +104,8 @@ Mining:
   --donate N                   Donation level 0-5 (default: ${DEFAULT_DONATE_LEVEL})
   --threads N                  Threads as a percentage 1-100 of the container's CPU quota,
                                at most xmrig's own count (default: ${DEFAULT_MAX_THREADS})
-  --force-threads N            Mine with exactly N threads, 1-1024 (default: none)
+  --force-threads N            Mine with N threads, 1-1024; on arm64 at most the CPUs the
+                               container may use, with a warning above that (default: none)
   --cpus N                     Container CPU quota (default: ${DEFAULT_CPU_COUNT})
   --memory LIMIT               Container memory limit, digits with b, k, m or g
                                (default: ${DEFAULT_MEMORY_LIMIT}; under ${FAST_MODE_MIB}m, RandomX light mode)

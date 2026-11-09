@@ -62,9 +62,9 @@ run() {
   rm -rf "$w/configs" "$w/xmrig.args" "$w/xmrig.config" "$w/probe.log" "$w/probe.pid"
   mkdir -p "$w/configs"
   start=$SECONDS
-  env -i PATH="$w/bin:$w/tools" TMPDIR="$w/tmp" WALLET_ADDRESS="$wallet" "$@" "$BASH" -c '
+  env -i PATH="$w/bin:$w/tools" TMPDIR="$w/tmp" WALLET_ADDRESS="$wallet" "$@" "$BASH" --norc --noprofile -c '
     source "$1/docker/entrypoint.sh"
-    XMRIG_BIN=$2/bin/xmrig CONFIG_DIR=$2/configs CGROUP_DIR=$2/cgroup MEMINFO=$2/meminfo
+    XMRIG_BIN=$2/bin/xmrig CONFIG_DIR=$2/configs CGROUP_DIR=$2/cgroup MEMINFO=$2/meminfo HOST_ARCH=x86_64
     main' entrypoint "$root" "$w" > "$w/out" 2>&1
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out")

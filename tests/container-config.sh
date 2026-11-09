@@ -14,7 +14,7 @@ w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
 mkdir -p "$w/bin" "$w/tools"
-for t in awk cat chmod cp jq mkdir mktemp mv rm seq sleep; do
+for t in awk cat chmod cp head jq mkdir mktemp mv rm seq sleep sort; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
@@ -33,6 +33,14 @@ chmod +x "$w/bin/xmrig" "$w/bin/nproc" "$w/bin/timeout"
 # No CPU quota and plenty of memory: the sizing has its own check.
 mkdir -p "$w/cgroup"
 printf 'MemAvailable:    8000000 kB\n' > "$w/meminfo"
+# An RK3588's CPUs: four little cores, then four big ones. The checks run as x86_64 unless ARCH says
+# otherwise; SYS and STATUS may point the CPU files elsewhere.
+for c in 0 1 2 3 4 5 6 7; do
+  mkdir -p "$w/sys/cpu$c/cpufreq"
+  if [ "$c" -lt 4 ]; then echo 530; else echo 1024; fi > "$w/sys/cpu$c/cpu_capacity"
+  echo 1800000 > "$w/sys/cpu$c/cpufreq/cpuinfo_max_freq"
+done
+printf 'Name:\tbash\nCpus_allowed_list:\t0-7\n' > "$w/status"
 wallet=4AdUndXHHZ6cfufTMvppY6JwXNouMBzSkbLYfpAV5Usx3skxNgYeYTRj5UzqtReoS44qo9mtmXCqY45DJ852K5Jv2684Rge
 # The rules hold in a UTF-8 locale too, where a letter range may take in accented letters.
 utf8=$(locale -a 2>/dev/null | grep -iE '^(c|en_us)\.utf-?8$' | head -1)
@@ -43,10 +51,11 @@ run() {
   rm -rf "$w/configs" "$w/xmrig.args" "$w/xmrig.config"
   mkdir -p "$w/configs" "$w/tmp"
   [ -z "${OLD_CONFIG:-}" ] || printf '%s\n' "$OLD_CONFIG" > "$w/configs/config.json"
-  env -i PATH="$w/bin:$w/tools" TMPDIR="$w/tmp" ${utf8:+LC_ALL=$utf8} "$@" "$BASH" -c '
+  env -i PATH="$w/bin:$w/tools" TMPDIR="$w/tmp" ${utf8:+LC_ALL=$utf8} "$@" "$BASH" --norc --noprofile -c '
     source "$1/docker/entrypoint.sh"
     XMRIG_BIN=$2/bin/xmrig CONFIG_DIR=$2/configs WALLET_SECRET=$2/secret CGROUP_DIR=$2/cgroup MEMINFO=$2/meminfo
-    main' entrypoint "$root" "$w" > "$w/out" 2> "$w/err"
+    HOST_ARCH=$3 CPU_SYS_DIR=$4 PROC_STATUS=$5
+    main' entrypoint "$root" "$w" "${ARCH:-x86_64}" "${SYS:-$w/sys}" "${STATUS:-$w/status}" > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
   config=$(cat "$w/xmrig.config" 2>/dev/null)
@@ -150,5 +159,40 @@ want mv-fails exit 1 "$code"
 want mv-fails "config dir" "" "$(ls -A "$w/configs")"
 [ ! -e "$w/xmrig.args" ] || fail "mv-fails: the miner started"
 rm -f "$w/bin/mv"
+
+# On arm64 the threads go on the biggest CPUs the container may use, one on each, under every
+# algorithm the miner generates threads for; the wildcard profile is left out.
+keys='["argon2","cn","cn-heavy","cn-lite","cn-pico","cn/2","cn/gpu","cn/upx2","flex","panthera","rx","rx/wow"]'
+cpus() { # the lists the config holds, one line: every algorithm's, ghostrider's CPUs, the wildcard
+  printf '%s\n' "$config" | jq -c --argjson k "$keys" '.cpu as $c | [([$k[] | $c[.]] | unique), ($c.ghostrider | if type == "array" then map(.[1]) else . end), $c."*"]'
+}
+ARCH=aarch64 run arm WALLET_ADDRESS="$wallet"
+want arm exit 0 "$code"
+want arm cpus '[[[4,5]],[4,5],null]' "$(cpus)"
+want arm ghostrider '[[8,4],[8,5]]' "$(printf '%s\n' "$config" | jq -c '.cpu.ghostrider')"
+want arm info "[  INFO   ] Mining on CPUs [4, 5], the biggest this container may use." "$(printf '%s\n' "$out" | grep -F 'Mining on CPUs')"
+ARCH=arm64 run arm-forced WALLET_ADDRESS="$wallet" FORCE_THREAD_COUNT=6
+want arm-forced cpus '[[[0,1,4,5,6,7]],[0,1,4,5,6,7],null]' "$(cpus)"
+ARCH=aarch64 run arm-over WALLET_ADDRESS="$wallet" FORCE_THREAD_COUNT=12
+want arm-over exit 0 "$code"
+want arm-over cpus '[[[0,1,2,3,4,5,6,7]],[0,1,2,3,4,5,6,7],null]' "$(cpus)"
+want arm-over warning "[ WARNING ] 12 threads asked for, but this container may use 8 CPUs: one thread on each." "$(printf '%s\n' "$out" | grep -F 'WARNING' | grep -vF 'Pool connectivity')"
+want arm-over url '"gulf.moneroocean.stream:10128"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
+# The pool port follows the threads that run: 24 asked for would get :10256.
+ARCH=aarch64 run arm-over-port WALLET_ADDRESS="$wallet" FORCE_THREAD_COUNT=24
+want arm-over-port url '"gulf.moneroocean.stream:10128"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
+for broken in sys status; do
+  if [ "$broken" = sys ]; then export SYS=$w/none; else export STATUS=$w/none; fi
+  ARCH=aarch64 run "arm-no-$broken" WALLET_ADDRESS="$wallet" FORCE_THREAD_COUNT=3
+  unset SYS STATUS
+  want "arm-no-$broken" exit 0 "$code"
+  want "arm-no-$broken" cpus '[[null],null,{"threads":3,"affinity":-1}]' "$(cpus)"
+  want "arm-no-$broken" warning "[ WARNING ] Could not read the CPUs this container may use: mining with 3 threads wherever the miner puts them." "$(printf '%s\n' "$out" | grep -F 'WARNING' | grep -vF 'Pool connectivity')"
+done
+# x86 keeps its object, the CPU files present or not.
+run x86 WALLET_ADDRESS="$wallet" FORCE_THREAD_COUNT=6
+want x86 cpus '[[null],null,{"threads":6,"affinity":-1}]' "$(cpus)"
+want x86 "cpu keys" "$(jq -nc '["*","argon2-impl","asm","astrobwt-avx2","astrobwt-max-size","cn-lite/0","cn/0","enabled","huge-pages","huge-pages-jit","hw-aes","kawpow","max-threads-hint","memory-pool","priority","yield"]')" "$(printf '%s\n' "$config" | jq -c '.cpu | keys')"
+want x86 "no cpu line" "" "$(printf '%s\n' "$out" | grep -F 'CPUs')"
 [ "$rc" -eq 0 ] && echo "PASS container-config"
 exit "$rc"

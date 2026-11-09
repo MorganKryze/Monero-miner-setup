@@ -88,7 +88,7 @@ run() {
   local dir=$2 script=$3; shift 3
   rm -f "$w/docker.log" "$w/git.log"
   (cd "$dir" && env -i HOME="$w/home" PATH="${PATH_HEAD:+$PATH_HEAD:}$w/bin:$w/tools" ${ID_UID:+ID_UID=$ID_UID} ${ID_MODE:+ID_MODE=$ID_MODE} \
-    ${SUDO:+SUDO_USER=$SUDO} ${LPWD:+PWD=$LPWD} ${GIT_MODE:+GIT_MODE=$GIT_MODE} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} "$BASH" "$script" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
+    ${SUDO:+SUDO_USER=$SUDO} ${LPWD:+PWD=$LPWD} ${GIT_MODE:+GIT_MODE=$GIT_MODE} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} "$BASH" --norc --noprofile "$script" -w "$wallet" -y "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
 }
@@ -173,7 +173,7 @@ KEPT=1 refused look-fetched "$(foreign_kept_line "$w/shared" "$home_clone")" "$w
 cmp -s "$w/shared/docker/.env" "$w/planted.env" || fail "look-fetched: the planted .env changed"
 run look-below "$w/shared/sub/dir" "$w/fetched/docker_setup.sh" --autostart
 KEPT=1 refused look-below "$(foreign_kept_line "$w/shared" "$home_clone")" "$w/shared"
-(cd "$w/shared" && env -i HOME="$w/home" PATH="$w/bin:$w/tools" "$BASH" -s -- -w "$wallet" -y --autostart \
+(cd "$w/shared" && env -i HOME="$w/home" PATH="$w/bin:$w/tools" "$BASH" --norc --noprofile -s -- -w "$wallet" -y --autostart \
   < "$w/fetched/docker_setup.sh") > "$w/out" 2> "$w/err"
 code=$? err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
 want look-piped exit 1 "$code"
