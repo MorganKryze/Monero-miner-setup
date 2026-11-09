@@ -18,7 +18,7 @@ for t in awk cat cp cut ln mkdir mv rm; do
   ln -s "$p" "$w/tools/$t"
 done
 command -v jq >/dev/null || { echo "FAIL no jq on this host"; exit 1; }
-fns="usage validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
+fns="usage is_arm64 ranked_cpus arm_cpu_list pick_cpu_list validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
 {
   sed -n '/^# ===== Constants =====$/,/^DOCKER_SCRIPT_URL=/p' "$root/scripts/install.sh"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done

@@ -12,6 +12,10 @@ PROJECT_URL="https://github.com/MorganKryze/Monero-miner-setup"
 REPO_NAME="Monero-miner-setup"
 REPO_URL="https://github.com/MorganKryze/Monero-miner-setup.git"
 DEFAULT_MAX_THREADS=75
+# The CPUs: on arm64 the miner runs on the ones the config lists, chosen from these files.
+HOST_ARCH=$(uname -m 2>/dev/null) || HOST_ARCH=""
+CPU_SYS_DIR="/sys/devices/system/cpu"
+PROC_STATUS="/proc/self/status"
 DEFAULT_DONATE_LEVEL=0
 DEFAULT_POOL_URL="gulf.moneroocean.stream"
 DEFAULT_PASS="x"
@@ -191,7 +195,7 @@ function usage() {
     echo "  -d, --dir DIR         Base directory for installation (defaults to HOME; as root on Linux, /opt)"
     echo
     echo "Mining Configuration Options:"
-    echo "  -t, --threads PERCENT Max CPU threads hint (1-100, default: $DEFAULT_MAX_THREADS)"
+    echo "  -t, --threads PERCENT Share of the CPUs to mine on (1-100, default: $DEFAULT_MAX_THREADS; on arm64, the biggest first)"
     echo "  --donate PERCENT      Donation level (0-5, default: $DEFAULT_DONATE_LEVEL)"
     echo "  -p, --pool URL        Mining pool URL (default: $DEFAULT_POOL_URL)"
     echo "  --name STRING         Display name for the mining worker (default: random adjective_noun_NNN)"
@@ -754,6 +758,52 @@ function build_project() {
     success "Project built successfully."
     return 0
 }
+# Linux aarch64 and macOS arm64: there the miner starts one thread on every CPU whatever its
+# thread hint, so the config lists the CPUs to mine on.
+function is_arm64() {
+    [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]
+}
+
+# Prints the CPUs this process may run on, one per line, best first: highest capacity, then highest
+# maximum frequency, then lowest number. A value that cannot be read counts as 0; with no readable
+# allowed list, every online CPU may be used.
+function ranked_cpus() {
+    local allowed count part cpu cap freq
+    allowed=$(awk '/^Cpus_allowed_list:/ { print $2 }' "$PROC_STATUS" 2>/dev/null) || allowed=""
+    if ! [[ "$allowed" =~ ^[0-9]{1,4}(-[0-9]{1,4})?(,[0-9]{1,4}(-[0-9]{1,4})?)*$ ]]; then
+        count=$(getconf _NPROCESSORS_ONLN 2>/dev/null) || count=""
+        [[ "$count" =~ ^[0-9]{1,4}$ ]] && [ "$((10#$count))" -ge 1 ] || count=1
+        allowed="0-$((10#$count - 1))"
+    fi
+    for part in ${allowed//,/ }; do
+        for ((cpu = 10#${part%-*}; cpu <= 10#${part#*-}; cpu++)); do
+            cap=$(cat "$CPU_SYS_DIR/cpu$cpu/cpu_capacity" 2>/dev/null) || cap=""
+            [[ "$cap" =~ ^[0-9]{1,9}$ ]] || cap=0
+            freq=$(cat "$CPU_SYS_DIR/cpu$cpu/cpufreq/cpuinfo_max_freq" 2>/dev/null) || freq=""
+            [[ "$freq" =~ ^[0-9]{1,12}$ ]] || freq=0
+            echo "$cap $freq $cpu"
+        done
+    done | sort -k1,1nr -k2,2nr -k3,3n | awk '{ print $3 }'
+}
+
+# Prints the <count> best CPUs as a JSON list in ascending order ("[4, 5, 6, 7]"), or nothing when
+# none can be found.
+function arm_cpu_list() {
+    ranked_cpus | head -n "$1" | sort -n | awk '{ printf "%s%s", (NR > 1 ? ", " : "["), $1 } END { if (NR) print "]" }'
+}
+
+# Sets CPU_LIST: on arm64, ceil(N x MAX_THREADS / 100) of the N usable CPUs, at least 1; on any
+# other host nothing, and the miner's thread hint applies.
+function pick_cpu_list() {
+    local usable count
+    CPU_LIST=""
+    is_arm64 || return 0
+    usable=$(ranked_cpus | awk 'END { print NR }')
+    count=$(((usable * 10#$MAX_THREADS + 99) / 100))
+    [ "$count" -ge 1 ] || count=1
+    CPU_LIST=$(arm_cpu_list "$count")
+}
+
 function configs_exist() {
     local dest_config_dir="$BASE_DIR/$REPO_NAME/configs"
     [ -f "$dest_config_dir/config.json" ] && [ -f "$dest_config_dir/config_background.json" ]
@@ -762,11 +812,14 @@ function configs_exist() {
 # Writes a miner config from its template: each setting the installer fills in becomes one JSON
 # value holding exactly what was passed. The values reach awk through its environment, as data;
 # no command is built from them. Arguments: template, destination, log file, pool URL, worker name.
+# A CPU list in CPU_LIST (arm64) goes under every algorithm the miner would otherwise give a thread
+# on each CPU; the wildcard profile "*" is not used, as it makes the miner's algorithm calibration
+# wait forever on kawpow, which has no CPU implementation.
 # The config is written next to the destination and moved over it only once complete: a failed
 # write leaves no partial file that a later run would keep.
 function write_miner_config() {
     XMRIG_HINT=$MAX_THREADS XMRIG_DONATE=$DONATE_LEVEL XMRIG_LOG=$3 XMRIG_URL=$4 XMRIG_USER=$WALLET \
-        XMRIG_PASS=$5 XMRIG_BATTERY=$PAUSE_ON_BATTERY XMRIG_ACTIVE=$PAUSE_ON_ACTIVE awk '
+        XMRIG_PASS=$5 XMRIG_BATTERY=$PAUSE_ON_BATTERY XMRIG_ACTIVE=$PAUSE_ON_ACTIVE XMRIG_CPUS=$CPU_LIST awk '
         function str(v,   out, i, c) {
             out = ""
             for (i = 1; i <= length(v); i++) {
@@ -780,6 +833,19 @@ function write_miner_config() {
             comma = ($0 ~ /,$/) ? "," : ""
             match($0, /^[ \t]*/)
             print substr($0, 1, RLENGTH) "\"" key "\": " value comma
+        }
+        /^[ \t]*"cpu": [{]$/ && ENVIRON["XMRIG_CPUS"] != "" {
+            print
+            match($0, /^[ \t]*/)
+            pad = substr($0, 1, RLENGTH) "  "
+            cpus = ENVIRON["XMRIG_CPUS"]
+            n = split(substr(cpus, 2, length(cpus) - 2), cpu, /, /)
+            pairs = ""
+            for (i = 1; i <= n; i++) pairs = pairs (i > 1 ? ", " : "") "[8, " cpu[i] "]"
+            split("argon2 cn cn-heavy cn-lite cn-pico cn/2 cn/gpu cn/upx2 flex panthera rx rx/wow", algo, " ")
+            for (i = 1; i in algo; i++) print pad "\"" algo[i] "\": " cpus ","
+            print pad "\"ghostrider\": [" pairs "],"
+            next
         }
         /^[ \t]*"max-threads-hint": [0-9]*,$/ { put("max-threads-hint", ENVIRON["XMRIG_HINT"]); next }
         /^[ \t]*"donate-level": [0-9]*,$/ { put("donate-level", ENVIRON["XMRIG_DONATE"]); next }
@@ -799,7 +865,7 @@ function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
-    local name kept missing=()
+    local name kept unlisted=false missing=()
 
     info "Generating miner configuration files..."
 
@@ -822,8 +888,15 @@ function generate_config_files() {
         fi
         if [ -n "$kept" ]; then
             info "Keeping $kept. To regenerate it, run 'make clean-configs', then the installer again."
+            # A list this installer wrote holds the "rx" one on a line of its own.
+            if is_arm64 && ! awk '/^[ \t]*"rx": \[[0-9]/ { found = 1 } END { exit !found }' "$kept"; then
+                unlisted=true
+            fi
         fi
     done
+    if [ "$unlisted" = true ]; then
+        warning "--threads does not apply to the kept configs: they hold no CPU list, so the miner runs on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup'."
+    fi
 
     # Set log file path
     local log_file="$target_dir/logs/xmrig.log"
@@ -860,6 +933,7 @@ function generate_config_files() {
         fi
 
         # Each missing file from its template, with the same settings
+        pick_cpu_list
         for name in "${missing[@]}"; do
             if ! write_miner_config "$source_config_dir/$name.template" "$dest_config_dir/$name" "$log_file" "$full_pool_url" "$worker_name"; then
                 error "Failed to write $dest_config_dir/$name."
