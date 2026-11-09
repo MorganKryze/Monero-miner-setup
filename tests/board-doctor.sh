@@ -112,6 +112,25 @@ has other "$out" "       No board profile for this board: the CPU list follows -
 hasnt other "$out" "Board:"
 hasnt other "$out" "Memory:"
 
+# C7: a profile that fails its check is data, never run; a model with ESC or backslash is cleaned.
+printf 'evil.compatible=vendor,evil\nevil.max=0-3\nevil.eco=0-3\nevil.eco-cap=policy4=1+a[$(touch %s/ran)0]\n' "$w" > "$w/evil.conf"
+fx evil aarch64 16272000 "Bad Board" vendor,evil
+printf 'processor\t: 0\nFeatures\t: fp asimd aes\n' > "$w/evil/cpuinfo"
+echo 2400000 > "$w/evil/cpufreq/policy4_max"; mkdir -p "$w/evil/cpufreq/policy4"; echo 2400000 > "$w/evil/cpufreq/policy4/scaling_max_freq"
+out=$(PFILE=$w/evil.conf doctor evil check_board)
+[ "$(printf '%s\n' "$out" | grep -c 'WARN')" -eq 1 ] || fail "evil: not exactly one warn line"
+has evil "$out" "  WARN The evil profile in $w/evil.conf is not valid and is ignored."
+hasnt evil "$out" "Board:"
+[ ! -e "$w/ran" ] || fail "evil: the data file ran code"
+printf 'good.compatible=vendor,good\ngood.max=0-3\ngood.eco=0-3\n' > "$w/good.conf"
+fx esc aarch64 16272000 "A" vendor,good
+printf 'A\033[31mB\\C\0' > "$w/esc/model"
+printf 'processor\t: 0\nFeatures\t: fp asimd aes\n' > "$w/esc/cpuinfo"
+out=$(RAW=1 PFILE=$w/good.conf doctor esc check_board)
+hasnt esc "$out" $'\033[31m'
+hasnt esc "$out" '\'
+printf '%s\n' "$out" | grep -qF 'Board: A[31mBC, profile good' || fail "esc: model not sanitised"
+
 # macOS: no Board section.
 mkdir -p "$w/bin"
 printf '#!/bin/sh\necho Darwin\n' > "$w/bin/uname"; chmod +x "$w/bin/uname"
