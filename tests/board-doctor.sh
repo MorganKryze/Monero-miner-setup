@@ -7,6 +7,7 @@
 # The board functions are the installer's, byte for byte. Fixture files only; nothing is read from
 # this host's /proc or /sys. Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
+unset RAW PFILE
 root=$PWD
 fail() { echo "FAIL $*"; rc=1; }
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
@@ -112,8 +113,8 @@ has other "$out" "       No board profile for this board: the CPU list follows -
 hasnt other "$out" "Board:"
 hasnt other "$out" "Memory:"
 
-# C7: a profile that fails its check is data, never run; a model with ESC or backslash is cleaned.
-printf 'evil.compatible=vendor,evil\nevil.max=0-3\nevil.eco=0-3\nevil.eco-cap=policy4=1+a[$(touch %s/ran)0]\n' "$w" > "$w/evil.conf"
+# A profile that fails its check is data, never run; a model with ESC or backslash is cleaned.
+printf 'evil.compatible=vendor,evil\nevil.max=0-3\nevil.eco=0-3\nevil.eco-cap=policy4=1+a[$(>%s/ran)0]\n' "$w" > "$w/evil.conf"
 fx evil aarch64 16272000 "Bad Board" vendor,evil
 printf 'processor\t: 0\nFeatures\t: fp asimd aes\n' > "$w/evil/cpuinfo"
 echo 2400000 > "$w/evil/cpufreq/policy4_max"; mkdir -p "$w/evil/cpufreq/policy4"; echo 2400000 > "$w/evil/cpufreq/policy4/scaling_max_freq"
