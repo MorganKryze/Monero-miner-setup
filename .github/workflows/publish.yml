@@ -6,7 +6,8 @@ name: Publish images
 #
 # Triggers:
 #   - push to main           -> :latest, :main-<shortsha>
-#   - git tag matching v*    -> :X.Y.Z, :X.Y, :latest
+#   - git tag matching v*    -> :X.Y.Z, :X.Y, :latest (a pre-release tag, v0.2.0-rc.1: :0.2.0-rc.1 only),
+#                               and the release binary for Linux arm64 boards (release-* jobs)
 #   - repository_dispatch    -> same as a push to main (main-merged, sent after a Dependabot merge)
 #   - workflow_dispatch      -> :<input.tag> only (default: dev), never :latest
 #     the names above (latest, main-*, versions) and buildcache-* are refused
@@ -180,11 +181,12 @@ jobs:
             # Push only: the default-branch flag is also true for a manual dispatch on main.
             type=raw,value=latest,enable=${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && github.ref == 'refs/heads/main' }}
             type=sha,prefix=main-,enable=${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && github.ref == 'refs/heads/main' }}
-            # Version tag pushes: :X.Y.Z, :X.Y, and update :latest.
+            # Version tag pushes: :X.Y.Z, :X.Y, and update :latest. A pre-release tag (a - after the
+            # version, v0.2.0-rc.1) publishes :0.2.0-rc.1 alone.
             # Push only: a manual run on a tag ref would republish that release and move :latest.
             type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' }}
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' && !contains(github.ref, '-') }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
             # Manual dispatch: user-supplied tag.
             type=raw,value=${{ env.DISPATCH_TAG }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
@@ -204,3 +206,112 @@ jobs:
           IMAGE_VERSION: ${{ steps.meta.outputs.version }}
         run: |
           docker buildx imagetools inspect "${IMAGE_REF}:${IMAGE_VERSION}"
+
+  # A v* tag also publishes the miner for Linux arm64 boards (scripts/install.sh --prebuilt). This
+  # job compiles XMRig, upstream code run through its own CMake scripts, so it holds no write or
+  # signing token: the job below publishes what it built.
+  release-build:
+    name: Build release binary (linux/arm64)
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04-arm
+    container: debian:trixie
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      xmrig-commit: ${{ steps.source.outputs.commit }}
+    steps:
+      # git first: without it in the container, actions/checkout fetches no submodule.
+      - name: Install build packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git build-essential cmake libuv1-dev libssl-dev libhwloc-dev
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      # The checkout belongs to the runner's user, not the container's root: git must be told the
+      # folder is safe.
+      - name: Read the pinned XMRig commit
+        id: source
+        run: echo "commit=$(git -c safe.directory='*' -C dependencies/xmrig rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Unmodified, from the commit the tag pins, as docker/Dockerfile builds it: libuv from the
+      # shared library, so the board loads its packaged libuv1t64 and gets its updates.
+      - name: Build XMRig
+        run: |
+          cmake -S dependencies/xmrig -B build -DUV_LIBRARY="/usr/lib/$(gcc -dumpmachine)/libuv.so"
+          cmake --build build -j"$(nproc)"
+          strip build/xmrig
+          mkdir dist
+          cp build/xmrig dist/xmrig-linux-arm64
+
+      # The installer refuses a host older than its RELEASE_MIN_GLIBC: a binary needing a newer
+      # glibc fails the tag here, before anything is published.
+      - name: Check the binary's glibc, libuv and version
+        run: |
+          min=$(sed -n 's/^RELEASE_MIN_GLIBC="\([0-9]*\.[0-9]*\)"$/\1/p' scripts/install.sh)
+          need=$(objdump -T dist/xmrig-linux-arm64 | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -uV | tail -n 1)
+          if [ -z "$min" ] || [ -z "$need" ] || [ "$(printf '%s\n' "$need" "$min" | sort -V | tail -n 1)" != "$min" ]; then
+            echo "::error::The binary needs glibc ${need:-unknown}, and the installer's minimum is ${min:-unset}."
+            exit 1
+          fi
+          ldd dist/xmrig-linux-arm64 | grep -E '^[[:space:]]libuv[.]so[.]1 => /'
+          dist/xmrig-linux-arm64 --version
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-binary
+          path: dist/xmrig-linux-arm64
+          if-no-files-found: error
+          retention-days: 1
+
+  # Checks out nothing and runs nothing the repository holds: it sums, attests and publishes the
+  # bytes the build job made, so the write and signing tokens never meet upstream code.
+  release-publish:
+    name: Publish release binary
+    needs: release-build
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-binary
+          path: dist
+
+      - name: Sum the binary
+        working-directory: dist
+        run: sha256sum xmrig-linux-arm64 > SHA256SUMS
+
+      - uses: actions/attest@v4
+        with:
+          subject-path: dist/xmrig-linux-arm64
+
+      # gh release create fails when the release exists, so a published asset is never replaced. A
+      # tag with a pre-release part (v0.2.0-rc.1) makes a pre-release.
+      - name: Publish the release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          XMRIG_COMMIT: ${{ needs.release-build.outputs.xmrig-commit }}
+        run: |
+          [[ $XMRIG_COMMIT =~ ^[0-9a-f]{40}$ ]]
+          pre=()
+          case $TAG in *-*) pre=(--prerelease) ;; esac
+          {
+            echo "xmrig-linux-arm64 is XMRig for Linux arm64, built unmodified by this repository's CI on Debian 13 from https://github.com/MoneroOcean/xmrig at commit $XMRIG_COMMIT, the commit this tag pins. XMRig is licensed under GPL-3.0; that commit is its source."
+            echo
+            echo "Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup"
+            echo "Check it on the board: sha256sum -c SHA256SUMS"
+          } > notes.md
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md "${pre[@]}" xmrig-linux-arm64 SHA256SUMS

@@ -136,8 +136,8 @@ want=$(cat <<'YML'
             type=raw,value=latest,enable=${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && github.ref == 'refs/heads/main' }}
             type=sha,prefix=main-,enable=${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' }}
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' && !contains(github.ref, '-') }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
             type=raw,value=${{ env.DISPATCH_TAG }},enable=${{ github.event_name == 'workflow_dispatch' }}
 YML
 )
@@ -169,5 +169,168 @@ YML
 got=$(block .github/workflows/ci.yml '  checks:' | major)
 want=$(printf '%s\n' "$want" | major)
 [ "$got" = "$want" ] || { echo "FAIL ci regression checks job"; diff <(echo "$want") <(echo "$got"); rc=1; }
+
+# The release binary: the workflow-wide token stays read plus packages, the build job (upstream code)
+# holds read only, and only the publish job holds the write and signing scopes. The two jobs are
+# pinned line for line, then their two scripts run on stubs: the glibc gate and the release call.
+want=$(printf '%s\n' 'permissions:' '  contents: read' '  packages: write')
+[ "$(block "$p" 'permissions:')" = "$want" ] || { echo "FAIL workflow-wide permissions"; rc=1; }
+want=$(cat <<'YML'
+  release-build:
+    name: Build release binary (linux/arm64)
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04-arm
+    container: debian:trixie
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      xmrig-commit: ${{ steps.source.outputs.commit }}
+    steps:
+      # git first: without it in the container, actions/checkout fetches no submodule.
+      - name: Install build packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git build-essential cmake libuv1-dev libssl-dev libhwloc-dev
+
+      - uses: actions/checkout@vN
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      # The checkout belongs to the runner's user, not the container's root: git must be told the
+      # folder is safe.
+      - name: Read the pinned XMRig commit
+        id: source
+        run: echo "commit=$(git -c safe.directory='*' -C dependencies/xmrig rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Unmodified, from the commit the tag pins, as docker/Dockerfile builds it: libuv from the
+      # shared library, so the board loads its packaged libuv1t64 and gets its updates.
+      - name: Build XMRig
+        run: |
+          cmake -S dependencies/xmrig -B build -DUV_LIBRARY="/usr/lib/$(gcc -dumpmachine)/libuv.so"
+          cmake --build build -j"$(nproc)"
+          strip build/xmrig
+          mkdir dist
+          cp build/xmrig dist/xmrig-linux-arm64
+
+      # The installer refuses a host older than its RELEASE_MIN_GLIBC: a binary needing a newer
+      # glibc fails the tag here, before anything is published.
+      - name: Check the binary's glibc, libuv and version
+        run: |
+          min=$(sed -n 's/^RELEASE_MIN_GLIBC="\([0-9]*\.[0-9]*\)"$/\1/p' scripts/install.sh)
+          need=$(objdump -T dist/xmrig-linux-arm64 | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -uV | tail -n 1)
+          if [ -z "$min" ] || [ -z "$need" ] || [ "$(printf '%s\n' "$need" "$min" | sort -V | tail -n 1)" != "$min" ]; then
+            echo "::error::The binary needs glibc ${need:-unknown}, and the installer's minimum is ${min:-unset}."
+            exit 1
+          fi
+          ldd dist/xmrig-linux-arm64 | grep -E '^[[:space:]]libuv[.]so[.]1 => /'
+          dist/xmrig-linux-arm64 --version
+
+      - uses: actions/upload-artifact@vN
+        with:
+          name: release-binary
+          path: dist/xmrig-linux-arm64
+          if-no-files-found: error
+          retention-days: 1
+
+  release-publish:
+    name: Publish release binary
+    needs: release-build
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@vN
+        with:
+          name: release-binary
+          path: dist
+
+      - name: Sum the binary
+        working-directory: dist
+        run: sha256sum xmrig-linux-arm64 > SHA256SUMS
+
+      - uses: actions/attest@vN
+        with:
+          subject-path: dist/xmrig-linux-arm64
+
+      # gh release create fails when the release exists, so a published asset is never replaced. A
+      # tag with a pre-release part (v0.2.0-rc.1) makes a pre-release.
+      - name: Publish the release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          XMRIG_COMMIT: ${{ needs.release-build.outputs.xmrig-commit }}
+        run: |
+          [[ $XMRIG_COMMIT =~ ^[0-9a-f]{40}$ ]]
+          pre=()
+          case $TAG in *-*) pre=(--prerelease) ;; esac
+          {
+            echo "xmrig-linux-arm64 is XMRig for Linux arm64, built unmodified by this repository's CI on Debian 13 from https://github.com/MoneroOcean/xmrig at commit $XMRIG_COMMIT, the commit this tag pins. XMRig is licensed under GPL-3.0; that commit is its source."
+            echo
+            echo "Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup"
+            echo "Check it on the board: sha256sum -c SHA256SUMS"
+          } > notes.md
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md "${pre[@]}" xmrig-linux-arm64 SHA256SUMS
+YML
+)
+got=$({ block "$p" '  release-build:'; block "$p" '  release-publish:'; } | major)
+[ "$got" = "$want" ] || { echo "FAIL release jobs"; diff <(echo "$want") <(echo "$got"); rc=1; }
+for perm in 'contents: write' 'id-token: write' 'attestations: write' 'artifact-metadata: write'; do
+  [ "$(grep -c "^ *$perm\$" "$p")" -eq 1 ] || { echo "FAIL '$perm' is not granted exactly once"; rc=1; }
+done
+step() { block "$p" "      - name: $1" | sed -n '/^        run: |$/,$p' | sed '1d;s/^          //'; }
+mkdir -p "$d/rel/bin" "$d/rel/dist" "$d/rel/scripts"
+step "Check the binary's glibc, libuv and version" > "$d/glibc.sh"
+step 'Publish the release' > "$d/publish.sh"
+for t in grep sed sort tail printf cat; do ln -s "$(type -P $t)" "$d/rel/bin/$t"; done
+cat > "$d/rel/bin/objdump" <<'STUB'
+#!/bin/bash
+echo "0000 DF *UND* 0 GLIBC_2.17 memcpy"
+echo "0000 DF *UND* 0 GLIBC_$NEED stat"
+STUB
+cat > "$d/rel/bin/ldd" <<'STUB'
+#!/bin/bash
+[ -n "$STATIC" ] || printf '\tlibuv.so.1 => /usr/lib/aarch64-linux-gnu/libuv.so.1 (0x1)\n'
+printf '\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x2)\n'
+STUB
+printf '#!/bin/bash\necho "XMRig 6.0.0"\n' > "$d/rel/dist/xmrig-linux-arm64"
+cat > "$d/rel/bin/gh" <<'STUB'
+#!/bin/bash
+echo "$*" >> "$GH_LOG"
+STUB
+chmod +x "$d/rel/bin/"* "$d/rel/dist/xmrig-linux-arm64"
+glibc() { # installer line, glibc the binary needs, STATIC
+  printf '%s\n' "$1" > "$d/rel/scripts/install.sh"
+  (cd "$d/rel" && env -i PATH="$d/rel/bin" NEED="$2" STATIC="$3" "$BASH" --norc --noprofile -eo pipefail "$d/glibc.sh") >/dev/null 2>&1
+}
+glibc 'RELEASE_MIN_GLIBC="2.38"' 2.38 '' || { echo "FAIL glibc gate refused a binary needing exactly the minimum"; rc=1; }
+glibc 'RELEASE_MIN_GLIBC="2.38"' 2.4 '' || { echo "FAIL glibc gate refused a binary needing 2.4"; rc=1; }
+glibc 'RELEASE_MIN_GLIBC="2.38"' 2.39 '' && { echo "FAIL glibc gate passed a binary needing 2.39"; rc=1; }
+glibc '' 2.38 '' && { echo "FAIL glibc gate passed with no minimum in the installer"; rc=1; }
+glibc 'RELEASE_MIN_GLIBC="2.38"' 2.38 1 && { echo "FAIL glibc gate passed a binary without a shared libuv"; rc=1; }
+publish() { # tag, commit
+  rm -f "$d/gh.log" "$d/rel/dist/notes.md"
+  (cd "$d/rel/dist" && env -i PATH="$d/rel/bin" GH_LOG="$d/gh.log" TAG="$1" XMRIG_COMMIT="$2" \
+    GITHUB_REPOSITORY=MorganKryze/Monero-miner-setup "$BASH" --norc --noprofile -eo pipefail "$d/publish.sh") >/dev/null 2>&1
+}
+commit=0123456789abcdef0123456789abcdef01234567
+base='release create TAG --repo MorganKryze/Monero-miner-setup --verify-tag --title TAG --notes-file notes.md'
+publish v0.2.0-rc.1 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0-rc.1} --prerelease xmrig-linux-arm64 SHA256SUMS" ] \
+  || { echo "FAIL release call for a pre-release tag"; rc=1; }
+publish v0.2.0 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0} xmrig-linux-arm64 SHA256SUMS" ] \
+  || { echo "FAIL release call for a final tag"; rc=1; }
+grep -qF "built unmodified by this repository's CI on Debian 13 from https://github.com/MoneroOcean/xmrig at commit $commit, the commit this tag pins. XMRig is licensed under GPL-3.0; that commit is its source." "$d/rel/dist/notes.md" \
+  && grep -qF 'Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup' "$d/rel/dist/notes.md" \
+  || { echo "FAIL release notes"; rc=1; }
+publish v0.2.0 'abc; rm -rf /' && { echo "FAIL release step accepted a commit that is not 40 hex digits"; rc=1; }
+[ ! -e "$d/gh.log" ] || { echo "FAIL release step called gh with a bad commit"; rc=1; }
 [ "$rc" -eq 0 ] && echo "PASS workflow-policy"
 exit "$rc"
