@@ -1,7 +1,7 @@
 #!/bin/bash
 # Benches each CPU layout of the board profile offline, one XMRig run per layout (make bench-layouts).
 # MODE=max (default) tries the profile's layouts, MODE=eco its eco list; BENCH sets the size.
-# Runs from a throwaway folder: the clone's configs and logs are never touched. No pool, no submit.
+# Refuses root (XMRig would write nr_hugepages). Runs from a throwaway folder: the clone's configs and logs are never touched. No pool, no submit.
 
 OS=$(uname -s)
 HOST_ARCH=$(uname -m 2>/dev/null) || HOST_ARCH=""
@@ -252,6 +252,10 @@ function main() {
     BENCH=${BENCH:-250K}
     if ! [[ "$BENCH" =~ $SIZE_RE ]]; then
         err "BENCH=$BENCH is not a size XMRig accepts: 250K, 500K or 1M to 10M."
+        return 1
+    fi
+    if [ "$(id -u 2>/dev/null)" = "0" ]; then
+        err "Run make bench-layouts not as root: XMRig would raise nr_hugepages and the change stays until reboot."
         return 1
     fi
     command -v taskset >/dev/null || { err "taskset is missing: install util-linux."; return 1; }

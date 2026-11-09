@@ -3,7 +3,7 @@
 # pinned to its CPUs with taskset, from a throwaway folder holding a config that never saves, with
 # no pool and no submit; one result line per layout (CPUs, H/s, huge pages, cpufreq maxima). It
 # refuses, with one line and nothing run, when a miner runs, the miner is not built, MODE or BENCH
-# is invalid (BENCH is exactly 250K, 500K or 1M to 10M), the host is not arm64 Linux, or taskset or pgrep is missing. The clone's configs and
+# is invalid (BENCH is exactly 250K, 500K or 1M to 10M), it runs as root (XMRig would raise nr_hugepages), the host is not arm64 Linux, or taskset or pgrep is missing. The clone's configs and
 # logs stay byte for byte as found and the throwaway folders are gone. A stub XMRig that keeps
 # running after its result, as the real one does, must not hang the bench. The board functions are
 # the installer's, byte for byte. Stubs only; nothing is read from this host's /proc or /sys.
@@ -28,6 +28,11 @@ mkdir -p "$w/tools"
 for c in awk cat cut getconf grep kill mktemp rm sed sleep sort tr uname head tail wc; do
   p=$(command -v "$c") && ln -s "$p" "$w/tools/$c"
 done
+cat > "$w/tools/id" <<'STUB'
+#!/bin/bash
+[ -f "${STUB_W:?}/root" ] && echo 0 || echo 1000
+STUB
+chmod +x "$w/tools/id"
 cat > "$w/tools/xmrig" <<'STUB'
 #!/bin/bash
 w=${STUB_W:?}
@@ -68,7 +73,7 @@ mkclone() {
   echo "old log" > "$w/clone/logs/xmrig.log"
   ln -s "$w/tools/xmrig" "$w/clone/xmrig"
   cp "$w/clone/scripts/bench_layouts.sh" "$w/clone/scripts/board_profiles.conf" "$w/clone/configs/config.json" "$w/clone/logs/xmrig.log" "$w/before/"
-  rm -f "$w/calls" "$w/configs.log" "$w/running" "$w/noresult" "$w/linger" "$w/pids"
+  rm -f "$w/calls" "$w/configs.log" "$w/root" "$w/running" "$w/noresult" "$w/linger" "$w/pids"
 }
 # fx <name> <MemTotal kB> <compatible> <capacities...>; capacities per cpu, one fixture per board.
 fx() {
@@ -186,6 +191,7 @@ for v in 250K 500K 1M 3M 7M 9M 10M; do
   mkclone; bench pi5 "BENCH=$v"; [ "$code" -eq 0 ] || fail "size $v refused: $out"
   grep -qF -- "--bench=$v" "$w/calls" || fail "size $v not passed"
 done
+mkclone; touch "$w/root"; bench opi5plus; refuse root "not as root"; after root
 mkclone; mv "$w/tools/taskset" "$w/taskset.off"; bench opi5plus; refuse taskset "util-linux"; after taskset; mv "$w/taskset.off" "$w/tools/taskset"
 mkclone; mv "$w/tools/pgrep" "$w/pgrep.off"; bench opi5plus; refuse pgrep "procps"; after pgrep; mv "$w/pgrep.off" "$w/tools/pgrep"
 
