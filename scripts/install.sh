@@ -675,6 +675,84 @@ function check_repo_exists() {
     fi
 }
 
+# The clone a native run builds, configures and sets up the service from, often as root: a git
+# clone in which every path belongs to you or root (as root, also to the user who ran sudo, who can
+# become root anyway) and none can be changed by another user. The run executes code from anywhere
+# in it (git's config, the Makefile, the sources it compiles, the service scripts), so the whole
+# tree is read, not a list of paths that goes stale as the tree grows. A link inside it counts by
+# its owner alone: its own mode is 777 on Linux, and what it points to inside the clone is read
+# anyway. A link at the clone's path is refused, as later steps would act through it; find never
+# follows one (-P), so a link swapped in after that test is read as a link. An ACL is read on the
+# clone's folder only, whose default ACL every new path inherits. Above the clone, a user who can
+# change the base directory or a directory above it could swap the clone between this check and
+# the build, unless the directory is sticky (/tmp). It only reads. Nothing at the path passes once
+# the directories above it do: the run then clones there. "fresh" says this run has just cloned it,
+# so a path others can change points at the umask.
+function check_base_clone() {
+    local dir="$1" fresh="${2:-}" uid owners trusted groups bad remedy base check rest
+    remedy="Move $dir away and run the installer again, or pass -d with another base directory."
+    uid=$(id -u 2>/dev/null)
+    owners=(! -user "$uid" ! -user 0)
+    trusted=(-user "$uid" -o -user 0)
+    if [ "$uid" = "0" ] && [ -n "${SUDO_USER:-}" ]; then
+        owners+=(! -user "$SUDO_USER")
+        trusted+=(-o -user "$SUDO_USER")
+    fi
+    if [ -L "$dir" ]; then
+        error "$dir is a link, so this run does not use it. Pass -d with the folder it points to."
+        return 1
+    fi
+    if [ -e "$dir" ]; then
+        if [ ! -d "$dir" ] || [ ! -e "$dir/.git" ]; then
+            error "$dir is not a git clone, so this run does not use it. $remedy"
+            return 1
+        fi
+        if ! bad=$(find -P "$dir" "(" "${owners[@]}" ")" -print -quit 2>/dev/null); then
+            error "$dir cannot be read whole, so this run does not use it. $remedy"
+            return 1
+        fi
+        if [ -n "$bad" ]; then
+            error "$bad belongs to another user, so this run does not use $dir. $remedy"
+            return 1
+        fi
+        # The user's own group, as only_user_can_write takes it.
+        groups=(-perm -0020)
+        if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
+            groups+=(! -group "$(id -g 2>/dev/null)")
+        fi
+        if ! bad=$(find -P "$dir" ! -type l "(" -perm -0002 -o "(" "${groups[@]}" ")" ")" -print -quit 2>/dev/null); then
+            error "$dir cannot be read whole, so this run does not use it. $remedy"
+            return 1
+        fi
+        if [ -z "$bad" ] && ! only_user_can_write "$dir"; then
+            bad=$dir
+        fi
+        if [ -n "$bad" ]; then
+            if [ -n "$fresh" ]; then
+                remedy="This run has just cloned it, so your umask is the likely cause: remove $dir, run umask 022, and run the installer again."
+            fi
+            error "$bad can be changed by a user other than you, so this run does not use $dir. $remedy"
+            return 1
+        fi
+    fi
+    # Each directory from / down to the base directory, read on its real path.
+    base=${dir%/*}
+    if ! base=$(cd -- "${base:-/}" 2>/dev/null && pwd -P); then
+        error "${dir%/*} can be changed by a user other than you, so this run does not use $dir. Pass -d with a directory only you can change."
+        return 1
+    fi
+    check=
+    while :; do
+        if [ "$(find "$check/" -maxdepth 0 "(" "${trusted[@]}" ")" "(" "(" ! -perm -0002 ! -perm -0020 ")" -o -perm -1000 ")" -print 2>/dev/null)" != "$check/" ]; then
+            error "${check:-/} can be changed by a user other than you, so this run does not use $dir. Pass -d with a directory only you can change."
+            return 1
+        fi
+        [ "${check:-/}" = "$base" ] && break
+        rest=${base#"$check"/}
+        check=$check/${rest%%/*}
+    done
+}
+
 function check_if_built() {
     local target_dir="$BASE_DIR/$REPO_NAME"
 
@@ -696,6 +774,11 @@ function clone_repository() {
 
     if ! git clone --recurse-submodules "$REPO_URL" "$target_dir"; then
         error "Failed to clone repository (with submodules) from $REPO_URL."
+        return 1
+    fi
+    # git keeps the owner and mode of an empty folder made at that path since the first check, and
+    # lays out the rest under your umask: the fresh clone gets the same check.
+    if ! check_base_clone "$target_dir" fresh; then
         return 1
     fi
 
@@ -990,6 +1073,8 @@ function install_project() {
     info "Checking project installation status..."
 
     if check_repo_exists; then
+        # A clone made there since the check in main is checked before it is used.
+        check_base_clone "$BASE_DIR/$REPO_NAME" || return 1
         cloned=true
         check_if_built && built=true
     fi
@@ -1126,6 +1211,10 @@ function main() {
 
     BASE_DIR=$(validate_directory "$BASE_DIR")
     if [ $? -ne 0 ]; then
+        exit 1
+    fi
+    # A re-run builds and runs what it finds there: only a clone that passes this check.
+    if ! check_base_clone "$BASE_DIR/$REPO_NAME"; then
         exit 1
     fi
     sleep $LOW_DELAY

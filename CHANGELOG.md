@@ -4,6 +4,12 @@ Every release of Monero-miner-setup, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- The native installer reuses the `Monero-miner-setup` clone in its base directory only when it is a git clone in which every file and folder belongs to you or root (as root, also to the user who ran `sudo`) and none can be changed by another user; otherwise it stops with one error line before it clones, builds or sets up anything. It checks a fresh clone the same way.
+
 ## [0.1.0] - 2026-11-07
 
 The first tagged release. Installed before it? Read
