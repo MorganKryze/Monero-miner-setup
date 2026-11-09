@@ -340,16 +340,18 @@ function validate_directory() {
         info "Using base directory: $dir." >&2
     fi
 
+    # Every step acts on the directory the checks read, never on a link a user could point
+    # elsewhere later.
+    path=$(cd -- "$dir" && pwd -P) || return 1
+    if [ "$path" != "$dir" ]; then
+        info "Resolved to $path." >&2
+        dir=$path
+    fi
+
     # Root goes on to run the clone's scripts: a user who can change the base directory, a clone
     # already there or any directory above them would choose what root runs, as with the
     # installer's own clone above. This holds whatever chose the directory, -d included.
     if [ "$(id -u)" == "0" ] && [ "$(uname -s)" == "Linux" ]; then
-        path=$(cd -- "$dir" && pwd -P) || return 1
-        # Root acts on the directory it checked, never on a link a user could point elsewhere later.
-        if [ "$path" != "$dir" ]; then
-            info "Resolved to $path." >&2
-            dir=$path
-        fi
         remedy="Pass -d"
         if [ -e "$path/$REPO_NAME" ] || [ -L "$path/$REPO_NAME" ]; then
             path="$path/$REPO_NAME"

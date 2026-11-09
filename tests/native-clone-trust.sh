@@ -90,7 +90,7 @@ run() {
   rm -f "$w/git.log"
   snap=$(ls -laR "$c" 2>/dev/null)
   local vars=(); while IFS= read -r v; do vars+=("$v"); done < <(env_vars)
-  (cd "$w/home" && env -i "${vars[@]}" "$BASH" "$r/scripts/install.sh" -w "$wallet" -y -d "$w/base") > "$w/out" 2> "$w/err"
+  (cd "$w/home" && env -i "${vars[@]}" "$BASH" "$r/scripts/install.sh" -w "$wallet" -y -d "${DIR:-$w/base}") > "$w/out" 2> "$w/err"
   code=$?; out=$(cat "$w/out"); err=$(cat "$w/err")
 }
 want() { # name, label, expected, got
@@ -154,6 +154,16 @@ chmod 0775 "$w/base"; run parent-group; refused parent-group "$parent_line"
 # The user's own private group may write the base directory too (mkdir under Ubuntu's umask 0002).
 ID_MODE=private run parent-private; kept parent-private
 chmod 0755 "$w/base"
+# -d through a link in a folder anyone can write: the run checks and uses the real path, so a link
+# re-pointed after the check changes nothing.
+mkdir "$w/open" && chmod 0777 "$w/open" && ln -s "$w/base" "$w/open/lb"
+resolved="[INFO] Using base directory: $w/open/lb."$'\n'"[INFO] Resolved to $w/base."
+DIR="$w/open/lb" run link-base; want link-base exit 1 "$code"; want link-base stderr "$resolved"$'\n'"$went_on" "$err"
+chmod 666 "$c/Makefile"
+DIR="$w/open/lb" run link-base-open; want link-base-open exit 1 "$code"
+want link-base-open stderr "$resolved"$'\n'"$(open_line "$c/Makefile")" "$err"
+[ ! -e "$w/git.log" ] || fail "link-base-open: git ran: $(cat "$w/git.log")"
+chmod 644 "$c/Makefile"; rm "$w/open/lb"; rmdir "$w/open"
 # A directory above the base directory counts the same.
 chmod 0777 "$w"; run parent-above
 refused parent-above "[ERROR] $w can be changed by a user other than you, so this run does not use $c. Pass -d with a directory only you can change."
