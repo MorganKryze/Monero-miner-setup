@@ -272,20 +272,25 @@ function print_summary() {
     echo
 }
 
+# The Linux sections for this CPU: arm64 has no AES-NI, 1 GB page or MSR checks.
+function run_linux_checks() {
+    if is_arm64; then
+        check_cpu_arm
+        check_hugepages_linux
+    else
+        check_cpu_linux
+        check_hugepages_linux
+        check_1gb_pages_linux
+        check_msr_linux
+    fi
+}
+
 # Sourced (by the regression checks), the script only defines its functions.
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0
 
 case "$OS" in
     Linux)
-        if is_arm64; then
-            check_cpu_arm
-            check_hugepages_linux
-        else
-            check_cpu_linux
-            check_hugepages_linux
-            check_1gb_pages_linux
-            check_msr_linux
-        fi
+        run_linux_checks
         check_thread_lists
         check_docker
         ;;

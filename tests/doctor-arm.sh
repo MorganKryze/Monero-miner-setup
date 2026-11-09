@@ -4,6 +4,7 @@
 # no advice when the kernel has none); the x86-only checks are skipped with one note line. Every
 # host gets the CPU list of each native config, and on arm64 a warning for a config without one.
 # On x86 the CPU, huge page, 1 GB page and MSR sections print as before.
+# The Linux sections are picked by HOST_ARCH alone (run_linux_checks).
 # The doctor's functions run against fixture files; nothing is read from this host's /proc or
 # /sys. Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
@@ -29,7 +30,7 @@ doctor() {
 }
 has() { printf '%s\n' "$2" | grep -qxF -- "$3" || fail "$1: no line '$3'"; }
 hasnt() { ! printf '%s\n' "$2" | grep -qF -- "$3" || fail "$1: unexpected '$3'"; }
-arm="check_cpu_arm check_hugepages_linux check_thread_lists"
+arm="run_linux_checks check_thread_lists"
 
 # A Pi 5: crypto extensions, a device tree model, a kernel built without huge pages.
 fx pi5 aarch64
@@ -106,7 +107,7 @@ printf 'Hugepagesize:       2048 kB\n' > "$w/x86/meminfo"
 echo 1280 > "$w/x86/nr_hugepages"
 printf 'always [madvise] never\n' > "$w/x86/thp"
 echo 0 > "$w/x86/gb_pages"
-out=$(doctor x86 check_cpu_linux check_hugepages_linux check_1gb_pages_linux check_msr_linux)
+out=$(doctor x86 run_linux_checks)
 want=$(cat <<'X86'
 
 ━━ CPU ━━
