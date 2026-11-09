@@ -1160,6 +1160,25 @@ function any_config_kept() {
     return 1
 }
 
+# Prints the huge page line: "none (kernel)" when the kernel reports no huge page size, else the
+# pages reserved against what RandomX needs in the kernel's page size (2560 MiB in fast mode, 256
+# MiB in light mode, rounded up). Reads only; nothing is reserved.
+function huge_page_line() {
+    local size="" label need have="" need_mib=2560
+    size=$(awk '/^Hugepagesize:/ && $2 ~ /^[0-9]{1,9}$/ && $3 == "kB" { print $2; exit }' "$MEMINFO" 2>/dev/null)
+    if [[ ! "$size" =~ ^[0-9]{1,9}$ ]] || [ $((10#$size)) -eq 0 ]; then
+        info "Huge pages: none (kernel)."
+        return 0
+    fi
+    size=$((10#$size))
+    [ "$RX_LIGHT" != yes ] || need_mib=256
+    need=$(((need_mib * 1024 + size - 1) / size))
+    read -r have <"$NR_HUGEPAGES" 2>/dev/null || have=""
+    [[ "$have" =~ ^[0-9]{1,9}$ ]] || have=0
+    if [ $((size % 1024)) -eq 0 ]; then label="$((size / 1024)) MB"; else label="$size kB"; fi
+    info "Huge pages: $((10#$have)) of the $need $label pages RandomX needs are reserved."
+}
+
 # Finds the board's profile once (BOARD_PROFILE, BOARD_MODEL) and prints the board line. A profile
 # that fails its checks is dropped with one warning. --mode with no profile is refused (exit 1).
 function resolve_board() {
@@ -1185,11 +1204,19 @@ function resolve_board() {
     fi
     BOARD_MODEL=$(board_model)
     info "Board: ${BOARD_MODEL:-unknown model}, profile $BOARD_PROFILE, mode ${MODE:-$MAX_THREADS %}, $(profile_status "$BOARD_PROFILE" "$BOARD_MODEL")."
+    huge_page_line
 }
 
 # The main step: resolves the board now when a clone is there to read, or when the host cannot
 # have a profile; a first clone on a board is resolved by generate_config_files.
 function check_board() {
+    local mem
+    RX_LIGHT=""
+    mem=$(total_mem_mib)
+    if [[ "$mem" =~ ^[0-9]{1,9}$ ]] && [ $((10#$mem)) -lt "$RX_FLOOR_MIB" ]; then
+        RX_LIGHT=yes
+        warning "This host has $mem MiB of memory, under the $RX_FLOOR_MIB MiB RandomX's fast mode needs: new configs use its light mode, slower but within memory."
+    fi
     if [ -d "$BASE_DIR/$REPO_NAME/.git" ] || ! is_arm64 || [ -z "$(board_compatible)" ]; then
         resolve_board || return 1
     fi
@@ -1214,7 +1241,7 @@ function configs_exist() {
 # write leaves no partial file that a later run would keep.
 function write_miner_config() {
     XMRIG_HINT=$MAX_THREADS XMRIG_DONATE=$DONATE_LEVEL XMRIG_LOG=$3 XMRIG_URL=$4 XMRIG_USER=$WALLET \
-        XMRIG_PASS=$5 XMRIG_BATTERY=$PAUSE_ON_BATTERY XMRIG_ACTIVE=$PAUSE_ON_ACTIVE XMRIG_CPUS=$CPU_LIST awk '
+        XMRIG_PASS=$5 XMRIG_BATTERY=$PAUSE_ON_BATTERY XMRIG_ACTIVE=$PAUSE_ON_ACTIVE XMRIG_CPUS=$CPU_LIST XMRIG_LIGHT=$RX_LIGHT awk '
         function str(v,   out, i, c) {
             out = ""
             for (i = 1; i <= length(v); i++) {
@@ -1229,6 +1256,9 @@ function write_miner_config() {
             match($0, /^[ \t]*/)
             print substr($0, 1, RLENGTH) "\"" key "\": " value comma
         }
+        /^[ \t]*"randomx": [{]$/ { inrx = 1 }
+        inrx && /^[ \t]*[}],?$/ { inrx = 0 }
+        inrx && ENVIRON["XMRIG_LIGHT"] == "yes" && /^[ \t]*"mode": "[^"]*",?$/ { put("mode", "\"light\""); next }
         /^[ \t]*"cpu": [{]$/ && ENVIRON["XMRIG_CPUS"] != "" {
             print
             match($0, /^[ \t]*/)
@@ -1270,7 +1300,12 @@ function generate_config_files() {
     resolve_board || return 1
 
     # On arm64, the list naming every usable CPU, when --threads leaves one of them out.
-    pick_cpu_list || return 1
+    # With --mode and every config kept, no list is written: nothing is checked or reported.
+    if [ -n "$MODE" ] && configs_exist; then
+        CPU_LIST=""
+    else
+        pick_cpu_list || return 1
+    fi
     if is_arm64; then
         every=$(arm_cpu_list "$(ranked_cpus | awk 'END { print NR }')")
         [ "$CPU_LIST" != "$every" ] || every=""

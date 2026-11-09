@@ -20,7 +20,7 @@ done
 printf '#!/bin/sh\necho 4\n' > "$w/tools/getconf" && chmod +x "$w/tools/getconf"
 
 shared="board_compatible board_model profile_value find_profile expand_cpus profile_ok profile_status total_mem_mib"
-fns="is_arm64 ranked_cpus arm_cpu_list pick_cpu_list $shared mode_cpu_list any_config_kept resolve_board check_board usage validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
+fns="is_arm64 ranked_cpus arm_cpu_list pick_cpu_list $shared mode_cpu_list any_config_kept configs_exist huge_page_line resolve_board check_board usage validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
 {
   sed -n '/^# ===== Constants =====$/,/^DOCKER_SCRIPT_URL=/p' "$root/scripts/install.sh"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done
@@ -303,5 +303,99 @@ for name in RK3588 abcdefghijklmnopq; do
   sed "s/^rk3588\./$name./" "$root/scripts/board_profiles.conf" > "$w/data.conf"; fresh "$w/data.conf"; gen opi5plus aarch64 75 MODE=eco
   want "name $name" exit 1 "$code"; want "name $name" "error lines" "$a8" "$(printf '%s\n' "$out" | grep '^\[ERROR\]')"
 done
+# A11: under 2560 MiB of total memory a new config gets RandomX's light mode; A12: the huge page line.
+mem() { # new fixture, base fixture, MemTotal kB, optional Hugepagesize kB, optional nr_hugepages
+  rm -rf "$w/fx/$1"; cp -R "$w/fx/$2" "$w/fx/$1"
+  { printf 'MemTotal:       %s kB\n' "$3"; [ -z "$4" ] || printf 'Hugepagesize:   %s kB\n' "$4"; } > "$w/fx/$1/meminfo"
+  [ -z "$5" ] || printf '%s\n' "$5" > "$w/fx/$1/hp"
+}
+# genb: the main step, then the config generator, as the installer runs them.
+genb() { # fixture, arch, share, assignments
+  on "$1" "$2" eval "BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup POOL_URL=gulf.moneroocean.stream PORT=10128 PASS=rig1 DEFAULT_PASS=x \
+    WALLET=$wallet MAX_THREADS=$3 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false $4; check_board; generate_config_files"
+}
+floor="[WARNING] This host has 1983 MiB of memory, under the 2560 MiB RandomX's fast mode needs: new configs use its light mode, slower but within memory."
+modeof() { jq -r .randomx.mode "$clone/configs/$1" 2>/dev/null; }
+for case in "pi5 aarch64" "opi5plus aarch64" "x86 x86_64"; do
+  read -r fx arch <<< "$case"
+  mem big "$fx" 16777216; mem small "$fx" 2030592
+  fresh; genb big "$arch" 75; want "16 GiB $fx" exit 0 "$code"; want "16 GiB $fx" warnings "" "$(wl)"
+  mkdir -p "$w/ref"; cp "$clone/configs/config.json" "$w/ref/a"; cp "$clone/configs/config_background.json" "$w/ref/b"
+  want "16 GiB $fx" mode auto "$(modeof config.json)"
+  fresh; genb small "$arch" 75; want "1983 MiB $fx" exit 0 "$code"
+  want "1983 MiB $fx" warning "$floor" "$(wl)"
+  for name in config.json config_background.json; do
+    want "1983 MiB $fx $name" mode light "$(modeof "$name")"
+    ref=a; [ "$name" = config.json ] || ref=b
+    want "1983 MiB $fx $name" diff '<     "mode": "auto",
+>     "mode": "light",' "$(diff "$w/ref/$ref" "$clone/configs/$name" | grep '^[<>]')"
+  done
+done
+# The edge: 2560 MiB is fast mode, one kB less is light.
+mem edge pi5 2621440; fresh; genb edge aarch64 75
+want "2560 MiB" mode auto "$(modeof config.json)"; want "2560 MiB" warnings "" "$(wl)"
+mem edge pi5 2621439; fresh; genb edge aarch64 75
+want "2621439 kB" mode light "$(modeof config.json)"; want "2621439 kB" warning "[WARNING] This host has 2559 MiB of memory, under the 2560 MiB RandomX's fast mode needs: new configs use its light mode, slower but within memory." "$(wl)"
+# A figure with a leading zero is a decimal number.
+fresh; on pi5 aarch64 eval "total_mem_mib() { echo 02560; }; BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup POOL_URL=gulf.moneroocean.stream PORT=10128 PASS=rig1 DEFAULT_PASS=x \
+  WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false; check_board; generate_config_files"
+want "leading zero" mode auto "$(modeof config.json)"; want "leading zero" warnings "" "$(wl)"
+# No meminfo: nothing is known, the config is v0.1.1's.
+fresh; on pi5 aarch64 eval "MEMINFO=/nonexistent; BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup POOL_URL=gulf.moneroocean.stream PORT=10128 PASS=rig1 DEFAULT_PASS=x \
+  WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false; check_board; generate_config_files"
+want "no meminfo" mode auto "$(modeof config.json)"; want "no meminfo" warnings "" "$(wl)"
+# x86 at 16 GiB: the config is byte for byte the one written with no memory figure.
+fresh; gen x86 x86_64 75; cp "$clone/configs/config.json" "$w/ref/x86"
+mem big x86 16777216; fresh; genb big x86_64 75
+cmp -s "$w/ref/x86" "$clone/configs/config.json" || fail "x86 at 16 GiB: config.json differs"
+# Only the "mode" line of "randomx" changes, not one of another object.
+fresh; sed 's/^  "cpu": {$/  "cpu": {\n    "mode": "x",/' "$clone/templates/config.json.template" > "$w/t.json" && cp "$w/t.json" "$clone/templates/config.json.template"
+mem small pi5 2030592; genb small aarch64 75
+want "other mode line" "cpu mode" x "$(jq -r .cpu.mode "$clone/configs/config.json" 2>/dev/null)"
+want "other mode line" "randomx mode" light "$(modeof config.json)"
+# A kept config: the warning is printed, the file is not touched.
+fresh; mkdir -p "$clone/configs"; printf '{"x": 1}\n' > "$clone/configs/config.json"; cp "$clone/configs/config.json" "$w/kept.json"
+genb small aarch64 100; want "kept, small" exit 0 "$code"; want "kept, small" warning "$floor" "$(wl)"
+cmp -s "$w/kept.json" "$clone/configs/config.json" || fail "kept, small: the config changed"
+want "kept, small" "new config" light "$(modeof config_background.json)"
+
+# A12: the line, from Hugepagesize and nr_hugepages; nothing is written.
+hp() { printf '%s\n' "$out" | grep '^\[INFO\] Huge pages'; }
+mem hp pi5 16777216; fresh; genb hp aarch64 75
+want "huge pages pi5" line "[INFO] Huge pages: none (kernel)." "$(hp)"
+mem hp opi5plus 16777216 2048 0; printf '0\n' > "$w/fx/hp/hp"; cp "$w/fx/hp/hp" "$w/hp.before"
+fresh; genb hp aarch64 75
+want "huge pages 2 MB" line "[INFO] Huge pages: 0 of the 1280 2 MB pages RandomX needs are reserved." "$(hp)"
+cmp -s "$w/hp.before" "$w/fx/hp/hp" || fail "huge pages 2 MB: nr_hugepages changed"
+mem hp opi5plus 16777216 2048 1000; fresh; genb hp aarch64 75
+want "huge pages 1000" line "[INFO] Huge pages: 1000 of the 1280 2 MB pages RandomX needs are reserved." "$(hp)"
+mem hp opi5plus 16777216 2048 abc; fresh; genb hp aarch64 75
+want "huge pages unreadable count" line "[INFO] Huge pages: 0 of the 1280 2 MB pages RandomX needs are reserved." "$(hp)"
+mem hp opi5plus 16777216 2048; fresh; genb hp aarch64 75
+want "huge pages no count file" line "[INFO] Huge pages: 0 of the 1280 2 MB pages RandomX needs are reserved." "$(hp)"
+mem hp opi5plus 16777216 32768 0; fresh; genb hp aarch64 75
+want "huge pages 32 MB" line "[INFO] Huge pages: 0 of the 80 32 MB pages RandomX needs are reserved." "$(hp)"
+mem hp opi5plus 2030592 2048 0; fresh; genb hp aarch64 75
+want "huge pages light" line "[INFO] Huge pages: 0 of the 128 2 MB pages RandomX needs are reserved." "$(hp)"
+for case in "other aarch64" "x86 x86_64"; do
+  read -r fx arch <<< "$case"
+  mem hp "$fx" 16777216 2048 0; fresh; genb hp "$arch" 75
+  want "huge pages $fx" line "" "$(hp)"
+done
+
+# A10 with only the background config kept; every config kept under --mode prints A10 and no A9 line.
+fresh; mkdir -p "$clone/configs"; printf '{}\n' > "$clone/configs/config_background.json"; chk eco
+want "kept background only" warning "$a10" "$(wl)"
+fresh; mkdir -p "$clone/configs"; printf '{}\n' > "$clone/configs/config.json"; printf '{}\n' > "$clone/configs/config_background.json"
+gen vendor-numbering aarch64 75 MODE=eco; want "all kept, eco" exit 0 "$code"
+want "all kept, eco" "A9 lines" 0 "$(count 'CPUs\|does not fit')"
+genb vendor-numbering aarch64 75 MODE=eco
+want "all kept, eco, main step" warnings "$a10" "$(wl)"
+# The fallback never names more CPUs than the host allows.
+allowed opi-0-1 opi5plus 0-1
+fresh; gen opi-0-1 aarch64 75 MODE=eco; want "two CPUs, eco" exit 0 "$code"
+want "two CPUs, eco" rx '"rx": [0, 1],' "$(rxs config.json)"
+want "two CPUs, eco" warnings "[WARNING] CPUs 4, 5, 6, 7 of the eco list are not ones this installer may run on: left out.
+[WARNING] The eco list of profile rk3588 does not fit this host's CPUs: mining on 2 CPUs chosen by capacity instead." "$(wl)"
 [ "$rc" -eq 0 ] && echo "PASS board-profiles"
 exit "$rc"
