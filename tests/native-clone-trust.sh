@@ -153,6 +153,19 @@ chmod 0775 "$w/base"; run parent-group; refused parent-group "$parent_line"
 # The user's own private group may write the base directory too (mkdir under Ubuntu's umask 0002).
 ID_MODE=private run parent-private; kept parent-private
 chmod 0755 "$w/base"
+# An ACL can open a base directory its mode keeps closed. Linux shows the ACL's mask in the group
+# bits, so the private group's exemption ends there; on macOS an entry that allows a write is
+# refused and a deny-only one is fine (/Users/<you> carries group:everyone deny delete).
+if [ "$(uname -s)" = Darwin ]; then
+  chmod +a "everyone allow add_file,add_subdirectory,delete_child" "$w/base"
+  run parent-acl; refused parent-acl "$parent_line"
+  chmod -N "$w/base"; chmod +a "everyone deny delete" "$w/base"
+  run parent-acl-deny; kept parent-acl-deny
+  chmod -N "$w/base"
+elif setfacl -m u:54321:rwx "$w/base" 2>/dev/null; then
+  ID_MODE=private run parent-acl; refused parent-acl "$parent_line"
+  setfacl -b "$w/base"
+fi
 # -d through a link in a folder anyone can write: the run checks and uses the real path, so a link
 # re-pointed after the check changes nothing.
 mkdir "$w/open" && chmod 0777 "$w/open" && ln -s "$w/base" "$w/open/lb"
@@ -176,7 +189,7 @@ fi
 mv "$c" "$w/away"; run missing; kept missing; mv "$w/away" "$c"
 
 # Functions taken from scripts/install.sh: root, sudo and a fresh clone.
-fns="only_user_can_write check_base_clone clone_repository check_repo_exists install_project"
+fns="only_user_can_write dir_acl check_base_clone clone_repository check_repo_exists install_project"
 {
   printf 'info() { echo "[INFO] $1"; }\nsuccess() { echo "[SUCCESS] $1"; }\nwarning() { echo "[WARNING] $1"; }\nerror() { echo "[ERROR] $1" >&2; return 1; }\n'
   # Every step install_project takes after it decides to clone or reuse: one ran if STEP shows.

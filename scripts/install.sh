@@ -677,6 +677,33 @@ function check_repo_exists() {
     fi
 }
 
+# A directory above the clone may carry an ACL its mode bits don't show. macOS lists each entry
+# under ls -e; one that allows adding, removing or rewriting entries, or rewriting the ACL or the
+# owner, lets another user in (1), while a deny entry doesn't (/Users/<you> carries
+# group:everyone deny delete). On Linux the group bits then show the ACL's mask and the mode ends
+# with + (2), so a group write there is no longer the private group's alone. 0: no ACL that counts.
+function dir_acl() {
+    local listing line
+    if [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
+        listing=$(ls -ld -- "$1/" 2>/dev/null) || return 1
+        case ${listing%% *} in
+            *+) return 2 ;;
+        esac
+        return 0
+    fi
+    listing=$(ls -lde -- "$1/" 2>/dev/null) || return 1
+    case $listing in
+        *$'\n'*) listing=${listing#*$'\n'} ;;
+        *) return 0 ;;
+    esac
+    while IFS= read -r line; do
+        case $line in
+            *" allow "*add_file* | *" allow "*add_subdirectory* | *" allow "*delete_child* | \
+                *" allow "*write* | *" allow "*chown*) return 1 ;;
+        esac
+    done <<< "$listing"
+}
+
 # The clone a native run builds, configures and sets up the service from, often as root: a git
 # clone in which every path belongs to you or root (as root, also to the user who ran sudo, who can
 # become root anyway) and none can be changed by another user. The run executes code from anywhere
@@ -685,13 +712,13 @@ function check_repo_exists() {
 # its owner alone: its own mode is 777 on Linux, and what it points to inside the clone is read
 # anyway. A link at the clone's path is refused, as later steps would act through it; find never
 # follows one (-P), so a link swapped in after that test is read as a link. An ACL is read on the
-# clone's folder only, whose default ACL every new path inherits. Above the clone, a user who can
-# change the base directory or a directory above it could swap the clone between this check and
-# the build, unless the directory is sticky (/tmp). It only reads. Nothing at the path passes once
+# clone's folder, whose default ACL every new path inherits, and on each directory above it. Above
+# the clone, a user who can change the base directory or a directory above it could swap the clone
+# between this check and the build, unless the directory is sticky (/tmp). It only reads. Nothing at the path passes once
 # the directories above it do: the run then clones there. "fresh" says this run has just cloned it,
 # so a path others can change points at the umask.
 function check_base_clone() {
-    local dir="$1" fresh="${2:-}" uid owners trusted groups bad remedy base check rest
+    local dir="$1" fresh="${2:-}" uid owners trusted groups dir_groups acl bad remedy base check rest
     remedy="Move $dir away and run the installer again, or pass -d with another base directory."
     uid=$(id -u 2>/dev/null)
     owners=(! -user "$uid" ! -user 0)
@@ -751,7 +778,12 @@ function check_base_clone() {
     fi
     check=
     while :; do
-        if [ "$(find "$check/" -maxdepth 0 "(" "${trusted[@]}" ")" "(" "(" ! -perm -0002 ! "(" "${groups[@]}" ")" ")" -o -perm -1000 ")" -print 2>/dev/null)" != "$check/" ]; then
+        dir_groups=("${groups[@]}")
+        dir_acl "$check"
+        acl=$?
+        [ "$acl" = 2 ] && dir_groups=(-perm -0020)
+        if [ "$acl" = 1 ] ||
+            [ "$(find "$check/" -maxdepth 0 "(" "${trusted[@]}" ")" "(" "(" ! -perm -0002 ! "(" "${dir_groups[@]}" ")" ")" -o -perm -1000 ")" -print 2>/dev/null)" != "$check/" ]; then
             error "${check:-/} can be changed by a user other than you, so this run does not use $dir. Pass -d with a directory only you can change."
             return 1
         fi
