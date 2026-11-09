@@ -229,6 +229,14 @@ want fresh-open exit 1 "$code"
 want fresh-open stderr "[ERROR] $c can be changed by a user other than you, so this run does not use $c. This run has just cloned it, so your umask is the likely cause: remove $c, run umask 022, and run the installer again." "$err"
 grep -qxF "clone --recurse-submodules https://example.invalid/repo.git $c" "$w/git.log" || fail "fresh-open: git did not clone into $c"
 rm -rf "$c"
+# An empty folder made at the path after the first check: git would fill a folder its maker can
+# rename, so the run makes the folder itself and refuses one that is already there.
+mkdir "$c" && chmod 755 "$c"
+call fresh-taken clone_repository
+want fresh-taken exit 1 "$code"
+want fresh-taken stderr "[ERROR] $c is already there or cannot be made, so this run does not clone into it. Move $c away and run the installer again, or pass -d with another base directory." "$err"
+[ ! -e "$w/git.log" ] || fail "fresh-taken: git ran: $(cat "$w/git.log")"
+rmdir "$c"
 call appeared appear
 want appeared exit 1 "$code"
 want appeared stderr "$(open_line "$c/Makefile")" "$err"

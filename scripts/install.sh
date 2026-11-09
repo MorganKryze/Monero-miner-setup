@@ -774,12 +774,18 @@ function clone_repository() {
 
     info "Cloning project repository to $target_dir..."
 
+    # git clones into an empty folder already at the path, and whoever made it there since the
+    # first check could rename the .git git lays out in it and put in their own, whose hooks git
+    # then runs. mkdir fails when anything is there, so the folder git fills is this run's own.
+    if ! mkdir -- "$target_dir" 2>/dev/null; then
+        error "$target_dir is already there or cannot be made, so this run does not clone into it. Move $target_dir away and run the installer again, or pass -d with another base directory."
+        return 1
+    fi
     if ! git clone --recurse-submodules "$REPO_URL" "$target_dir"; then
         error "Failed to clone repository (with submodules) from $REPO_URL."
         return 1
     fi
-    # git keeps the owner and mode of an empty folder made at that path since the first check, and
-    # lays out the rest under your umask: the fresh clone gets the same check.
+    # git lays out the clone under your umask: the fresh clone gets the same check.
     if ! check_base_clone "$target_dir" fresh; then
         return 1
     fi
