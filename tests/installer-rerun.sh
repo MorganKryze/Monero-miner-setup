@@ -45,6 +45,8 @@ run() {
       cp "$root/templates/config.json.template" "$root/templates/config_background.json.template" "$t/templates/"
     }
     set_script_permissions() { :; }
+    # Whose clone a re-run reuses is tests/native-clone-trust.sh's business: here every clone passes.
+    check_base_clone() { :; }
     build_fails=${2:-}
     build_project() {
       echo "STEP build"

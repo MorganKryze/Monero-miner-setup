@@ -62,7 +62,7 @@ env="$w/repo/docker/.env" vpn="$w/repo/docker/.env.vpn"
 run() {
   local name=$1; shift
   rm -f "$w/docker.log"
-  (cd "$w/repo" && env -i HOME="$w" PATH="$w/bin:$w/tools" ${ID_MODE:+ID_MODE=$ID_MODE} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} ${KEY:+WIREGUARD_PRIVATE_KEY=$KEY} \
+  (cd "$w/repo" && env -i HOME="$w" PATH="${PATH_HEAD:+$PATH_HEAD:}$w/bin:$w/tools" ${ID_MODE:+ID_MODE=$ID_MODE} ${OTHER_OWNS:+OTHER_OWNS=$OTHER_OWNS} ${KEY:+WIREGUARD_PRIVATE_KEY=$KEY} \
     ${ADDR:+WIREGUARD_ADDRESSES=$ADDR} "$BASH" --norc --noprofile "$w/repo/scripts/docker_setup.sh" "$@") > "$w/out" 2> "$w/err"
   code=$?
   out=$(sed 's/\x1b\[[0-9;]*m//g' "$w/out") err=$(sed 's/\x1b\[[0-9;]*m//g' "$w/err")
@@ -148,6 +148,23 @@ if [ "$(uname -s)" = Darwin ]; then
   want env-acl exit 1 "$code"
   want env-acl stderr "$(refuse_line "$env")" "$err"
   cmp -s "$env" "$w/env.first" || fail "env-acl: .env changed"
+  chmod -N "$env"
+fi
+# A GNU ls ahead of /bin in PATH (Homebrew's gnubin, nix) has no -e: the kept file's ACL is still
+# read, with the system's own ls, and a file that has none is kept.
+mkdir "$w/gnu" && printf '#!/bin/bash\nfor a; do case $a in --) break ;; -*e*) echo "ls: invalid option -- %s" >&2; exit 2 ;; esac; done\nexec %q "$@"\n' "'e'" "$(command -v ls)" > "$w/gnu/ls"
+chmod 755 "$w/gnu" "$w/gnu/ls"
+PATH_HEAD="$w/gnu" run gnu-ls -w "$wallet" -y
+want gnu-ls exit 0 "$code"
+has gnu-ls "$out" "$(keep_line "$env")"
+want gnu-ls stderr "" "$err"
+cmp -s "$env" "$w/env.first" || fail "gnu-ls: .env changed"
+if [ "$(uname -s)" = Darwin ]; then
+  chmod +a "everyone allow write" "$env"
+  PATH_HEAD="$w/gnu" run gnu-ls-acl -w "$wallet" -y --autostart
+  want gnu-ls-acl exit 1 "$code"
+  want gnu-ls-acl stderr "$(refuse_line "$env")" "$err"
+  cmp -s "$env" "$w/env.first" || fail "gnu-ls-acl: .env changed"
   chmod -N "$env"
 fi
 # --overwrite-env replaces such a file whole, so it is not refused.

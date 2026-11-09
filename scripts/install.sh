@@ -59,7 +59,8 @@ function find_own_clone() {
 # prints the folder only when it is safe, so a failed check, or a failed id, falls back to the fetch.
 # The mode bits miss an ACL, which can let anyone add files to the folder: one on the folder is a no
 # too. macOS lists each entry on a line of its own under ls -e (its + marker gives way to @ when
-# the folder has extended attributes); Linux ends the mode with +.
+# the folder has extended attributes), from /bin/ls: a GNU ls ahead of it in PATH has no -e;
+# Linux ends the mode with +.
 function only_user_can_write() {
     local group_ok listing
     group_ok=(! -perm -0020)
@@ -68,7 +69,7 @@ function only_user_can_write() {
     fi
     [ "$(find "$1/" -maxdepth 0 ! -perm -0002 "${group_ok[@]}" -print 2>/dev/null)" = "$1/" ] || return 1
     if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-        listing=$(ls -lde -- "$1/" 2>/dev/null) || return 1
+        listing=$(/bin/ls -lde -- "$1/" 2>/dev/null) || return 1
     else
         listing=$(ls -ld -- "$1/" 2>/dev/null) || return 1
     fi
@@ -344,16 +345,18 @@ function validate_directory() {
         info "Using base directory: $dir." >&2
     fi
 
+    # Every step acts on the directory the checks read, never on a link a user could point
+    # elsewhere later.
+    path=$(CDPATH= cd -- "$dir" && pwd -P) || return 1
+    if [ "$path" != "$dir" ]; then
+        info "Resolved to $path." >&2
+        dir=$path
+    fi
+
     # Root goes on to run the clone's scripts: a user who can change the base directory, a clone
     # already there or any directory above them would choose what root runs, as with the
     # installer's own clone above. This holds whatever chose the directory, -d included.
     if [ "$(id -u)" == "0" ] && [ "$(uname -s)" == "Linux" ]; then
-        path=$(cd -- "$dir" && pwd -P) || return 1
-        # Root acts on the directory it checked, never on a link a user could point elsewhere later.
-        if [ "$path" != "$dir" ]; then
-            info "Resolved to $path." >&2
-            dir=$path
-        fi
         remedy="Pass -d"
         if [ -e "$path/$REPO_NAME" ] || [ -L "$path/$REPO_NAME" ]; then
             path="$path/$REPO_NAME"
@@ -679,6 +682,123 @@ function check_repo_exists() {
     fi
 }
 
+# A directory above the clone may carry an ACL its mode bits don't show. macOS lists each entry
+# under /bin/ls -e (a GNU ls ahead of it in PATH has no -e); one that allows adding, removing or
+# rewriting entries, or rewriting the ACL or the owner, lets another user in (1), while a deny
+# entry doesn't (/Users/<you> carries group:everyone deny delete). On Linux the group bits then
+# show the ACL's mask and the mode ends with + (2), so a group write there is no longer the private
+# group's alone. 0: no ACL that counts.
+function dir_acl() {
+    local listing line
+    if [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
+        listing=$(ls -ld -- "$1/" 2>/dev/null) || return 1
+        case ${listing%% *} in
+            *+) return 2 ;;
+        esac
+        return 0
+    fi
+    listing=$(/bin/ls -lde -- "$1/" 2>/dev/null) || return 1
+    case $listing in
+        *$'\n'*) listing=${listing#*$'\n'} ;;
+        *) return 0 ;;
+    esac
+    while IFS= read -r line; do
+        case $line in
+            *" allow "*add_file* | *" allow "*add_subdirectory* | *" allow "*delete_child* | \
+                *" allow "*write* | *" allow "*chown*) return 1 ;;
+        esac
+    done <<< "$listing"
+}
+
+# The clone a native run builds, configures and sets up the service from, often as root: a git
+# clone in which every path belongs to you or root (as root, also to the user who ran sudo, who can
+# become root anyway) and none can be changed by another user. The run executes code from anywhere
+# in it (git's config, the Makefile, the sources it compiles, the service scripts), so the whole
+# tree is read, not a list of paths that goes stale as the tree grows. A link inside it counts by
+# its owner alone: its own mode is 777 on Linux, and what it points to inside the clone is read
+# anyway. A link at the clone's path is refused, as later steps would act through it; find never
+# follows one (-P), so a link swapped in after that test is read as a link. An ACL is read on the
+# clone's folder, whose default ACL every new path inherits, and on each directory above it. Above
+# the clone, a user who can change the base directory or a directory above it could swap the clone
+# between this check and the build, unless the directory is sticky (/tmp). It only reads. Nothing at the path passes once
+# the directories above it do: the run then clones there. "fresh" says this run has just cloned it,
+# so a path others can change points at the umask.
+function check_base_clone() {
+    local dir="$1" fresh="${2:-}" uid owners trusted groups dir_groups acl bad remedy base check rest
+    remedy="Move $dir away and run the installer again, or pass -d with another base directory."
+    uid=$(id -u 2>/dev/null)
+    owners=(! -user "$uid" ! -user 0)
+    trusted=(-user "$uid" -o -user 0)
+    if [ "$uid" = "0" ] && [ -n "${SUDO_USER:-}" ]; then
+        owners+=(! -user "$SUDO_USER")
+        trusted+=(-o -user "$SUDO_USER")
+    fi
+    # The user's own group, as only_user_can_write takes it.
+    groups=(-perm -0020)
+    if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
+        groups+=(! -group "$(id -g 2>/dev/null)")
+    fi
+    if [ -L "$dir" ]; then
+        # -d takes the base directory, so the remedy names the folder that holds the target.
+        local target
+        if target=$(cd -P -- "$dir" 2>/dev/null && pwd -P); then
+            error "$dir is a link, so this run does not use it. Pass -d with ${target%/*}, the folder that holds the one it points to."
+        else
+            error "$dir is a link, so this run does not use it. Move $dir away and run the installer again, or pass -d with another base directory."
+        fi
+        return 1
+    fi
+    if [ -e "$dir" ]; then
+        if [ ! -d "$dir" ] || [ ! -e "$dir/.git" ]; then
+            error "$dir is not a git clone, so this run does not use it. $remedy"
+            return 1
+        fi
+        if ! bad=$(find -P "$dir" "(" "${owners[@]}" ")" -print -quit 2>/dev/null); then
+            error "$dir cannot be read whole, so this run does not use it. $remedy"
+            return 1
+        fi
+        if [ -n "$bad" ]; then
+            error "$bad belongs to another user, so this run does not use $dir. $remedy"
+            return 1
+        fi
+        if ! bad=$(find -P "$dir" ! -type l "(" -perm -0002 -o "(" "${groups[@]}" ")" ")" -print -quit 2>/dev/null); then
+            error "$dir cannot be read whole, so this run does not use it. $remedy"
+            return 1
+        fi
+        if [ -z "$bad" ] && ! only_user_can_write "$dir"; then
+            bad=$dir
+        fi
+        if [ -n "$bad" ]; then
+            if [ -n "$fresh" ]; then
+                remedy="This run has just cloned it, so your umask is the likely cause: remove $dir, run umask 022, and run the installer again."
+            fi
+            error "$bad can be changed by a user other than you, so this run does not use $dir. $remedy"
+            return 1
+        fi
+    fi
+    # Each directory from / down to the base directory, read on its real path.
+    base=${dir%/*}
+    if ! base=$(CDPATH= cd -- "${base:-/}" 2>/dev/null && pwd -P); then
+        error "${dir%/*} can be changed by a user other than you, so this run does not use $dir. Pass -d with a directory only you can change."
+        return 1
+    fi
+    check=
+    while :; do
+        dir_groups=("${groups[@]}")
+        dir_acl "$check"
+        acl=$?
+        [ "$acl" = 2 ] && dir_groups=(-perm -0020)
+        if [ "$acl" = 1 ] ||
+            [ "$(find "$check/" -maxdepth 0 "(" "${trusted[@]}" ")" "(" "(" ! -perm -0002 ! "(" "${dir_groups[@]}" ")" ")" -o -perm -1000 ")" -print 2>/dev/null)" != "$check/" ]; then
+            error "${check:-/} can be changed by a user other than you, so this run does not use $dir. Pass -d with a directory only you can change."
+            return 1
+        fi
+        [ "${check:-/}" = "$base" ] && break
+        rest=${base#"$check"/}
+        check=$check/${rest%%/*}
+    done
+}
+
 function check_if_built() {
     local target_dir="$BASE_DIR/$REPO_NAME"
 
@@ -698,8 +818,21 @@ function clone_repository() {
 
     info "Cloning project repository to $target_dir..."
 
+    # git clones into an empty folder already at the path, and whoever made it there since the
+    # first check could rename the .git git lays out in it and put in their own, whose hooks git
+    # then runs. mkdir fails when anything is there, so the folder git fills is this run's own.
+    if ! mkdir -- "$target_dir" 2>/dev/null; then
+        error "$target_dir is already there or cannot be made, so this run does not clone into it. Move $target_dir away and run the installer again, or pass -d with another base directory."
+        return 1
+    fi
     if ! git clone --recurse-submodules "$REPO_URL" "$target_dir"; then
+        # The folder is this run's own and git left it empty: remove it, so a re-run can clone.
+        rmdir -- "$target_dir" 2>/dev/null
         error "Failed to clone repository (with submodules) from $REPO_URL."
+        return 1
+    fi
+    # git lays out the clone under your umask: the fresh clone gets the same check.
+    if ! check_base_clone "$target_dir" fresh; then
         return 1
     fi
 
@@ -1075,6 +1208,8 @@ function install_project() {
     info "Checking project installation status..."
 
     if check_repo_exists; then
+        # A clone made there since the check in main is checked before it is used.
+        check_base_clone "$BASE_DIR/$REPO_NAME" || return 1
         cloned=true
         check_if_built && built=true
     fi
@@ -1196,6 +1331,11 @@ function warning_before_install() {
 
 # ===== Main script execution =====
 function main() {
+    # git lays out the clone, and make the build, under this umask: with group write on (umask 002),
+    # a shared group (macOS's staff) could add a hook or rewrite .git/config while git still runs,
+    # and git would run it as you. A stricter umask stays.
+    umask g-w,o-w
+
     load_toolbox
 
     display_header
@@ -1211,6 +1351,10 @@ function main() {
 
     BASE_DIR=$(validate_directory "$BASE_DIR")
     if [ $? -ne 0 ]; then
+        exit 1
+    fi
+    # A re-run builds and runs what it finds there: only a clone that passes this check.
+    if ! check_base_clone "$BASE_DIR/$REPO_NAME"; then
         exit 1
     fi
     sleep $LOW_DELAY

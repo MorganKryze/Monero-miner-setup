@@ -15,6 +15,11 @@ Every release of Monero-miner-setup, newest first. The format follows
 - On arm64, `--threads` changed nothing: XMRig started a thread on every core whatever its hint. The native installer now writes the cores to mine on into new configs, that share of them rounded up, the biggest first. The Docker miner puts each thread on its own CPU, the biggest the container may use, at most one per CPU.
 - `make doctor` on arm64 reported missing AES-NI and x86 checks that don't apply. It now checks AES from the CPU's features, names the board, sizes huge pages by the kernel's page size, and skips AES-NI, AVX2, 1 GB pages and MSR. On every host it shows the CPUs each native config mines on.
 
+### Security
+
+- The native installer reuses the `Monero-miner-setup` clone in its base directory only when it is a git clone in which every file and folder belongs to you or root (as root, also to the user who ran `sudo`) and none can be changed by another user; otherwise it stops with one error line before it clones, builds or sets up anything. It checks a fresh clone the same way.
+- The native installer clones and builds with group and other write turned off in its umask, so no other user can change the clone while git or make still writes it. A stricter umask stays.
+
 ## [0.1.0] - 2026-11-07
 
 The first tagged release. Installed before it? Read
