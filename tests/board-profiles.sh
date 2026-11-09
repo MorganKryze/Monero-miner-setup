@@ -402,5 +402,11 @@ fresh; gen opi-0-1 aarch64 75 MODE=eco; want "two CPUs, eco" exit 0 "$code"
 want "two CPUs, eco" rx '"rx": [0, 1],' "$(rxs config.json)"
 want "two CPUs, eco" warnings "[WARNING] CPUs 4, 5, 6, 7 of the eco list are not ones this installer may run on: left out.
 [WARNING] The eco list of profile rk3588 does not fit this host's CPUs: mining on 2 CPUs chosen by capacity instead." "$(wl)"
+# mawk, Debian's default awk, reads {m,n} in a regular expression as text: no awk program in a
+# script uses an interval (bash's own [[ =~ ]] checks may).
+if grep -nE 'awk' "$root"/scripts/*.sh | grep -E '\{[0-9]+(,[0-9]*)?\}' >"$w/interval"; then
+  fail "awk interval expression: $(head -n 1 "$w/interval")"
+fi
+
 [ "$rc" -eq 0 ] && echo "PASS board-profiles"
 exit "$rc"

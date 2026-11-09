@@ -1165,7 +1165,7 @@ function any_config_kept() {
 # MiB in light mode, rounded up). Reads only; nothing is reserved.
 function huge_page_line() {
     local size="" label need have="" need_mib=2560
-    size=$(awk '/^Hugepagesize:/ && $2 ~ /^[0-9]{1,9}$/ && $3 == "kB" { print $2; exit }' "$MEMINFO" 2>/dev/null)
+    size=$(awk '/^Hugepagesize:/ && $2 ~ /^[0-9]+$/ && $3 == "kB" { print $2; exit }' "$MEMINFO" 2>/dev/null)
     if [[ ! "$size" =~ ^[0-9]{1,9}$ ]] || [ $((10#$size)) -eq 0 ]; then
         info "Huge pages: none (kernel)."
         return 0
