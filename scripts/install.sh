@@ -706,7 +706,13 @@ function check_base_clone() {
         groups+=(! -group "$(id -g 2>/dev/null)")
     fi
     if [ -L "$dir" ]; then
-        error "$dir is a link, so this run does not use it. Pass -d with the folder it points to."
+        # -d takes the base directory, so the remedy names the folder that holds the target.
+        local target
+        if target=$(cd -P -- "$dir" 2>/dev/null && pwd -P); then
+            error "$dir is a link, so this run does not use it. Pass -d with ${target%/*}, the folder that holds the one it points to."
+        else
+            error "$dir is a link, so this run does not use it. Move $dir away and run the installer again, or pass -d with another base directory."
+        fi
         return 1
     fi
     if [ -e "$dir" ]; then

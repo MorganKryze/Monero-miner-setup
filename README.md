@@ -458,7 +458,7 @@ The container runs as uid 999, `xmrig`. The compose file and the minimal run abo
 
 **`<clone> is already there or cannot be made, so this run does not clone into it.`** Something turned up at the clone's path after the installer checked it, and whoever made it could change what git puts there. Move it away and run the installer again, or pass `-d` with another base directory.
 
-**`<clone> is a link, so this run does not use it.`** The installer won't act through a link at the clone's path. Pass `-d` with the folder the link points to.
+**`<clone> is a link, so this run does not use it.`** The installer won't act through a link at the clone's path. Pass `-d` with the folder that holds the one the link points to (the error line names it), so the installer finds the clone there. A link to nothing: move it away and run the installer again.
 
 **`<directory> can be changed by a user other than you, so this run does not use <clone>.`** followed by `Pass -d with a directory only you can change.` Another user could swap the clone inside that directory between the check and the build. A sticky directory such as `/tmp` is fine. Pass `-d` with a directory that only you (or root) can change.
 

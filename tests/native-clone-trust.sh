@@ -143,7 +143,7 @@ run unreadable; refused unreadable "[ERROR] $c cannot be read whole, so this run
 chmod 755 "$c/build-xmrig"
 # A link at the clone's path is refused, even to a good clone: later steps would act through it.
 mv "$c" "$w/real"; ln -s "$w/real" "$c"
-run link-path; refused link-path "[ERROR] $c is a link, so this run does not use it. Pass -d with the folder it points to."
+run link-path; refused link-path "[ERROR] $c is a link, so this run does not use it. Pass -d with $w, the folder that holds the one it points to."
 rm "$c"; mv "$w/real" "$c"
 # The base directory: another user could swap the clone in it, unless it is sticky.
 parent_line="[ERROR] $w/base can be changed by a user other than you, so this run does not use $c. Pass -d with a directory only you can change."
