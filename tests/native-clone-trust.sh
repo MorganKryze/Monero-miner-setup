@@ -151,6 +151,8 @@ parent_line="[ERROR] $w/base can be changed by a user other than you, so this ru
 chmod 0777 "$w/base"; run parent-open; refused parent-open "$parent_line"
 chmod 1777 "$w/base"; run parent-sticky; kept parent-sticky
 chmod 0775 "$w/base"; run parent-group; refused parent-group "$parent_line"
+# The user's own private group may write the base directory too (mkdir under Ubuntu's umask 0002).
+ID_MODE=private run parent-private; kept parent-private
 chmod 0755 "$w/base"
 # A directory above the base directory counts the same.
 chmod 0777 "$w"; run parent-above

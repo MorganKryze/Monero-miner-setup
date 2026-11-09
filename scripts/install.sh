@@ -698,6 +698,11 @@ function check_base_clone() {
         owners+=(! -user "$SUDO_USER")
         trusted+=(-o -user "$SUDO_USER")
     fi
+    # The user's own group, as only_user_can_write takes it.
+    groups=(-perm -0020)
+    if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
+        groups+=(! -group "$(id -g 2>/dev/null)")
+    fi
     if [ -L "$dir" ]; then
         error "$dir is a link, so this run does not use it. Pass -d with the folder it points to."
         return 1
@@ -714,11 +719,6 @@ function check_base_clone() {
         if [ -n "$bad" ]; then
             error "$bad belongs to another user, so this run does not use $dir. $remedy"
             return 1
-        fi
-        # The user's own group, as only_user_can_write takes it.
-        groups=(-perm -0020)
-        if [ "$(id -gn 2>/dev/null)" = "$(id -un 2>/dev/null)" ]; then
-            groups+=(! -group "$(id -g 2>/dev/null)")
         fi
         if ! bad=$(find -P "$dir" ! -type l "(" -perm -0002 -o "(" "${groups[@]}" ")" ")" -print -quit 2>/dev/null); then
             error "$dir cannot be read whole, so this run does not use it. $remedy"
@@ -743,7 +743,7 @@ function check_base_clone() {
     fi
     check=
     while :; do
-        if [ "$(find "$check/" -maxdepth 0 "(" "${trusted[@]}" ")" "(" "(" ! -perm -0002 ! -perm -0020 ")" -o -perm -1000 ")" -print 2>/dev/null)" != "$check/" ]; then
+        if [ "$(find "$check/" -maxdepth 0 "(" "${trusted[@]}" ")" "(" "(" ! -perm -0002 ! "(" "${groups[@]}" ")" ")" -o -perm -1000 ")" -print 2>/dev/null)" != "$check/" ]; then
             error "${check:-/} can be changed by a user other than you, so this run does not use $dir. Pass -d with a directory only you can change."
             return 1
         fi
