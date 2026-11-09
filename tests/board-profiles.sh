@@ -113,7 +113,7 @@ gen() {
 }
 rxs() { grep '"rx": \[' "$clone/configs/$1" | awk '{ $1 = $1; print }'; }
 bline() { printf '%s\n' "$out" | grep '^\[INFO\] Board:'; }
-a8="[ERROR] --mode needs a board profile, and this host has none: profiles cover bcm2712 (Raspberry Pi 5) and rk3588 (RK3588 and RK3588S boards such as the Orange Pi 5 Plus and 5 Max). Pass --threads PERCENT instead."
+no_profile_line="[ERROR] --mode needs a board profile, and this host has none: profiles cover bcm2712 (Raspberry Pi 5) and rk3588 (RK3588 and RK3588S boards such as the Orange Pi 5 Plus and 5 Max). Pass --threads PERCENT instead."
 
 # Arguments.
 perr1="[ERROR] --mode must be max or eco."
@@ -164,12 +164,12 @@ want "no board" line "" "$(bline)"
 for case in "other aarch64 MODE=eco" "x86 x86_64 MODE=max"; do
   read -r fx arch assign <<< "$case"
   fresh; gen "$fx" "$arch" 75 "$assign"
-  want "no profile, $case" exit 1 "$code"; want "no profile, $case" "error lines" "$a8" "$(printf '%s\n' "$out" | grep '^\[ERROR\]')"
+  want "no profile, $case" exit 1 "$code"; want "no profile, $case" "error lines" "$no_profile_line" "$(printf '%s\n' "$out" | grep '^\[ERROR\]')"
   [ ! -e "$clone/configs/config.json" ] || fail "no profile, $case: a config was written"
 done
 rm -rf "$w/base"; mkdir -p "$w/base"
 on x86 x86_64 eval "BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup MODE=max; check_board"
-want "check_board x86 max, no clone" exit 1 "$code"; want "check_board x86 max, no clone" output "$a8" "$out"
+want "check_board x86 max, no clone" exit 1 "$code"; want "check_board x86 max, no clone" output "$no_profile_line" "$out"
 on x86 x86_64 eval "BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup; check_board"
 want "check_board x86, no mode" exit 0 "$code"; want "check_board x86, no mode" output "" "$out"
 fresh; rm "$clone/scripts/board_profiles.conf"; gen pi5 aarch64 75 MODE=eco
@@ -196,7 +196,7 @@ for bad in "4-7; touch $w/pwned" "\$(touch $w/pwned)" 9-4 00000-7; do
   [ ! -e "$w/pwned" ] || { fail "hostile eco '$bad': the file ran"; rm -f "$w/pwned"; }
   want "hostile eco '$bad'" exit 1 "$code"
   want "hostile eco '$bad'" warnings 1 "$(count '^\[WARNING\]')"
-  want "hostile eco '$bad'" "last line" "$a8" "$(printf '%s\n' "$out" | tail -n 1)"
+  want "hostile eco '$bad'" "last line" "$no_profile_line" "$(printf '%s\n' "$out" | tail -n 1)"
   [ ! -e "$clone/configs/config.json" ] || fail "hostile eco '$bad': a config was written"
 done
 data rk3588.compatible "rockchip,rk3588 *"; fresh "$w/data.conf"
@@ -206,7 +206,7 @@ for case in "rockchip,rk3588 rk3588s" "rockchip,rk3588s opi5plus" "rockchip,rk35
   read -r word fx <<< "$case"
   data rk3588.compatible "$word"; fresh "$w/data.conf"
   gen "$fx" aarch64 75 MODE=eco; want "compatible '$word' on $fx" exit 1 "$code"
-  want "compatible '$word' on $fx" "error lines" "$a8" "$(printf '%s\n' "$out" | grep '^\[ERROR\]')"
+  want "compatible '$word' on $fx" "error lines" "$no_profile_line" "$(printf '%s\n' "$out" | grep '^\[ERROR\]')"
 done
 data rk3588.compatible "rockchip,rk3588 *"; fresh "$w/data.conf"
 gen other aarch64 75; want "star compatible, other" exit 0 "$code"; want "star compatible, other" board "" "$(bline)"
@@ -255,17 +255,17 @@ want "vendor max 4-7" rx '"rx": [4, 5, 6, 7],' "$(rxs config.json)"
 want "vendor max 4-7" warnings "" "$(wl)"
 
 # a kept config says the mode does not apply; it is never edited.
-a10="[WARNING] --mode does not apply to the kept configs. To apply it, run 'make clean-configs', the installer again with --mode, then 'make service-setup' and 'make restart'."
+kept_line="[WARNING] --mode does not apply to the kept configs. To apply it, run 'make clean-configs', the installer again with --mode, then 'make service-setup' and 'make restart'."
 chk() { on opi5plus aarch64 eval "BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup MODE=$1; check_board"; }
 fresh; mkdir -p "$clone/configs"; printf '{"x": 1}\n' > "$clone/configs/config.json"; cp "$clone/configs/config.json" "$w/kept.json"
-chk eco; want "kept" exit 0 "$code"; want "kept" warning "$a10" "$(wl)"
+chk eco; want "kept" exit 0 "$code"; want "kept" warning "$kept_line" "$(wl)"
 cmp -s "$w/kept.json" "$clone/configs/config.json" || fail "kept: the config changed"
 on opi5plus aarch64 eval "BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup POOL_URL=gulf.moneroocean.stream PORT=10128 PASS=rig1 DEFAULT_PASS=x \
   WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false MODE=eco; check_board; generate_config_files"
 want "kept, generate" exit 0 "$code"; want "kept, generate" "mode lines" 1 "$(count 'does not apply to the kept')"
 want "kept, generate" "threads lines" 0 "$(count 'threads does not apply')"
 cmp -s "$w/kept.json" "$clone/configs/config.json" || fail "kept, generate: the config changed"
-fresh; printf '{}\n' > "$clone/config.json"; chk eco; want "kept-root" warning "$a10" "$(wl)"
+fresh; printf '{}\n' > "$clone/config.json"; chk eco; want "kept-root" warning "$kept_line" "$(wl)"
 fresh; ln -s "$clone/configs/nothing.json" "$clone/config.json"; chk eco; want "dangling root link" warnings "" "$(wl)"
 fresh; mkdir -p "$clone/configs"; printf '{}\n' > "$clone/configs/config.json"; chk ""; want "installed" warnings "" "$(wl)"
 
@@ -305,7 +305,7 @@ want "reset" "board lines" 1 "$(count '^\[INFO\] Board:')"
 # A profile name is 1 to 16 lower case letters and digits.
 for name in RK3588 abcdefghijklmnopq; do
   sed "s/^rk3588\./$name./" "$root/scripts/board_profiles.conf" > "$w/data.conf"; fresh "$w/data.conf"; gen opi5plus aarch64 75 MODE=eco
-  want "name $name" exit 1 "$code"; want "name $name" "error lines" "$a8" "$(printf '%s\n' "$out" | grep '^\[ERROR\]')"
+  want "name $name" exit 1 "$code"; want "name $name" "error lines" "$no_profile_line" "$(printf '%s\n' "$out" | grep '^\[ERROR\]')"
 done
 # under 2560 MiB of total memory a new config gets RandomX's light mode; the huge page line.
 mem() { # new fixture, base fixture, MemTotal kB, optional Hugepagesize kB, optional nr_hugepages
@@ -390,12 +390,12 @@ done
 
 # A kept-config line with only the background config kept; every config kept under --mode prints the kept-config line and no CPU-fit line.
 fresh; mkdir -p "$clone/configs"; printf '{}\n' > "$clone/configs/config_background.json"; chk eco
-want "kept background only" warning "$a10" "$(wl)"
+want "kept background only" warning "$kept_line" "$(wl)"
 fresh; mkdir -p "$clone/configs"; printf '{}\n' > "$clone/configs/config.json"; printf '{}\n' > "$clone/configs/config_background.json"
 gen vendor-numbering aarch64 75 MODE=eco; want "all kept, eco" exit 0 "$code"
 want "all kept, eco" "CPU-fit lines" 0 "$(count 'CPUs\|does not fit')"
 genb vendor-numbering aarch64 75 MODE=eco
-want "all kept, eco, main step" warnings "$a10" "$(wl)"
+want "all kept, eco, main step" warnings "$kept_line" "$(wl)"
 # The fallback never names more CPUs than the host allows.
 allowed opi-0-1 opi5plus 0-1
 fresh; gen opi-0-1 aarch64 75 MODE=eco; want "two CPUs, eco" exit 0 "$code"
