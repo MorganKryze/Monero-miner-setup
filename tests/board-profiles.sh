@@ -20,7 +20,7 @@ done
 printf '#!/bin/sh\necho 4\n' > "$w/tools/getconf" && chmod +x "$w/tools/getconf"
 
 shared="board_compatible board_model profile_value find_profile expand_cpus profile_ok profile_status total_mem_mib"
-fns="is_arm64 ranked_cpus arm_cpu_list pick_cpu_list $shared mode_cpu_list any_config_kept configs_exist huge_page_line resolve_board check_board usage validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
+fns="is_arm64 ranked_cpus arm_cpu_list pick_cpu_list $shared mode_cpu_list config_rx_mode kept_config_in_fast_mode any_config_kept configs_exist huge_page_line resolve_board check_board usage validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
 {
   sed -n '/^# ===== Constants =====$/,/^DOCKER_SCRIPT_URL=/p' "$root/scripts/install.sh"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done
@@ -359,9 +359,37 @@ want "other mode line" "cpu mode" x "$(jq -r .cpu.mode "$clone/configs/config.js
 want "other mode line" "randomx mode" light "$(modeof config.json)"
 # A kept config: the warning is printed, the file is not touched.
 fresh; mkdir -p "$clone/configs"; printf '{"x": 1}\n' > "$clone/configs/config.json"; cp "$clone/configs/config.json" "$w/kept.json"
-genb small aarch64 100; want "kept, small" exit 0 "$code"; want "kept, small" warning "$floor" "$(wl)"
+remedy=" A kept config stays in fast mode: to apply light mode, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
+genb small aarch64 100; want "kept, small" exit 0 "$code"; want "kept, small" warning "$floor$remedy" "$(wl)"
 cmp -s "$w/kept.json" "$clone/configs/config.json" || fail "kept, small: the config changed"
 want "kept, small" "new config" light "$(modeof config_background.json)"
+# A kept config in fast mode: the same line names the remedy; one already in light mode, or none, does not.
+keptcfg() { # <name> <randomx mode line text> : a kept config at configs/<name>
+  mkdir -p "$clone/configs"
+  printf '{\n  "randomx": {\n    "init": -1,\n%s    "1gb-pages": false\n  },\n  "cpu": {\n    "mode": "light",\n    "rx": [0, 1]\n  }\n}\n' "$2" > "$clone/configs/$1"
+}
+fresh; keptcfg config.json '    "mode": "light",
+'; keptcfg config_background.json '    "mode": "light",
+'
+genb small aarch64 100; want "kept light" warning "$floor" "$(wl)"
+fresh; keptcfg config.json '    "mode": "light",
+'
+genb small aarch64 100; want "kept light, one" warning "$floor" "$(wl)"
+fresh; keptcfg config.json '    "mode": "light",
+'; keptcfg config_background.json '    "mode": "auto",
+'
+genb small aarch64 100; want "kept auto, one" warning "$floor$remedy" "$(wl)"
+fresh; keptcfg config.json ''
+genb small aarch64 100; want "kept, no mode line" warning "$floor$remedy" "$(wl)"
+fresh; keptcfg config.json '    "mode": "auto",
+'
+genb small aarch64 100; want "kept auto, cpu mode light" warning "$floor$remedy" "$(wl)"
+fresh; printf '{"randomx": {"mode": "auto"}}\n' > "$clone/config.json"
+genb small aarch64 100; want "kept at the root" warning "$floor$remedy" "$(wl)"
+# At or above the floor the warning is not there, kept config or not.
+mem big pi5 16777216; fresh; keptcfg config.json '    "mode": "auto",
+'
+genb big aarch64 100; want "kept auto, 16 GiB" warnings "" "$(wl)"
 
 # the line, from Hugepagesize and nr_hugepages; nothing is written.
 hp() { printf '%s\n' "$out" | grep '^\[INFO\] Huge pages'; }

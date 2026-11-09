@@ -214,6 +214,38 @@ function check_cpu_arm() {
     note "AES-NI, AVX2, 1 GB page and MSR checks are x86-only: skipped"
 }
 
+# Prints the RandomX mode a config sets, from the "mode" line of its "randomx" block (another
+# object's "mode" is not it). Prints nothing when the config sets none. No awk interval: mawk.
+function config_rx_mode() {
+    awk '
+        /^[ \t]*"randomx": [{]$/ { inrx = 1; next }
+        inrx && /^[ \t]*[}],?$/ { inrx = 0 }
+        inrx && /^[ \t]*"mode": "[^"]*",?$/ {
+            v = $0
+            sub(/^[ \t]*"mode": "/, "", v)
+            sub(/".*$/, "", v)
+            print v
+            exit
+        }' "$1" 2>/dev/null
+}
+
+# Under the floor, what each native config does: light mode only where the config sets it; a config
+# in another mode runs in fast mode, which needs the memory the host lacks.
+function under_floor_modes() {
+    local name file found=false prefix="Memory $1 MiB is under the $RX_FLOOR_MIB MiB floor"
+    for name in config.json config_background.json; do
+        file="$CONFIG_DIR/$name"
+        [ -f "$file" ] || continue
+        found=true
+        if [ "$(config_rx_mode "$file")" = light ]; then
+            warn "$prefix: $name runs in RandomX light mode"
+        else
+            warn "$prefix: $name is not in RandomX light mode and runs in fast mode. To apply light mode, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
+        fi
+    done
+    [ "$found" = true ] || warn "$prefix: a new config runs in RandomX light mode"
+}
+
 # The huge page size is the kernel's (2 MB on x86, 2 MB or 32 MB on arm64 by page granule); XMRig
 # wants 2560 MiB of them for RandomX. A kernel without huge page support names no size.
 function check_hugepages_linux() {
@@ -248,7 +280,7 @@ function check_hugepages_linux() {
     fi
 
     if [[ "$mem" =~ ^[0-9]{1,9}$ ]] && [ $((10#$mem)) -lt "$RX_FLOOR_MIB" ]; then
-        warn "Memory $mem MiB is under the $RX_FLOOR_MIB MiB floor: the miner runs in RandomX light mode"
+        under_floor_modes "$mem"
     elif [ -z "$size" ]; then
         note "Huge page size: none (kernel)"
     elif [ -f "$NR_HUGEPAGES" ]; then

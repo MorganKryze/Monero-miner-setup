@@ -13,7 +13,7 @@ fail() { echo "FAIL $*"; rc=1; }
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 
-for f in board_compatible board_model profile_value find_profile expand_cpus profile_ok profile_status total_mem_mib; do
+for f in board_compatible board_model profile_value find_profile expand_cpus profile_ok profile_status total_mem_mib config_rx_mode; do
   a=$(sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/doctor.sh")
   b=$(sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh")
   { [ -n "$b" ] && [ "$a" = "$b" ]; } || fail "$f differs between doctor.sh and install.sh"
@@ -45,6 +45,14 @@ has() { printf '%s\n' "$2" | grep -qxF -- "$3" || fail "$1: no line '$3'"; }
 hasnt() { ! printf '%s\n' "$2" | grep -qF -- "$3" || fail "$1: unexpected '$3'"; }
 rx() { printf '{\n    "cpu": {\n        "rx": %s,\n        "max-threads-hint": 75,\n    }\n}\n' "$2" > "$w/$1/configs/$3"; }
 
+# cfg <fixture> <file> <randomx mode> [cpu mode]: a config with a CPU list; the mode names are the
+# RandomX block's, and a "mode" in the cpu block is no RandomX setting.
+cfg() {
+  { printf '{\n    "randomx": {\n        "init": -1,\n        "mode": "%s",\n    },\n' "$3"
+    printf '    "cpu": {\n'; [ -z "${4:-}" ] || printf '        "mode": "%s",\n' "$4"
+    printf '        "rx": [0, 1, 2, 3],\n    }\n}\n'; } > "$w/$1/configs/$2"
+}
+
 # An Orange Pi 5 Plus, 16 GiB.
 fx opi5plus aarch64 16272000 "Xunlong Orange Pi 5 Plus" xunlong,orangepi-5-plus rockchip,rk3588
 printf 'processor\t: 0\nFeatures\t: fp asimd aes\n' > "$w/opi5plus/cpuinfo"
@@ -72,11 +80,14 @@ has sets "$out" "       config_background.json: the profile's max list"
 # A Pi 5 with 2 GB: light mode, no huge page advice (a kernel with no huge pages names no size).
 fx pi5 aarch64 2030592 "Raspberry Pi 5 Model B Rev 1.0" raspberrypi,5-model-b brcm,bcm2712
 printf 'processor\t: 0\nFeatures\t: fp asimd aes\n' > "$w/pi5/cpuinfo"
-rx pi5 "[0, 1, 2, 3]" config.json
+cfg pi5 config.json light
+cfg pi5 config_background.json auto light
 out=$(doctor pi5 linux_sections)
 has pi5 "$out" "       Board: Raspberry Pi 5 Model B Rev 1.0, profile bcm2712, untested"
 has pi5 "$out" "       config.json: the profile's max and eco list"
-has pi5 "$out" "  WARN Memory 1983 MiB is under the 2560 MiB floor: the miner runs in RandomX light mode"
+has pi5 "$out" "  WARN Memory 1983 MiB is under the 2560 MiB floor: config.json runs in RandomX light mode"
+has pi5 "$out" "  WARN Memory 1983 MiB is under the 2560 MiB floor: config_background.json is not in RandomX light mode and runs in fast mode. To apply light mode, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
+[ "$(printf '%s\n' "$out" | grep -c 'make clean-configs')" -eq 1 ] || fail "pi5: the remedy is not named once"
 hasnt pi5 "$out" "nr_hugepages"
 hasnt pi5 "$out" "OK   Memory:"
 
@@ -87,7 +98,7 @@ printf 'Hugepagesize:       2048 kB\n' >> "$w/x86/meminfo"
 echo 0 > "$w/x86/nr_hugepages"
 echo 0 > "$w/x86/gb_pages"
 out=$(doctor x86 linux_sections)
-has x86-small "$out" "  WARN Memory 1983 MiB is under the 2560 MiB floor: the miner runs in RandomX light mode"
+has x86-small "$out" "  WARN Memory 1983 MiB is under the 2560 MiB floor: a new config runs in RandomX light mode"
 hasnt x86-small "$out" "nr_hugepages"
 hasnt x86-small "$out" "hugepages="
 hasnt x86-small "$out" "Board"
@@ -120,7 +131,7 @@ cp "$w/x86/cpuinfo" "$w/below/cpuinfo"
 printf 'MemTotal: 2620416 kB\nHugepagesize:       2048 kB\n' > "$w/below/meminfo"
 echo 0 > "$w/below/nr_hugepages"; echo 0 > "$w/below/gb_pages"
 out=$(doctor below linux_sections)
-has below "$out" "  WARN Memory 2559 MiB is under the 2560 MiB floor: the miner runs in RandomX light mode"
+has below "$out" "  WARN Memory 2559 MiB is under the 2560 MiB floor: a new config runs in RandomX light mode"
 has below "$out" "       Memory is under the 2560 MiB floor: no 1 GB pages advised"
 hasnt below "$out" "nr_hugepages"
 fx edgeboard aarch64 2621440 "Xunlong Orange Pi 5 Plus" rockchip,rk3588

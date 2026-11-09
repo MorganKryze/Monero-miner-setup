@@ -1149,6 +1149,21 @@ function mode_cpu_list() {
     CPU_LIST=$(printf '%s' "$left" | awk '{ printf "%s%s", (NR > 1 ? ", " : "["), $1 } END { if (NR) print "]" }')
 }
 
+# Prints the RandomX mode a config sets, from the "mode" line of its "randomx" block (another
+# object's "mode" is not it). Prints nothing when the config sets none. No awk interval: mawk.
+function config_rx_mode() {
+    awk '
+        /^[ \t]*"randomx": [{]$/ { inrx = 1; next }
+        inrx && /^[ \t]*[}],?$/ { inrx = 0 }
+        inrx && /^[ \t]*"mode": "[^"]*",?$/ {
+            v = $0
+            sub(/^[ \t]*"mode": "/, "", v)
+            sub(/".*$/, "", v)
+            print v
+            exit
+        }' "$1" 2>/dev/null
+}
+
 # Exit 0 when a config of an earlier run is there: a file in configs/, or a file at the clone root
 # that is not a link.
 function any_config_kept() {
@@ -1156,6 +1171,20 @@ function any_config_kept() {
     for name in config.json config_background.json; do
         [ -f "$dir/configs/$name" ] && return 0
         [ -e "$dir/$name" ] && [ ! -L "$dir/$name" ] && return 0
+    done
+    return 1
+}
+
+# Exit 0 when a kept config is not in RandomX light mode: it keeps the fast mode whatever the
+# memory is, as the installer never edits a config of an earlier run.
+function kept_config_in_fast_mode() {
+    local dir="$BASE_DIR/$REPO_NAME" name
+    for name in config.json config_background.json; do
+        if [ -f "$dir/configs/$name" ]; then
+            [ "$(config_rx_mode "$dir/configs/$name")" = light ] || return 0
+        elif [ -f "$dir/$name" ] && [ ! -L "$dir/$name" ]; then
+            [ "$(config_rx_mode "$dir/$name")" = light ] || return 0
+        fi
     done
     return 1
 }
@@ -1210,12 +1239,15 @@ function resolve_board() {
 # The main step: resolves the board now when a clone is there to read, or when the host cannot
 # have a profile; a first clone on a board is resolved by generate_config_files.
 function check_board() {
-    local mem
+    local mem remedy=""
     RX_LIGHT=""
     mem=$(total_mem_mib)
     if [[ "$mem" =~ ^[0-9]{1,9}$ ]] && [ $((10#$mem)) -lt "$RX_FLOOR_MIB" ]; then
         RX_LIGHT=yes
-        warning "This host has $mem MiB of memory, under the $RX_FLOOR_MIB MiB RandomX's fast mode needs: new configs use its light mode, slower but within memory."
+        if kept_config_in_fast_mode; then
+            remedy=" A kept config stays in fast mode: to apply light mode, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
+        fi
+        warning "This host has $mem MiB of memory, under the $RX_FLOOR_MIB MiB RandomX's fast mode needs: new configs use its light mode, slower but within memory.$remedy"
     fi
     if [ -d "$BASE_DIR/$REPO_NAME/.git" ] || ! is_arm64 || [ -z "$(board_compatible)" ]; then
         resolve_board || return 1
