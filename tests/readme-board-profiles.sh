@@ -79,7 +79,9 @@ rows=$(sed -n '/^### Board profiles$/,/^## /p' "$README" | grep -c '^| `')
     fail "$README: $rows profile rows for $(printf '%s\n' "$profiles" | grep -c .) profiles in $CONF"
 
 # The entry points the section sends the reader to.
-if ! env -i PATH="$PATH" HOME="${TMPDIR:-/tmp}" bash --norc --noprofile scripts/install.sh --help 2>&1 | grep -qF -- '--mode max|eco'; then
+# The help text is read from usage() itself: running install.sh would load bash-toolbox, over the
+# network when the submodule is not checked out.
+if ! sed -n '/^function usage() {$/,/^}$/p' scripts/install.sh | grep -qF -- '--mode max|eco'; then
     fail "scripts/install.sh --help does not name --mode"
 fi
 make -s help 2>&1 | grep -qF 'bench-layouts' || fail "make help does not name bench-layouts"
