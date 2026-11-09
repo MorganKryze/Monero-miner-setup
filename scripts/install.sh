@@ -343,7 +343,7 @@ function validate_directory() {
 
     # Every step acts on the directory the checks read, never on a link a user could point
     # elsewhere later.
-    path=$(cd -- "$dir" && pwd -P) || return 1
+    path=$(CDPATH= cd -- "$dir" && pwd -P) || return 1
     if [ "$path" != "$dir" ]; then
         info "Resolved to $path." >&2
         dir=$path
@@ -774,7 +774,7 @@ function check_base_clone() {
     fi
     # Each directory from / down to the base directory, read on its real path.
     base=${dir%/*}
-    if ! base=$(cd -- "${base:-/}" 2>/dev/null && pwd -P); then
+    if ! base=$(CDPATH= cd -- "${base:-/}" 2>/dev/null && pwd -P); then
         error "${dir%/*} can be changed by a user other than you, so this run does not use $dir. Pass -d with a directory only you can change."
         return 1
     fi
@@ -822,6 +822,8 @@ function clone_repository() {
         return 1
     fi
     if ! git clone --recurse-submodules "$REPO_URL" "$target_dir"; then
+        # The folder is this run's own and git left it empty: remove it, so a re-run can clone.
+        rmdir -- "$target_dir" 2>/dev/null
         error "Failed to clone repository (with submodules) from $REPO_URL."
         return 1
     fi
