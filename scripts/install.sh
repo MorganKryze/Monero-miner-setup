@@ -16,6 +16,13 @@ DEFAULT_MAX_THREADS=75
 HOST_ARCH=$(uname -m 2>/dev/null) || HOST_ARCH=""
 CPU_SYS_DIR="/sys/devices/system/cpu"
 PROC_STATUS="/proc/self/status"
+# The board: its device tree names it, scripts/board_profiles.conf (read as data) holds its profile.
+DT_COMPATIBLE="/proc/device-tree/compatible"
+DT_MODEL="/proc/device-tree/model"
+MEMINFO="/proc/meminfo"
+NR_HUGEPAGES="/proc/sys/vm/nr_hugepages"
+RX_FLOOR_MIB=2560
+PROFILE_PATH="scripts/board_profiles.conf"
 DEFAULT_DONATE_LEVEL=0
 DEFAULT_POOL_URL="gulf.moneroocean.stream"
 DEFAULT_PASS="x"
@@ -197,6 +204,7 @@ function usage() {
     echo
     echo "Mining Configuration Options:"
     echo "  -t, --threads PERCENT Share of the CPUs to mine on (1-100, default: $DEFAULT_MAX_THREADS; on arm64, the biggest first)"
+    echo "  --mode max|eco        CPUs from the board profile (Pi 5, RK3588): max hashrate or eco; not with -t"
     echo "  --donate PERCENT      Donation level (0-5, default: $DEFAULT_DONATE_LEVEL)"
     echo "  -p, --pool URL        Mining pool URL (default: $DEFAULT_POOL_URL)"
     echo "  --name STRING         Display name for the mining worker (default: random adjective_noun_NNN)"
@@ -453,6 +461,10 @@ function parse_arguments() {
     WALLET=""
     BASE_DIR=""
     MAX_THREADS=$DEFAULT_MAX_THREADS
+    MODE=""
+    THREADS_GIVEN=""
+    BOARD_RESOLVED=""
+    BOARD_PROFILE=""
     DONATE_LEVEL=$DEFAULT_DONATE_LEVEL
     POOL_URL=$DEFAULT_POOL_URL
     DISPLAY_NAME=$DEFAULT_PASS
@@ -479,6 +491,15 @@ function parse_arguments() {
                 error "Thread percentage must be between 1 and 100."
                 exit 1
             fi
+            THREADS_GIVEN=yes
+            shift 2
+            ;;
+        --mode)
+            if ! [[ "${2:-}" =~ ^(max|eco)$ ]]; then
+                error "--mode must be max or eco."
+                exit 1
+            fi
+            MODE="$2"
             shift 2
             ;;
         --donate)
@@ -551,6 +572,11 @@ function parse_arguments() {
     export WALLET
     export BASE_DIR
     export MAX_THREADS
+    if [ -n "$MODE" ] && [ -n "$THREADS_GIVEN" ]; then
+        error "--mode and --threads both say which CPUs mine: pass one of them."
+        exit 1
+    fi
+    export MODE
     export DONATE_LEVEL
     export POOL_URL
     export PASS=$DISPLAY_NAME
@@ -930,11 +956,306 @@ function arm_cpu_list() {
 function pick_cpu_list() {
     local usable count
     CPU_LIST=""
+    if [ -n "$MODE" ] && [ -n "$BOARD_PROFILE" ]; then
+        mode_cpu_list
+        return
+    fi
     is_arm64 || return 0
     usable=$(ranked_cpus | awk 'END { print NR }')
     count=$(((usable * 10#$MAX_THREADS + 99) / 100))
     [ "$count" -ge 1 ] || count=1
     CPU_LIST=$(arm_cpu_list "$count")
+}
+
+# ===== Board profiles =====
+# The functions down to total_mem_mib are the same, byte for byte, in scripts/doctor.sh and
+# scripts/bench_layouts.sh (tests/board-profiles.sh). The profile file is data: it is read line
+# by line, never sourced, and every value is checked before it is used.
+
+# Prints the device tree's compatible strings that are well formed, one per line.
+function board_compatible() {
+    local word
+    [ -r "$DT_COMPATIBLE" ] || return 0
+    while read -r word; do
+        [[ "$word" =~ ^[a-z0-9,._-]{1,64}$ ]] && echo "$word"
+    done < <(tr '\0' '\n' <"$DT_COMPATIBLE")
+    return 0
+}
+
+# Prints the device tree's model, printable characters only and no backslash (echo -e would revive escapes), 64 at most, or nothing.
+function board_model() {
+    local model
+    [ -r "$DT_MODEL" ] || return 0
+    model=$(tr -cd '[:print:]' <"$DT_MODEL" 2>/dev/null | tr -d '\\' | cut -c1-64)
+    [ -z "$model" ] || echo "$model"
+    return 0
+}
+
+# Prints the value of <key> in <profile>'s first line of PROFILE_FILE; exit 1 when absent.
+function profile_value() {
+    local line
+    [ -r "$PROFILE_FILE" ] || return 1
+    while read -r line || [ -n "$line" ]; do
+        if [[ "$line" == "$1.$2="* ]]; then
+            printf '%s\n' "${line#*=}"
+            return 0
+        fi
+    done <"$PROFILE_FILE"
+    return 1
+}
+
+# Prints the first profile whose compatible words include one of the board's, compared as fixed
+# strings; nothing when none does.
+function find_profile() {
+    local line name word board words
+    board=$(board_compatible)
+    [ -n "$board" ] && [ -r "$PROFILE_FILE" ] || return 0
+    while read -r line || [ -n "$line" ]; do
+        [[ "$line" == *.compatible=* ]] || continue
+        name=${line%%.*}
+        [[ "$name" =~ ^[a-z0-9]{1,16}$ ]] || continue
+        read -ra words <<<"${line#*=}"
+        for word in "${words[@]}"; do
+            if [[ "$word" =~ ^[a-z0-9,._-]{1,64}$ ]] && [[ $'\n'"$board"$'\n' == *$'\n'"$word"$'\n'* ]]; then
+                echo "$name"
+                return 0
+            fi
+        done
+    done <"$PROFILE_FILE"
+    return 0
+}
+
+# Prints the CPU numbers of a kernel-form cpulist ("0,1,4-7"), ascending, one per line; exit 1
+# when the list is malformed or a range runs backwards.
+function expand_cpus() {
+    local part cpu out=""
+    [[ "$1" =~ ^[0-9]{1,4}(-[0-9]{1,4})?(,[0-9]{1,4}(-[0-9]{1,4})?)*$ ]] || return 1
+    for part in ${1//,/ }; do
+        [ "$((10#${part%-*}))" -le "$((10#${part#*-}))" ] || return 1
+    done
+    for part in ${1//,/ }; do
+        for ((cpu = 10#${part%-*}; cpu <= 10#${part#*-}; cpu++)); do
+            out+="$cpu"$'\n'
+        done
+    done
+    printf '%s' "$out" | sort -n -u
+}
+
+# Exit 0 when every value of <profile> passes its check: compatible strings, max and eco CPU
+# lists, layouts as CPU lists, eco-cap as policyN=kHz, measured as printable text.
+function profile_ok() {
+    local line key value word words seen=""
+    [ -r "$PROFILE_FILE" ] || return 1
+    while read -r line || [ -n "$line" ]; do
+        [[ "$line" == "$1."* ]] || continue
+        key=${line#*.}
+        key=${key%%=*}
+        value=${line#*=}
+        seen+=" $key"
+        case "$key" in
+        compatible)
+            read -ra words <<<"$value"
+            [ "${#words[@]}" -ge 1 ] || return 1
+            for word in "${words[@]}"; do [[ "$word" =~ ^[a-z0-9,._-]{1,64}$ ]] || return 1; done
+            ;;
+        max | eco) expand_cpus "$value" >/dev/null || return 1 ;;
+        layouts)
+            read -ra words <<<"$value"
+            for word in "${words[@]}"; do expand_cpus "$word" >/dev/null || return 1; done
+            ;;
+        eco-cap)
+            read -ra words <<<"$value"
+            for word in "${words[@]}"; do [[ "$word" =~ ^policy[0-9]{1,4}=[0-9]{1,9}$ ]] || return 1; done
+            ;;
+        measured) [ "${#value}" -le 1024 ] && [[ "$value" =~ ^[[:print:]]*$ ]] || return 1 ;;
+        *) return 1 ;;
+        esac
+    done <"$PROFILE_FILE"
+    [[ "$seen " == *" compatible "* && "$seen " == *" max "* && "$seen " == *" eco "* ]]
+}
+
+# Prints "measured on <model>" when <model> is one of the profile's measured models (compared
+# whole, as a fixed string), else "untested".
+function profile_status() {
+    local list model
+    IFS=';' read -ra list <<<"$(profile_value "$1" measured)"
+    for model in "${list[@]}"; do
+        if [ -n "$2" ] && [ "$model" = "$2" ]; then
+            echo "measured on $2"
+            return 0
+        fi
+    done
+    echo "untested"
+}
+
+# Prints the installed memory in MiB, or nothing when it cannot be read.
+function total_mem_mib() {
+    awk '/^MemTotal:/ && $2 ~ /^[0-9]+$/ { print int($2 / 1024) }' "$MEMINFO" 2>/dev/null
+    return 0
+}
+
+# Sets CPU_LIST to the profile's list for MODE, as arm_cpu_list formats one. The CPUs outside the
+# ones this process may run on are left out, with one warning. With none left, or (eco only) when
+# an allowed CPU outside the list has a higher capacity than the lowest of the list's, the best
+# CPUs by capacity are used instead, as many as the profile's list names. A list that is empty
+# or malformed is refused (exit 1).
+function mode_cpu_list() {
+    local want allowed cpu cap lowest="" top=0 left="" dropped="" total usable
+    CPU_LIST=""
+    want=$(expand_cpus "$(profile_value "$BOARD_PROFILE" "$MODE")") || want=""
+    if [ -z "$want" ]; then
+        error "The $MODE list of profile $BOARD_PROFILE is empty or not valid: nothing is written."
+        return 1
+    fi
+    allowed=$(ranked_cpus)
+    for cpu in $want; do
+        if [[ $'\n'"$allowed"$'\n' == *$'\n'"$cpu"$'\n'* ]]; then
+            left+="$cpu"$'\n'
+        else
+            dropped+="${dropped:+, }$cpu"
+        fi
+    done
+    [ -z "$dropped" ] || warning "CPUs $dropped of the $MODE list are not ones this installer may run on: left out."
+    if [ "$MODE" = eco ] && [ -n "$left" ]; then
+        for cpu in $allowed; do
+            cap=$(cat "$CPU_SYS_DIR/cpu$cpu/cpu_capacity" 2>/dev/null) || cap=""
+            [[ "$cap" =~ ^[0-9]{1,9}$ ]] || cap=0
+            [ "$cap" -le "$top" ] || top=$cap
+            if [[ $'\n'"$left" == *$'\n'"$cpu"$'\n'* ]]; then
+                if [ -z "$lowest" ] || [ "$cap" -lt "$lowest" ]; then lowest=$cap; fi
+            fi
+        done
+        # No capacity read at all means nothing is known: no claim about the ranking.
+        if [ "$top" -gt 0 ]; then
+            for cpu in $allowed; do
+                [[ $'\n'"$left" == *$'\n'"$cpu"$'\n'* ]] && continue
+                cap=$(cat "$CPU_SYS_DIR/cpu$cpu/cpu_capacity" 2>/dev/null) || cap=""
+                [[ "$cap" =~ ^[0-9]{1,9}$ ]] || cap=0
+                if [ "$cap" -gt "$lowest" ]; then
+                    left=""
+                    break
+                fi
+            done
+        fi
+    fi
+    if [ -z "$left" ]; then
+        total=$(awk 'END { print NR }' <<<"$want")
+        usable=$(awk 'END { print NR }' <<<"$allowed")
+        [ "$total" -le "$usable" ] || total=$usable
+        warning "The $MODE list of profile $BOARD_PROFILE does not fit this host's CPUs: mining on $total CPUs chosen by capacity instead."
+        CPU_LIST=$(arm_cpu_list "$total")
+        return 0
+    fi
+    CPU_LIST=$(printf '%s' "$left" | awk '{ printf "%s%s", (NR > 1 ? ", " : "["), $1 } END { if (NR) print "]" }')
+}
+
+# Prints the RandomX mode a config sets, from the "mode" line of its "randomx" block (another
+# object's "mode" is not it). Prints nothing when the config sets none. No awk interval: mawk.
+function config_rx_mode() {
+    awk '
+        /^[ \t]*"randomx": [{]$/ { inrx = 1; next }
+        inrx && /^[ \t]*[}],?$/ { inrx = 0 }
+        inrx && /^[ \t]*"mode": "[^"]*",?$/ {
+            v = $0
+            sub(/^[ \t]*"mode": "/, "", v)
+            sub(/".*$/, "", v)
+            print v
+            exit
+        }' "$1" 2>/dev/null
+}
+
+# Exit 0 when a config of an earlier run is there: a file in configs/, or a file at the clone root
+# that is not a link.
+function any_config_kept() {
+    local dir="$BASE_DIR/$REPO_NAME" name
+    for name in config.json config_background.json; do
+        [ -f "$dir/configs/$name" ] && return 0
+        [ -e "$dir/$name" ] && [ ! -L "$dir/$name" ] && return 0
+    done
+    return 1
+}
+
+# Exit 0 when a kept config is not in RandomX light mode: it keeps the fast mode whatever the
+# memory is, as the installer never edits a config of an earlier run.
+function kept_config_in_fast_mode() {
+    local dir="$BASE_DIR/$REPO_NAME" name
+    for name in config.json config_background.json; do
+        if [ -f "$dir/configs/$name" ]; then
+            [ "$(config_rx_mode "$dir/configs/$name")" = light ] || return 0
+        elif [ -f "$dir/$name" ] && [ ! -L "$dir/$name" ]; then
+            [ "$(config_rx_mode "$dir/$name")" = light ] || return 0
+        fi
+    done
+    return 1
+}
+
+# Prints the huge page line: "none (kernel)" when the kernel reports no huge page size, else the
+# pages reserved against what RandomX needs in the kernel's page size (2560 MiB in fast mode, 256
+# MiB in light mode, rounded up). Reads only; nothing is reserved.
+function huge_page_line() {
+    local size="" label need have="" need_mib=2560
+    size=$(awk '/^Hugepagesize:/ && $2 ~ /^[0-9]+$/ && $3 == "kB" { print $2; exit }' "$MEMINFO" 2>/dev/null)
+    if [[ ! "$size" =~ ^[0-9]{1,9}$ ]] || [ $((10#$size)) -eq 0 ]; then
+        info "Huge pages: none (kernel)."
+        return 0
+    fi
+    size=$((10#$size))
+    [ "$RX_LIGHT" != yes ] || need_mib=256
+    need=$(((need_mib * 1024 + size - 1) / size))
+    { read -r have <"$NR_HUGEPAGES"; } 2>/dev/null || have=""
+    [[ "$have" =~ ^[0-9]{1,9}$ ]] || have=0
+    if [ $((size % 1024)) -eq 0 ]; then label="$((size / 1024)) MB"; else label="$size kB"; fi
+    info "Huge pages: $((10#$have)) of the $need $label pages RandomX needs are reserved."
+}
+
+# Finds the board's profile once (BOARD_PROFILE, BOARD_MODEL) and prints the board line. A profile
+# that fails its checks is dropped with one warning. --mode with no profile is refused (exit 1).
+function resolve_board() {
+    [ "$BOARD_RESOLVED" = yes ] && return 0
+    BOARD_RESOLVED=yes
+    BOARD_PROFILE=""
+    BOARD_MODEL=""
+    PROFILE_FILE="$BASE_DIR/$REPO_NAME/$PROFILE_PATH"
+    if [ -f "$PROFILE_FILE" ]; then
+        BOARD_PROFILE=$(find_profile)
+        if [ -n "$BOARD_PROFILE" ] && ! profile_ok "$BOARD_PROFILE"; then
+            warning "The $BOARD_PROFILE profile in $PROFILE_FILE is not valid and is ignored."
+            BOARD_PROFILE=""
+        fi
+    elif [ -n "$MODE" ] && [ -d "$BASE_DIR/$REPO_NAME/.git" ]; then
+        error "--mode needs $PROFILE_FILE, which this clone lacks. Update it: git -C \"$BASE_DIR/$REPO_NAME\" pull"
+        return 1
+    fi
+    if [ -z "$BOARD_PROFILE" ]; then
+        [ -z "$MODE" ] && return 0
+        error "--mode needs a board profile, and this host has none: profiles cover bcm2712 (Raspberry Pi 5) and rk3588 (RK3588 and RK3588S boards such as the Orange Pi 5 Plus and 5 Max). Pass --threads PERCENT instead."
+        return 1
+    fi
+    BOARD_MODEL=$(board_model)
+    info "Board: ${BOARD_MODEL:-unknown model}, profile $BOARD_PROFILE, mode ${MODE:-$MAX_THREADS %}, $(profile_status "$BOARD_PROFILE" "$BOARD_MODEL")."
+    huge_page_line
+}
+
+# The main step: resolves the board now when a clone is there to read, or when the host cannot
+# have a profile; a first clone on a board is resolved by generate_config_files.
+function check_board() {
+    local mem remedy=""
+    RX_LIGHT=""
+    mem=$(total_mem_mib)
+    if [[ "$mem" =~ ^[0-9]{1,9}$ ]] && [ $((10#$mem)) -lt "$RX_FLOOR_MIB" ]; then
+        RX_LIGHT=yes
+        if kept_config_in_fast_mode; then
+            remedy=" A kept config stays in fast mode: to apply light mode, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
+        fi
+        warning "This host has $mem MiB of memory, under the $RX_FLOOR_MIB MiB RandomX's fast mode needs: new configs use its light mode, slower but within memory.$remedy"
+    fi
+    if [ -d "$BASE_DIR/$REPO_NAME/.git" ] || ! is_arm64 || [ -z "$(board_compatible)" ]; then
+        resolve_board || return 1
+    fi
+    if [ -n "$MODE" ] && any_config_kept; then
+        warning "--mode does not apply to the kept configs. To apply it, run 'make clean-configs', the installer again with --mode, then 'make service-setup' and 'make restart'."
+    fi
+    return 0
 }
 
 function configs_exist() {
@@ -952,7 +1273,7 @@ function configs_exist() {
 # write leaves no partial file that a later run would keep.
 function write_miner_config() {
     XMRIG_HINT=$MAX_THREADS XMRIG_DONATE=$DONATE_LEVEL XMRIG_LOG=$3 XMRIG_URL=$4 XMRIG_USER=$WALLET \
-        XMRIG_PASS=$5 XMRIG_BATTERY=$PAUSE_ON_BATTERY XMRIG_ACTIVE=$PAUSE_ON_ACTIVE XMRIG_CPUS=$CPU_LIST awk '
+        XMRIG_PASS=$5 XMRIG_BATTERY=$PAUSE_ON_BATTERY XMRIG_ACTIVE=$PAUSE_ON_ACTIVE XMRIG_CPUS=$CPU_LIST XMRIG_LIGHT=$RX_LIGHT awk '
         function str(v,   out, i, c) {
             out = ""
             for (i = 1; i <= length(v); i++) {
@@ -967,6 +1288,9 @@ function write_miner_config() {
             match($0, /^[ \t]*/)
             print substr($0, 1, RLENGTH) "\"" key "\": " value comma
         }
+        /^[ \t]*"randomx": [{]$/ { inrx = 1 }
+        inrx && /^[ \t]*[}],?$/ { inrx = 0 }
+        inrx && ENVIRON["XMRIG_LIGHT"] == "yes" && /^[ \t]*"mode": "[^"]*",?$/ { put("mode", "\"light\""); next }
         /^[ \t]*"cpu": [{]$/ && ENVIRON["XMRIG_CPUS"] != "" {
             print
             match($0, /^[ \t]*/)
@@ -1005,8 +1329,15 @@ function generate_config_files() {
     # Create destination config directory if it doesn't exist
     mkdir -p "$dest_config_dir"
 
+    resolve_board || return 1
+
     # On arm64, the list naming every usable CPU, when --threads leaves one of them out.
-    pick_cpu_list
+    # With --mode and every config kept, no list is written: nothing is checked or reported.
+    if [ -n "$MODE" ] && configs_exist; then
+        CPU_LIST=""
+    else
+        pick_cpu_list || return 1
+    fi
     if is_arm64; then
         every=$(arm_cpu_list "$(ranked_cpus | awk 'END { print NR }')")
         [ "$CPU_LIST" != "$every" ] || every=""
@@ -1039,7 +1370,7 @@ function generate_config_files() {
             fi
         fi
     done
-    if [ "$unlisted" = true ]; then
+    if [ "$unlisted" = true ] && [ -z "$MODE" ]; then
         warning "--threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
     fi
 
@@ -1370,6 +1701,10 @@ function main() {
         exit 1
     fi
     sleep $LOW_DELAY
+
+    if ! check_board; then
+        exit 1
+    fi
 
     show_resource_recommendations
     sleep $LOW_DELAY

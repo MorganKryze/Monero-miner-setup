@@ -18,7 +18,7 @@ for t in awk cat cp cut ln mkdir mv rm; do
   ln -s "$p" "$w/tools/$t"
 done
 command -v jq >/dev/null || { echo "FAIL no jq on this host"; exit 1; }
-fns="usage is_arm64 ranked_cpus arm_cpu_list pick_cpu_list validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
+fns="usage is_arm64 ranked_cpus arm_cpu_list pick_cpu_list board_compatible board_model profile_value find_profile expand_cpus profile_ok profile_status total_mem_mib mode_cpu_list configs_exist huge_page_line resolve_board validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
 {
   sed -n '/^# ===== Constants =====$/,/^DOCKER_SCRIPT_URL=/p' "$root/scripts/install.sh"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done
@@ -34,6 +34,7 @@ on() {
     error() { echo "[ERROR] $1"; return 1; }; txt() { echo "$1"; }
     # shellcheck source=/dev/null
     source "$w/functions.sh"
+    DT_COMPATIBLE=/nonexistent DT_MODEL=/nonexistent MEMINFO=/nonexistent NR_HUGEPAGES=/nonexistent
     "$@" ) > "$w/out" 2>&1
   code=$?
   out=$(cat "$w/out")

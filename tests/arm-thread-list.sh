@@ -26,7 +26,7 @@ printf '#!/bin/sh\necho 4\n' > "$w/tools/getconf" && chmod +x "$w/tools/getconf"
 command -v jq >/dev/null || { echo "FAIL no jq on this host"; exit 1; }
 
 shared="is_arm64 ranked_cpus arm_cpu_list"
-fns="$shared pick_cpu_list write_miner_config generate_config_files"
+fns="$shared pick_cpu_list board_compatible board_model profile_value find_profile expand_cpus profile_ok profile_status total_mem_mib mode_cpu_list configs_exist huge_page_line resolve_board write_miner_config generate_config_files"
 {
   sed -n '/^# ===== Constants =====$/,/^DOCKER_SCRIPT_URL=/p' "$root/scripts/install.sh"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done
@@ -73,6 +73,7 @@ on() {
     error() { echo "[ERROR] $1"; return 1; }
     # shellcheck source=/dev/null
     source "$w/functions.sh"
+    DT_COMPATIBLE=/nonexistent DT_MODEL=/nonexistent MEMINFO=/nonexistent NR_HUGEPAGES=/nonexistent
     HOST_ARCH=$arch CPU_SYS_DIR="$w/fx/$fx/sys" PROC_STATUS="$w/fx/$fx/status"
     "$@" ) > "$w/out" 2>&1
   code=$?

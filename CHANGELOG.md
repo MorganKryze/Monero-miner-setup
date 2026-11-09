@@ -6,6 +6,17 @@ Every release of Monero-miner-setup, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `--mode max|eco` for the native installer: new configs mine on the CPUs of the board's profile. Not with `--threads`.
+- Board profiles for the Raspberry Pi 5 (`bcm2712`) and RK3588 boards in `scripts/board_profiles.conf`, both `untested`.
+- `make bench-layouts [MODE=eco] [BENCH=1M]`: benches each CPU layout of the profile offline.
+- A Board section in `make doctor`: the board, its profile, memory against the floor, each cpufreq policy's maximum and the list each config uses.
+
+### Changed
+
+- New native configs use RandomX's light mode when the host has under 2560 MiB of memory.
+
 ## [0.1.1] - 2026-11-09
 
 ### Changed
