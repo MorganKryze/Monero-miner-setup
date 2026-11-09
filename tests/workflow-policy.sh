@@ -283,9 +283,11 @@ YML
 )
 got=$({ block "$p" '  release-build:'; block "$p" '  release-publish:'; } | major)
 [ "$got" = "$want" ] || { echo "FAIL release jobs"; diff <(echo "$want") <(echo "$got"); rc=1; }
-for perm in 'contents: write' 'id-token: write' 'attestations: write' 'artifact-metadata: write'; do
-  [ "$(grep -c "^ *$perm\$" "$p")" -eq 1 ] || { echo "FAIL '$perm' is not granted exactly once"; rc=1; }
-done
+# Every write scope in the file, comments stripped, must be exactly these five: a write-all, a
+# one-line permissions map or a third job cannot widen them unseen.
+want='artifact-metadata: write,attestations: write,contents: write,id-token: write,packages: write'
+got=$(sed -E 's/(^|[[:space:]])#.*//' "$p" | grep -oE '[a-z-]+: *write|write-all' | tr -s ' ' | sort | paste -sd, -)
+[ "$got" = "$want" ] || { echo "FAIL write scopes in $p: $got"; rc=1; }
 step() { block "$p" "      - name: $1" | sed -n '/^        run: |$/,$p' | sed '1d;s/^          //'; }
 mkdir -p "$d/rel/bin" "$d/rel/dist" "$d/rel/scripts"
 step "Check the binary's glibc, libuv and version" > "$d/glibc.sh"
