@@ -139,6 +139,10 @@ for case in "pi5 eco [0,1,2,3]" "pi5 max [0,1,2,3]" "opi5plus eco [4,5,6,7]" "op
     want "$name $case" "ghostrider" "$(jq -c 'map([8, .])' <<< "$list" 2>/dev/null)" "$(jq -c .cpu.ghostrider "$clone/configs/$name" 2>/dev/null)"
   done
 done
+# One config kept, one missing, --mode eco: the missing one still gets the eco list.
+fresh; mkdir -p "$clone/configs"; printf '{"x": 1}\n' > "$clone/configs/config.json"
+gen opi5plus aarch64 75 MODE=eco; want "one kept, eco" exit 0 "$code"
+want "one kept, eco" "rx list" '"rx": [4, 5, 6, 7],' "$(rxs config_background.json)"
 fresh; gen opi5plus aarch64 75 MODE=eco
 want "board line" line "[INFO] Board: Xunlong Orange Pi 5 Plus, profile rk3588, mode eco, untested." "$(bline)"
 # A3: measured is a whole model, one of a ;-separated list.
