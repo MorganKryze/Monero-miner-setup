@@ -8,7 +8,7 @@ Every release of Monero-miner-setup, newest first. The format follows
 
 ### Changed
 
-- Upgrading a native install on arm64 keeps the configs you have, and with them a miner on every core. The installer says so and names the remedy: `make clean-configs`, the installer again, then `make service-setup`.
+- Upgrading a native install on arm64 keeps the configs you have, and with them a miner on every core. The installer says so and names the remedy: `make clean-configs`, the installer again, then `make service-setup` and `make restart`.
 
 ### Fixed
 

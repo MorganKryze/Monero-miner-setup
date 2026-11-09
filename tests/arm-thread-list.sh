@@ -158,7 +158,7 @@ want "generate x86_64" warnings "" "$(printf '%s\n' "$out" | grep '^\[WARNING\]'
 
 # A kept config is never rewritten. On arm64 one that lets the miner run on every CPU gets one
 # warning line, unless --threads asks for every CPU.
-kline="[WARNING] --threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup'."
+kline="[WARNING] --threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
 fresh; gen rk3588 x86_64 75
 cp "$clone/configs/config.json" "$w/kept.json"
 gen rk3588 aarch64 75

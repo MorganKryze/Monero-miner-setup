@@ -907,7 +907,7 @@ function generate_config_files() {
         fi
     done
     if [ "$unlisted" = true ]; then
-        warning "--threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup'."
+        warning "--threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
     fi
 
     # Set log file path

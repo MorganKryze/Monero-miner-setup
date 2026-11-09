@@ -93,7 +93,7 @@ done
 fx x86 x86_64
 out=$(doctor rk3588 check_thread_lists)
 has lists-arm "$out" "       config.json: CPUs [0, 1, 4, 5, 6, 7]"
-has lists-arm "$out" "  WARN config_background.json: no CPU list, the miner runs on every CPU. To apply --threads, run 'make clean-configs', the installer again, then 'make service-setup'."
+has lists-arm "$out" "  WARN config_background.json: no CPU list, the miner runs on every CPU. To apply --threads, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
 out=$(doctor x86 check_thread_lists)
 has lists-x86 "$out" "       config.json: CPUs [0, 1, 4, 5, 6, 7]"
 has lists-x86 "$out" "       config_background.json: no CPU list (the miner's thread hint applies)"

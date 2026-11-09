@@ -234,7 +234,7 @@ function check_thread_lists() {
         if [ -n "$list" ]; then
             note "$name: CPUs $list"
         elif is_arm64; then
-            warn "$name: no CPU list, the miner runs on every CPU. To apply --threads, run 'make clean-configs', the installer again, then 'make service-setup'."
+            warn "$name: no CPU list, the miner runs on every CPU. To apply --threads, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
         else
             note "$name: no CPU list (the miner's thread hint applies)"
         fi
