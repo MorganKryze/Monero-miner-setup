@@ -283,11 +283,53 @@ YML
 )
 got=$({ block "$p" '  release-build:'; block "$p" '  release-publish:'; } | major)
 [ "$got" = "$want" ] || { echo "FAIL release jobs"; diff <(echo "$want") <(echo "$got"); rc=1; }
-# Every write scope in the file, comments stripped, must be exactly these five: a write-all, a
-# one-line permissions map or a third job cannot widen them unseen.
+# Every write scope in the file must be exactly these five. A `#` mid-line may sit inside a quoted
+# value, so only full-line comments are dropped, and every bare `write` counts: a quoted, folded,
+# aliased or tagged value, a write-all, a one-line permissions map or a third job adds a token and
+# fails (so does a trailing comment that says write). An escape that can spell a letter, and an
+# escaped line break inside quotes, fail too. The mutants below prove each way in stays shut.
 want='artifact-metadata: write,attestations: write,contents: write,id-token: write,packages: write'
-got=$(sed -E 's/(^|[[:space:]])#.*//' "$p" | grep -oE '[a-z-]+: *write|write-all' | tr -s ' ' | sort | paste -sd, -)
-[ "$got" = "$want" ] || { echo "FAIL write scopes in $p: $got"; rc=1; }
+write_scopes() { # file: FAIL lines on stdout, status 1 on any
+  local s got r=0
+  s=$(grep -v '^ *#' "$1")
+  got=$(printf '%s\n' "$s" | grep -oE '[a-z-]+: *write|write-all|write' | tr -s ' ' | sort | paste -sd, -)
+  [ "$got" = "$want" ] || { echo "FAIL write scopes in $1: $got"; r=1; }
+  ! printf '%s\n' "$s" | grep -qE '\\[xuU]' || { echo "FAIL an escape that can spell a scope in $1"; r=1; }
+  ! printf '%s\n' "$s" | awk '/\\$/ && gsub(/"/, "&") % 2 { bad = 1 } END { exit !bad }' \
+    || { echo "FAIL an escaped line break in a quoted value in $1"; r=1; }
+  return $r
+}
+write_scopes "$p" || rc=1
+mutant() { # name, where (third | after:<job line>), lines of the inserted YAML
+  local name=$1 where=$2
+  shift 2
+  printf '%s\n' "$@" > "$d/ins"
+  case $where in
+    third) { cat "$p"; printf '\n  extra:\n    runs-on: ubuntu-24.04\n'; cat "$d/ins"
+      printf '    steps:\n      - run: echo hi\n'; } > "$d/m.yml" ;;
+    after:*) awk -v job="${where#after:}" -v f="$d/ins" '{ print } $0 == job { while ((getline l < f) > 0) print l }' \
+      "$p" > "$d/m.yml" ;;
+  esac
+  write_scopes "$d/m.yml" > /dev/null && { echo "FAIL write scopes let through: $name"; rc=1; }
+}
+mutant 'write-all on merge' 'after:  merge:' '    permissions: write-all'
+mutant 'one-line map on build' 'after:  build:' '    permissions: { contents: write, id-token: write, packages: write }'
+mutant 'trailing comment on a scope' 'after:  merge:' '    permissions:' '      id-token: write # attest'
+mutant 'write-all on a third job' third '    permissions: write-all'
+mutant 'double-quoted' third '    permissions:' '      contents: "write"'
+mutant 'single-quoted' third '    permissions:' "      contents: 'write'"
+mutant 'value on the next line' third '    permissions:' '      contents:' '        write'
+mutant 'alias' third '    env:' '      W: &w write' '    permissions:' '      contents: *w'
+mutant 'tag' third '    permissions:' '      contents: !!str write'
+mutant 'quoted key' third '    permissions:' '      "contents": write'
+mutant 'explicit key' third '    permissions:' '      ? contents' '      : write'
+mutant 'quoted one-line map on merge' 'after:  merge:' '    permissions: { contents: "write", id-token: "write", packages: "write" }'
+mutant 'hex escape in write-all' 'after:  merge:' '    permissions: "write\x2dall"'
+mutant 'escaped line break in write-all' 'after:  merge:' '    permissions: "write-\' '      all"'
+mutant 'hex escape in write' third '    permissions:' '      contents: "\x77rite"'
+mutant 'escaped line break in write' third '    permissions:' '      contents: "wr\' '        ite"'
+{ cat "$p"; printf '%s\n' '' '  extra: { name: " #x", runs-on: ubuntu-24.04, permissions: { contents: write, id-token: write }, steps: [ { run: echo hi } ] }'; } > "$d/m.yml"
+write_scopes "$d/m.yml" > /dev/null && { echo "FAIL write scopes let through: a flow-line job after a quoted #"; rc=1; }
 step() { block "$p" "      - name: $1" | sed -n '/^        run: |$/,$p' | sed '1d;s/^          //'; }
 mkdir -p "$d/rel/bin" "$d/rel/dist" "$d/rel/scripts"
 step "Check the binary's glibc, libuv and version" > "$d/glibc.sh"
