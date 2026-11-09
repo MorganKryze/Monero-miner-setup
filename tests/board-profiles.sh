@@ -377,6 +377,7 @@ mem hp opi5plus 16777216 2048 abc; fresh; genb hp aarch64 75
 want "huge pages unreadable count" line "[INFO] Huge pages: 0 of the 1280 2 MB pages RandomX needs are reserved." "$(hp)"
 mem hp opi5plus 16777216 2048; fresh; genb hp aarch64 75
 want "huge pages no count file" line "[INFO] Huge pages: 0 of the 1280 2 MB pages RandomX needs are reserved." "$(hp)"
+want "huge pages no count file" "shell error lines" "" "$(printf '%s\n' "$out" | grep -F "$w/fx/hp/hp")"
 mem hp opi5plus 16777216 32768 0; fresh; genb hp aarch64 75
 want "huge pages 32 MB" line "[INFO] Huge pages: 0 of the 80 32 MB pages RandomX needs are reserved." "$(hp)"
 mem hp opi5plus 2030592 2048 0; fresh; genb hp aarch64 75

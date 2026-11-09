@@ -1173,7 +1173,7 @@ function huge_page_line() {
     size=$((10#$size))
     [ "$RX_LIGHT" != yes ] || need_mib=256
     need=$(((need_mib * 1024 + size - 1) / size))
-    read -r have <"$NR_HUGEPAGES" 2>/dev/null || have=""
+    { read -r have <"$NR_HUGEPAGES"; } 2>/dev/null || have=""
     [[ "$have" =~ ^[0-9]{1,9}$ ]] || have=0
     if [ $((size % 1024)) -eq 0 ]; then label="$((size / 1024)) MB"; else label="$size kB"; fi
     info "Huge pages: $((10#$have)) of the $need $label pages RandomX needs are reserved."
