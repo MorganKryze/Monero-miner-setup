@@ -13,6 +13,10 @@ MEMINFO=/proc/meminfo
 # RandomX's fast mode needs this much memory for its dataset (measured: 2.30 GiB in use); under
 # it the miner runs in light mode.
 FAST_MODE_MIB=2560
+# The CPUs: on arm64 the miner runs on the ones the config lists, chosen from these files.
+HOST_ARCH=$(uname -m 2>/dev/null) || HOST_ARCH=""
+CPU_SYS_DIR="/sys/devices/system/cpu"
+PROC_STATUS="/proc/self/status"
 
 # Colors for logging
 GREEN='\033[0;32m'
@@ -149,7 +153,10 @@ CONFIG_TEMPLATE='{
     "watch": true,
     "pause-on-battery": $battery,
     "pause-on-active": $active
-} | .cpu["*"] = {"threads": $threads, "affinity": -1}'
+} | if $cpus == null then .cpu["*"] = {"threads": $threads, "affinity": -1}
+    else .cpu += (reduce ("argon2", "cn", "cn-heavy", "cn-lite", "cn-pico", "cn/2", "cn/gpu", "cn/upx2", "flex",
+        "panthera", "rx", "rx/wow") as $algo ({}; .[$algo] = $cpus) | .ghostrider = ($cpus | map([8, .])))
+    end'
 
 # The value rules, the same in scripts/install.sh, scripts/docker_setup.sh and here. Every
 # value that reaches the miner's config passes one of them first.
@@ -270,6 +277,60 @@ function pick_thread_count() {
     log_info "Mining with $THREAD_COUNT threads: ${pct}% of $counted, rounded up, at most xmrig's own count of $own."
 }
 
+# Linux aarch64 and macOS arm64: there the miner starts one thread on every CPU whatever its
+# thread hint, so the config lists the CPUs to mine on.
+function is_arm64() {
+    [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]
+}
+
+# Prints the CPUs this process may run on, one per line, best first: highest capacity, then highest
+# maximum frequency, then lowest number. A value that cannot be read counts as 0; with no readable
+# allowed list, every online CPU may be used.
+function ranked_cpus() {
+    local allowed count part cpu cap freq
+    allowed=$(awk '/^Cpus_allowed_list:/ { print $2 }' "$PROC_STATUS" 2>/dev/null) || allowed=""
+    if ! [[ "$allowed" =~ ^[0-9]{1,4}(-[0-9]{1,4})?(,[0-9]{1,4}(-[0-9]{1,4})?)*$ ]]; then
+        count=$(getconf _NPROCESSORS_ONLN 2>/dev/null) || count=""
+        [[ "$count" =~ ^[0-9]{1,4}$ ]] && [ "$((10#$count))" -ge 1 ] || count=1
+        allowed="0-$((10#$count - 1))"
+    fi
+    for part in ${allowed//,/ }; do
+        for ((cpu = 10#${part%-*}; cpu <= 10#${part#*-}; cpu++)); do
+            cap=$(cat "$CPU_SYS_DIR/cpu$cpu/cpu_capacity" 2>/dev/null) || cap=""
+            [[ "$cap" =~ ^[0-9]{1,9}$ ]] || cap=0
+            freq=$(cat "$CPU_SYS_DIR/cpu$cpu/cpufreq/cpuinfo_max_freq" 2>/dev/null) || freq=""
+            [[ "$freq" =~ ^[0-9]{1,12}$ ]] || freq=0
+            echo "$cap $freq $cpu"
+        done
+    done | sort -k1,1nr -k2,2nr -k3,3n | awk '{ print $3 }'
+}
+
+# Prints the <count> best CPUs as a JSON list in ascending order ("[4, 5, 6, 7]"), or nothing when
+# none can be found.
+function arm_cpu_list() {
+    ranked_cpus | head -n "$1" | sort -n | awk '{ printf "%s%s", (NR > 1 ? ", " : "["), $1 } END { if (NR) print "]" }'
+}
+
+# Sets CPU_LIST on arm64, where the miner puts one thread on every CPU whatever its thread count:
+# THREAD_COUNT of the biggest CPUs this container may use, at most one thread on each. On any other
+# host, or when the CPU files cannot be read, nothing, and the thread count applies.
+function pin_threads() {
+    local usable
+    CPU_LIST=""
+    is_arm64 || return 0
+    if [ ! -d "$CPU_SYS_DIR" ] || [ ! -r "$PROC_STATUS" ]; then
+        log_warning "Could not read the CPUs this container may use: mining with $THREAD_COUNT threads wherever the miner puts them."
+        return 0
+    fi
+    usable=$(ranked_cpus | awk 'END { print NR }')
+    if [ "$THREAD_COUNT" -gt "$usable" ]; then
+        log_warning "$THREAD_COUNT threads asked for, but this container may use $usable CPUs: one thread on each."
+        THREAD_COUNT=$usable
+    fi
+    CPU_LIST=$(arm_cpu_list "$THREAD_COUNT")
+    log_info "Mining on CPUs $CPU_LIST, the biggest this container may use."
+}
+
 function pick_randomx_mode() {
     local mib
     RANDOMX_MODE=auto
@@ -337,6 +398,7 @@ function main() {
     log_info "Using wallet address: $WALLET_ADDRESS"
 
     pick_thread_count
+    pin_threads
     pick_randomx_mode
 
     # Handle pool URL and port. The computed port is a plain TCP one: only a bare or
@@ -425,6 +487,7 @@ function write_config() {
     if ! jq -n \
         --arg url "$FULL_POOL_URL" --arg user "$WALLET_ADDRESS" --arg pass "$WORKER_NAME" \
         --argjson donate "$DONATE_LEVEL" --argjson hint "$MAX_THREADS_PERCENT" --argjson threads "$THREAD_COUNT" --arg mode "$RANDOMX_MODE" \
+        --argjson cpus "${CPU_LIST:-null}" \
         --argjson battery "$PAUSE_ON_BATTERY" --argjson active "$PAUSE_ON_ACTIVE" "$CONFIG_TEMPLATE" >"$tmp" \
         || ! chmod 644 "$tmp" || ! mv -f "$tmp" "$CONFIG_DIR/config.json"; then
         rm -f "$tmp"
