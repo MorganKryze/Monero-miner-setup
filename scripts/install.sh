@@ -865,12 +865,19 @@ function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
-    local name kept unlisted=false missing=()
+    local name kept listed every="" unlisted=false missing=()
 
     info "Generating miner configuration files..."
 
     # Create destination config directory if it doesn't exist
     mkdir -p "$dest_config_dir"
+
+    # On arm64, the list naming every usable CPU, when --threads leaves one of them out.
+    pick_cpu_list
+    if is_arm64; then
+        every=$(arm_cpu_list "$(ranked_cpus | awk 'END { print NR }')")
+        [ "$CPU_LIST" != "$every" ] || every=""
+    fi
 
     # A config from an earlier run holds the user's wallet, pool and worker name, and maybe their
     # own edits: it is kept as it is. The miner reads the one at the clone root, which is a link to
@@ -888,14 +895,19 @@ function generate_config_files() {
         fi
         if [ -n "$kept" ]; then
             info "Keeping $kept. To regenerate it, run 'make clean-configs', then the installer again."
-            # A list this installer wrote holds the "rx" one on a line of its own.
-            if is_arm64 && ! awk '/^[ \t]*"rx": \[[0-9]/ { found = 1 } END { exit !found }' "$kept"; then
-                unlisted=true
+            # The "rx" list sits on a line of its own, whether this installer wrote it or the miner
+            # saved it. The miner saves one naming every CPU; a list this installer wrote for a
+            # share below 100 names fewer. A config with no list runs on every CPU too.
+            if [ -n "$every" ]; then
+                listed=$(awk '/^[ \t]*"rx": \[/ { n = gsub(/-?[0-9]+/, "") } END { print n + 0 }' "$kept")
+                if [ "$listed" -eq 0 ] || [ "$listed" -ge "$(awk -F, '{ print NF }' <<<"$every")" ]; then
+                    unlisted=true
+                fi
             fi
         fi
     done
     if [ "$unlisted" = true ]; then
-        warning "--threads does not apply to the kept configs: they hold no CPU list, so the miner runs on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup'."
+        warning "--threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup'."
     fi
 
     # Set log file path
@@ -933,7 +945,6 @@ function generate_config_files() {
         fi
 
         # Each missing file from its template, with the same settings
-        pick_cpu_list
         for name in "${missing[@]}"; do
             if ! write_miner_config "$source_config_dir/$name.template" "$dest_config_dir/$name" "$log_file" "$full_pool_url" "$worker_name"; then
                 error "Failed to write $dest_config_dir/$name."

@@ -3,8 +3,9 @@
 # writes the CPUs to mine on into each new config: ceil(N x share / 100) of the N CPUs the process
 # may run on, at least 1, highest capacity first, then highest maximum frequency, then lowest
 # number, listed in ascending order under every algorithm the miner generates threads for. On x86
-# the configs stay as they were. A config an earlier run left is never rewritten: on arm64, one
-# without a list gets one warning line naming the remedy. The CPU-choice functions are the same,
+# the configs stay as they were. A config an earlier run left is never rewritten: on arm64, when
+# --threads leaves out a CPU and the kept config lists none or every one (as the config the miner
+# saves for itself does), one warning line names the remedy. The CPU-choice functions are the same,
 # byte for byte, in scripts/install.sh and docker/entrypoint.sh.
 # The functions run against sysfs and status fixtures; PATH holds only the tool-link directory.
 # Nothing is cloned, built or installed. Run from the repository root. Prints FAIL lines, exits 1
@@ -154,8 +155,9 @@ for name in config.json config_background.json; do
 done
 want "generate x86_64" warnings "" "$(printf '%s\n' "$out" | grep '^\[WARNING\]')"
 
-# A kept config is never rewritten. On arm64 one with no list gets one warning line.
-kline="[WARNING] --threads does not apply to the kept configs: they hold no CPU list, so the miner runs on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup'."
+# A kept config is never rewritten. On arm64 one that lets the miner run on every CPU gets one
+# warning line, unless --threads asks for every CPU.
+kline="[WARNING] --threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup'."
 fresh; gen rk3588 x86_64 75
 cp "$clone/configs/config.json" "$w/kept.json"
 gen rk3588 aarch64 75
@@ -168,5 +170,21 @@ cp "$clone/configs/config.json" "$w/kept.json"
 gen rk3588 aarch64 50
 cmp -s "$w/kept.json" "$clone/configs/config.json" || fail "kept arm64 with a list: the config was rewritten"
 want "kept arm64 with a list" warnings "" "$(printf '%s\n' "$out" | grep '^\[WARNING\]')"
+gen rk3588 aarch64 100
+want "kept arm64 with a list, every cpu asked" warnings "" "$(printf '%s\n' "$out" | grep '^\[WARNING\]')"
+fresh; gen rk3588 x86_64 75
+gen rk3588 aarch64 100
+want "kept arm64 with no list, every cpu asked" warnings "" "$(printf '%s\n' "$out" | grep '^\[WARNING\]')"
+# The config the miner saves for itself lists every CPU under each algorithm, each list on one line,
+# as a list for 100 % does.
+fresh; gen rk3588 aarch64 100
+cp "$clone/configs/config.json" "$w/kept.json"
+gen rk3588 aarch64 75
+cmp -s "$w/kept.json" "$clone/configs/config.json" || fail "kept arm64 saved by the miner: the config was rewritten"
+want "kept arm64 saved by the miner" warnings "$kline" "$(printf '%s\n' "$out" | grep '^\[WARNING\]')"
+gen rk3588-cpuset aarch64 75
+want "kept arm64 saved by the miner, fewer cpus allowed" warnings "$kline" "$(printf '%s\n' "$out" | grep '^\[WARNING\]')"
+gen rk3588 x86_64 75
+want "kept x86_64 saved by the miner" warnings "" "$(printf '%s\n' "$out" | grep '^\[WARNING\]')"
 [ "$rc" -eq 0 ] && echo "PASS arm-thread-list"
 exit "$rc"
