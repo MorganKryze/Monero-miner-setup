@@ -267,6 +267,13 @@ function check_hugepages_linux() {
 function check_1gb_pages_linux() {
     header "1 GB huge pages"
 
+    local mem
+    mem=$(total_mem_mib)
+    if [[ "$mem" =~ ^[0-9]{1,9}$ ]] && [ $((10#$mem)) -lt "$RX_FLOOR_MIB" ]; then
+        note "Memory is under the $RX_FLOOR_MIB MiB floor: no 1 GB pages advised"
+        return 0
+    fi
+
     if ! grep -qw pdpe1gb "$CPUINFO"; then
         warn "CPU does not support 1 GB pages — skipping"
         return 0

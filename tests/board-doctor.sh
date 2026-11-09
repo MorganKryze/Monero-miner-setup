@@ -34,11 +34,11 @@ doctor() {
     source "$root/scripts/doctor.sh" || exit 1
     CPUINFO=$d/cpuinfo MEMINFO=$d/meminfo DT_MODEL=$d/model DT_COMPATIBLE=$d/compatible
     NR_HUGEPAGES=$d/nr_hugepages THP_ENABLED=$d/thp GB_PAGES=$d/gb_pages MSR_DEV=$d/msr
-    CONFIG_DIR=$d/configs CPUFREQ_DIR=$d/cpufreq PROFILE_FILE=$root/scripts/board_profiles.conf
+    CONFIG_DIR=$d/configs CPUFREQ_DIR=$d/cpufreq PROFILE_FILE=${PFILE:-$root/scripts/board_profiles.conf}
     HOST_ARCH=$(cat "$d/arch")
     for f in "$@"; do "$f"; done
     print_summary
-  ) 2>&1 | sed $'s/\033\\[[0-9;]*m//g'
+  ) 2>&1 | if [ -n "$RAW" ]; then cat; else sed $'s/\033\\[[0-9;]*m//g'; fi
 }
 has() { printf '%s\n' "$2" | grep -qxF -- "$3" || fail "$1: no line '$3'"; }
 hasnt() { ! printf '%s\n' "$2" | grep -qF -- "$3" || fail "$1: unexpected '$3'"; }
@@ -81,12 +81,14 @@ hasnt pi5 "$out" "OK   Memory:"
 
 # x86 under the floor: the same warning, no advice; at 16 GiB, no Board section.
 fx x86 x86_64 2030592 "" generic,pc
-printf 'processor\t: 0\nmodel name\t: Xeon\nflags\t\t: aes avx2\n' > "$w/x86/cpuinfo"
+printf 'processor\t: 0\nmodel name\t: Xeon\nflags\t\t: aes avx2 pdpe1gb\n' > "$w/x86/cpuinfo"
 printf 'Hugepagesize:       2048 kB\n' >> "$w/x86/meminfo"
 echo 0 > "$w/x86/nr_hugepages"
+echo 0 > "$w/x86/gb_pages"
 out=$(doctor x86 linux_sections)
 has x86-small "$out" "  WARN Memory 1983 MiB is under the 2560 MiB floor: the miner runs in RandomX light mode"
 hasnt x86-small "$out" "nr_hugepages"
+hasnt x86-small "$out" "hugepages="
 hasnt x86-small "$out" "Board"
 fx x86big x86_64 16272000 "" generic,pc
 cp "$w/x86/cpuinfo" "$w/x86big/cpuinfo"
