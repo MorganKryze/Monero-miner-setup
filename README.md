@@ -320,7 +320,7 @@ An update keeps your wallet, pool and worker settings. A few steps are yours.
 - `make update` sets the service up without `--service-as-root`. To keep a root service, run `SERVICE_AS_ROOT=yes make update` as root.
 - The setup turns background mode off in `configs/config_background.json`, that one setting alone, and says so. Miners an earlier background start left running are reported with the command that stops them (add `sudo` if they run as another user). Nothing is stopped for you.
 - The service keeps running the old binary until you run `make restart`.
-- On arm64, a kept config has no CPU list, so the miner runs on every core whatever `--threads` says. The installer warns: `--threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup'.` Do that, passing your wallet and flags again.
+- On arm64, a kept config has no CPU list, or one naming every CPU, so the miner runs on every core whatever `--threads` says. The installer warns: `--threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup'.` Do that, passing your wallet and flags again.
 - Installed as root with the clone in `/root`? The miner's account can't enter root's home, so `make update` stops with `The account xmrig cannot run /root/Monero-miner-setup/xmrig; move the clone where it can, such as /opt.` and your old service keeps running. Run `make service-disable` in the old clone, then the installer again as root with `-d /opt` (or without `-d` once `/root/Monero-miner-setup` is gone), passing your wallet and flags again.
 
 **Docker.**
@@ -333,7 +333,7 @@ An update keeps your wallet, pool and worker settings. A few steps are yours.
 
 ## Tuning for performance
 
-Run `make doctor` first. It inspects your host and prints a numbered list of concrete commands to apply. On arm64 it checks AES (the ARMv8 Crypto Extensions) and huge pages in the kernel's page size, skips the x86-only checks, and warns about a native config with no CPU list. Common wins on Linux:
+Run `make doctor` first. It inspects your host and prints a numbered list of concrete commands to apply. On arm64 Linux it checks AES (the ARMv8 Crypto Extensions) and huge pages in the kernel's page size, skips the x86-only checks, and warns about a native config with no CPU list. Common wins on Linux:
 
 - **Reserve 2 MB huge pages**: `sudo sysctl -w vm.nr_hugepages=1280`. Persist in `/etc/sysctl.d/99-xmrig.conf`.
 - **Load the `msr` module**: `sudo modprobe msr`. Persist via `echo msr | sudo tee /etc/modules-load.d/msr.conf`. It helps only a service installed with `--service-as-root`. Worth 5–15% on Ryzen and EPYC.
