@@ -20,7 +20,7 @@ done
 printf '#!/bin/sh\necho 4\n' > "$w/tools/getconf" && chmod +x "$w/tools/getconf"
 
 shared="board_compatible board_model profile_value find_profile expand_cpus profile_ok profile_status total_mem_mib"
-fns="is_arm64 ranked_cpus arm_cpu_list pick_cpu_list $shared mode_cpu_list resolve_board check_board usage validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
+fns="is_arm64 ranked_cpus arm_cpu_list pick_cpu_list $shared mode_cpu_list any_config_kept resolve_board check_board usage validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
 {
   sed -n '/^# ===== Constants =====$/,/^DOCKER_SCRIPT_URL=/p' "$root/scripts/install.sh"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done
@@ -60,7 +60,7 @@ mkdir -p "$w/fx/x86"
 
 # on <fixture> <arch> <function or command...>: in a subshell on the fixture. Sets out, code.
 on() {
-  local fx=$1 arch=$2; shift 2
+  local fx=$1 arch=$2 pid; shift 2
   ( PATH="$w/tools"
     info() { echo -e "[INFO] $1"; }; success() { echo "[SUCCESS] $1"; }; warning() { echo "[WARNING] $1"; }
     error() { echo "[ERROR] $1"; return 1; }
@@ -68,8 +68,13 @@ on() {
     source "$w/functions.sh"
     HOST_ARCH=$arch CPU_SYS_DIR="$w/fx/$fx/sys" PROC_STATUS="$w/fx/$fx/status"
     DT_COMPATIBLE="$w/fx/$fx/compat" DT_MODEL="$w/fx/$fx/model" MEMINFO="$w/fx/$fx/meminfo" NR_HUGEPAGES="$w/fx/$fx/hp"
-    "$@" ) > "$w/out" 2>&1
+    "$@" ) > "$w/out" 2>&1 &
+  pid=$!
+  # Watchdog: a hung function is killed after 20 s (bounded loop, no timeout tool).
+  ( for ((i = 0; i < 200; i++)); do kill -0 "$pid" 2>/dev/null || exit 0; sleep 0.1; done; kill -9 "$pid" 2>/dev/null ) &
+  wait "$pid"
   code=$?
+  [ "$code" -ne 137 ] || fail "hang: $*"
   out=$(cat "$w/out")
 }
 want() { # name, label, expected, got
@@ -208,5 +213,89 @@ fresh
 on opi5plus aarch64 eval "BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup POOL_URL=gulf.moneroocean.stream PORT=10128 PASS=rig1 DEFAULT_PASS=x \
   WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false MODE=eco; check_board; generate_config_files"
 want "resolve once" exit 0 "$code"; want "resolve once" "board lines" 1 "$(count '^\[INFO\] Board:')"
+# A9: the profile's CPUs are checked against the host.
+allowed() { # new fixture, base fixture, allowed list
+  cp -R "$w/fx/$2" "$w/fx/$1"
+  printf 'Name:\tbash\nCpus_allowed_list:\t%s\n' "$3" > "$w/fx/$1/status"
+}
+allowed opi-2-5 opi5plus 2-5
+allowed opi-0-3 opi5plus 0-3
+for c in 0 1 2 3; do cpu vendor-numbering "$c" 1024 2400000; done
+for c in 4 5 6 7; do cpu vendor-numbering "$c" 530 1800000; done
+board vendor-numbering 0-7 'vendor,board\0rockchip,rk3588\0' 'Vendor Board\0'
+for c in 0 1 2 3; do cpu rk3588-freq "$c" 0 1800000; rm "$w/fx/rk3588-freq/sys/cpu$c/cpu_capacity"; done
+for c in 4 5 6 7; do cpu rk3588-freq "$c" 0 2400000; rm "$w/fx/rk3588-freq/sys/cpu$c/cpu_capacity"; done
+board rk3588-freq 0-7 'vendor,board\0rockchip,rk3588\0' 'Vendor Board\0'
+wl() { printf '%s\n' "$out" | grep '^\[WARNING\]'; }
+fb="[WARNING] The eco list of profile rk3588 does not fit this host's CPUs: mining on 4 CPUs chosen by capacity instead."
+fresh; gen opi-2-5 aarch64 75 MODE=eco; want "allowed 2-5 eco" exit 0 "$code"
+want "allowed 2-5 eco" rx '"rx": [4, 5],' "$(rxs config.json)"
+want "allowed 2-5 eco" warnings "[WARNING] CPUs 6, 7 of the eco list are not ones this installer may run on: left out." "$(wl)"
+fresh; gen opi-0-3 aarch64 75 MODE=eco; want "allowed 0-3 eco" exit 0 "$code"
+want "allowed 0-3 eco" rx '"rx": [0, 1, 2, 3],' "$(rxs config.json)"
+want "allowed 0-3 eco" warnings "[WARNING] CPUs 4, 5, 6, 7 of the eco list are not ones this installer may run on: left out.
+$fb" "$(wl)"
+fresh; gen vendor-numbering aarch64 75 MODE=eco; want "vendor eco" exit 0 "$code"
+want "vendor eco" rx '"rx": [0, 1, 2, 3],' "$(rxs config.json)"
+want "vendor eco" warnings "$fb" "$(wl)"
+fresh; gen vendor-numbering aarch64 75 MODE=max; want "vendor max" exit 0 "$code"
+want "vendor max" rx '"rx": [0, 1, 2, 3, 4, 5, 6, 7],' "$(rxs config.json)"
+want "vendor max" warnings "" "$(wl)"
+fresh; gen rk3588-freq aarch64 75 MODE=eco; want "freq eco" exit 0 "$code"
+want "freq eco" rx '"rx": [4, 5, 6, 7],' "$(rxs config.json)"
+want "freq eco" warnings "" "$(wl)"
+
+# The ranking check is for eco only: a max list that leaves out faster CPUs is used as it is.
+data rk3588.max 4-7; fresh "$w/data.conf"; gen vendor-numbering aarch64 75 MODE=max; want "vendor max 4-7" exit 0 "$code"
+want "vendor max 4-7" rx '"rx": [4, 5, 6, 7],' "$(rxs config.json)"
+want "vendor max 4-7" warnings "" "$(wl)"
+
+# A10: a kept config says the mode does not apply; it is never edited.
+a10="[WARNING] --mode does not apply to the kept configs. To apply it, run 'make clean-configs', the installer again with --mode, then 'make service-setup' and 'make restart'."
+chk() { on opi5plus aarch64 eval "BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup MODE=$1; check_board"; }
+fresh; mkdir -p "$clone/configs"; printf '{"x": 1}\n' > "$clone/configs/config.json"; cp "$clone/configs/config.json" "$w/kept.json"
+chk eco; want "kept" exit 0 "$code"; want "kept" warning "$a10" "$(wl)"
+cmp -s "$w/kept.json" "$clone/configs/config.json" || fail "kept: the config changed"
+on opi5plus aarch64 eval "BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup POOL_URL=gulf.moneroocean.stream PORT=10128 PASS=rig1 DEFAULT_PASS=x \
+  WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false MODE=eco; check_board; generate_config_files"
+want "kept, generate" exit 0 "$code"; want "kept, generate" "mode lines" 1 "$(count 'does not apply to the kept')"
+want "kept, generate" "threads lines" 0 "$(count 'threads does not apply')"
+cmp -s "$w/kept.json" "$clone/configs/config.json" || fail "kept, generate: the config changed"
+fresh; printf '{}\n' > "$clone/config.json"; chk eco; want "kept-root" warning "$a10" "$(wl)"
+fresh; ln -s "$clone/configs/nothing.json" "$clone/config.json"; chk eco; want "dangling root link" warnings "" "$(wl)"
+fresh; mkdir -p "$clone/configs"; printf '{}\n' > "$clone/configs/config.json"; chk ""; want "installed" warnings "" "$(wl)"
+
+# A malformed profile is dropped with one warning and nothing is written.
+bad() { # label, key to replace (value) or "-key" to delete
+  if [ "${2#-}" != "$2" ]; then grep -v "^rk3588.${2#-}=" "$root/scripts/board_profiles.conf" > "$w/data.conf"; else data "$2" "$3"; fi
+  fresh "$w/data.conf"; gen opi5plus aarch64 75 MODE=eco
+  want "$1" exit 1 "$code"; want "$1" warnings 1 "$(count '^\[WARNING\]')"
+  [ ! -e "$clone/configs/config.json" ] || fail "$1: a config was written"
+}
+bad "no max" -max
+bad "no eco" -eco
+bad "bad layouts" rk3588.layouts "0-7 x"
+bad "bad eco-cap" rk3588.eco-cap "policy4"
+bad "bad measured" rk3588.measured "$(printf 'a%.0s' $(seq 1 1025))"
+# A key outside the known ones makes the profile unusable.
+{ cat "$root/scripts/board_profiles.conf"; echo "rk3588.eco =4-7"; } > "$w/data.conf"; fresh "$w/data.conf"; gen opi5plus aarch64 75 MODE=eco
+want "spaced key" exit 1 "$code"; want "spaced key" warnings 1 "$(count '^\[WARNING\]')"
+# An empty list for the mode refuses with one error and writes nothing.
+sed 's/^rk3588.eco=.*/rk3588.eco=/' "$root/scripts/board_profiles.conf" > "$w/data.conf"; fresh "$w/data.conf"; gen opi5plus aarch64 75 MODE=eco
+want "empty list" exit 1 "$code"; [ ! -e "$clone/configs/config.json" ] || fail "empty list: a config was written"
+# The model is cut to 64 characters.
+cp -R "$w/fx/pi5" "$w/fx/long-model"; printf 'M%.0s' $(seq 1 100) > "$w/fx/long-model/model"
+fresh; gen long-model aarch64 75 MODE=eco
+want "long model" line "[INFO] Board: $(printf 'M%.0s' $(seq 1 64)), profile bcm2712, mode eco, untested." "$(bline)"
+# The board is resolved afresh by parse_arguments, whatever the environment says.
+fresh
+BOARD_RESOLVED=yes on opi5plus aarch64 eval "parse_arguments -w $wallet --mode eco; BASE_DIR='$w/base' REPO_NAME=Monero-miner-setup POOL_URL=gulf.moneroocean.stream PORT=10128 PASS=rig1 DEFAULT_PASS=x \
+  DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false; generate_config_files"
+want "reset" "board lines" 1 "$(count '^\[INFO\] Board:')"
+# A profile name is 1 to 16 lower case letters and digits.
+for name in RK3588 abcdefghijklmnopq; do
+  sed "s/^rk3588\./$name./" "$root/scripts/board_profiles.conf" > "$w/data.conf"; fresh "$w/data.conf"; gen opi5plus aarch64 75 MODE=eco
+  want "name $name" exit 1 "$code"; want "name $name" "error lines" "$a8" "$(printf '%s\n' "$out" | grep '^\[ERROR\]')"
+done
 [ "$rc" -eq 0 ] && echo "PASS board-profiles"
 exit "$rc"

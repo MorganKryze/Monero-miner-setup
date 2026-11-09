@@ -958,7 +958,7 @@ function pick_cpu_list() {
     CPU_LIST=""
     if [ -n "$MODE" ] && [ -n "$BOARD_PROFILE" ]; then
         mode_cpu_list
-        return 0
+        return
     fi
     is_arm64 || return 0
     usable=$(ranked_cpus | awk 'END { print NR }')
@@ -1044,7 +1044,7 @@ function expand_cpus() {
 # Exit 0 when every value of <profile> passes its check: compatible strings, max and eco CPU
 # lists, layouts as CPU lists, eco-cap as policyN=kHz, measured as printable text.
 function profile_ok() {
-    local line key value word seen=""
+    local line key value word words seen=""
     [ -r "$PROFILE_FILE" ] || return 1
     while read -r line || [ -n "$line" ]; do
         [[ "$line" == "$1."* ]] || continue
@@ -1068,6 +1068,7 @@ function profile_ok() {
             for word in "${words[@]}"; do [[ "$word" =~ ^policy[0-9]{1,4}=[0-9]{1,9}$ ]] || return 1; done
             ;;
         measured) [ "${#value}" -le 1024 ] && [[ "$value" =~ ^[[:print:]]*$ ]] || return 1 ;;
+        *) return 1 ;;
         esac
     done <"$PROFILE_FILE"
     [[ "$seen " == *" compatible "* && "$seen " == *" max "* && "$seen " == *" eco "* ]]
@@ -1093,10 +1094,70 @@ function total_mem_mib() {
     return 0
 }
 
-# Sets CPU_LIST to the profile's list for MODE, as arm_cpu_list formats one.
+# Sets CPU_LIST to the profile's list for MODE, as arm_cpu_list formats one. The CPUs outside the
+# ones this process may run on are left out, with one warning. With none left, or (eco only) when
+# an allowed CPU outside the list has a higher capacity than the lowest of the list's, the best
+# CPUs by capacity are used instead, as many as the profile's list names. A list that is empty
+# or malformed is refused (exit 1).
 function mode_cpu_list() {
-    CPU_LIST=$(expand_cpus "$(profile_value "$BOARD_PROFILE" "$MODE")" |
-        awk '{ printf "%s%s", (NR > 1 ? ", " : "["), $1 } END { if (NR) print "]" }')
+    local want allowed cpu cap lowest="" top=0 left="" dropped="" total usable
+    CPU_LIST=""
+    want=$(expand_cpus "$(profile_value "$BOARD_PROFILE" "$MODE")") || want=""
+    if [ -z "$want" ]; then
+        error "The $MODE list of profile $BOARD_PROFILE is empty or not valid: nothing is written."
+        return 1
+    fi
+    allowed=$(ranked_cpus)
+    for cpu in $want; do
+        if [[ $'\n'"$allowed"$'\n' == *$'\n'"$cpu"$'\n'* ]]; then
+            left+="$cpu"$'\n'
+        else
+            dropped+="${dropped:+, }$cpu"
+        fi
+    done
+    [ -z "$dropped" ] || warning "CPUs $dropped of the $MODE list are not ones this installer may run on: left out."
+    if [ "$MODE" = eco ] && [ -n "$left" ]; then
+        for cpu in $allowed; do
+            cap=$(cat "$CPU_SYS_DIR/cpu$cpu/cpu_capacity" 2>/dev/null) || cap=""
+            [[ "$cap" =~ ^[0-9]{1,9}$ ]] || cap=0
+            [ "$cap" -le "$top" ] || top=$cap
+            if [[ $'\n'"$left" == *$'\n'"$cpu"$'\n'* ]]; then
+                if [ -z "$lowest" ] || [ "$cap" -lt "$lowest" ]; then lowest=$cap; fi
+            fi
+        done
+        # No capacity read at all means nothing is known: no claim about the ranking.
+        if [ "$top" -gt 0 ]; then
+            for cpu in $allowed; do
+                [[ $'\n'"$left" == *$'\n'"$cpu"$'\n'* ]] && continue
+                cap=$(cat "$CPU_SYS_DIR/cpu$cpu/cpu_capacity" 2>/dev/null) || cap=""
+                [[ "$cap" =~ ^[0-9]{1,9}$ ]] || cap=0
+                if [ "$cap" -gt "$lowest" ]; then
+                    left=""
+                    break
+                fi
+            done
+        fi
+    fi
+    if [ -z "$left" ]; then
+        total=$(awk 'END { print NR }' <<<"$want")
+        usable=$(awk 'END { print NR }' <<<"$allowed")
+        [ "$total" -le "$usable" ] || total=$usable
+        warning "The $MODE list of profile $BOARD_PROFILE does not fit this host's CPUs: mining on $total CPUs chosen by capacity instead."
+        CPU_LIST=$(arm_cpu_list "$total")
+        return 0
+    fi
+    CPU_LIST=$(printf '%s' "$left" | awk '{ printf "%s%s", (NR > 1 ? ", " : "["), $1 } END { if (NR) print "]" }')
+}
+
+# Exit 0 when a config of an earlier run is there: a file in configs/, or a file at the clone root
+# that is not a link.
+function any_config_kept() {
+    local dir="$BASE_DIR/$REPO_NAME" name
+    for name in config.json config_background.json; do
+        [ -f "$dir/configs/$name" ] && return 0
+        [ -e "$dir/$name" ] && [ ! -L "$dir/$name" ] && return 0
+    done
+    return 1
 }
 
 # Finds the board's profile once (BOARD_PROFILE, BOARD_MODEL) and prints the board line. A profile
@@ -1130,8 +1191,12 @@ function resolve_board() {
 # have a profile; a first clone on a board is resolved by generate_config_files.
 function check_board() {
     if [ -d "$BASE_DIR/$REPO_NAME/.git" ] || ! is_arm64 || [ -z "$(board_compatible)" ]; then
-        resolve_board
+        resolve_board || return 1
     fi
+    if [ -n "$MODE" ] && any_config_kept; then
+        warning "--mode does not apply to the kept configs. To apply it, run 'make clean-configs', the installer again with --mode, then 'make service-setup' and 'make restart'."
+    fi
+    return 0
 }
 
 function configs_exist() {
@@ -1205,7 +1270,7 @@ function generate_config_files() {
     resolve_board || return 1
 
     # On arm64, the list naming every usable CPU, when --threads leaves one of them out.
-    pick_cpu_list
+    pick_cpu_list || return 1
     if is_arm64; then
         every=$(arm_cpu_list "$(ranked_cpus | awk 'END { print NR }')")
         [ "$CPU_LIST" != "$every" ] || every=""
@@ -1238,7 +1303,7 @@ function generate_config_files() {
             fi
         fi
     done
-    if [ "$unlisted" = true ]; then
+    if [ "$unlisted" = true ] && [ -z "$MODE" ]; then
         warning "--threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
     fi
 
