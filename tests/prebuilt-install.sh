@@ -156,11 +156,11 @@ case $(ls -l "$clone/xmrig") in -rwxr-xr-x*) ;; *) fail "good: xmrig mode" ;; es
 want good record "v0.2.0 $hash" "$(cat "$clone/xmrig.release")"
 want good "curl calls" 2 "$(wc -l < "$w/curl.log" | tr -d ' ')"
 case $(sed -n 1p "$w/curl.log") in
-  "-fsSL --proto =https --proto-redir =https -o "*" $url/v0.2.0/$asset") ;;
+  "-fsSL --proto =https --proto-redir =https -o $clone/.xmrig-release."*"/$asset $url/v0.2.0/$asset") ;;
   *) fail "good: first curl line: $(sed -n 1p "$w/curl.log")" ;;
 esac
 case $(sed -n 2p "$w/curl.log") in
-  "-fsSL --proto =https --proto-redir =https -o "*" $url/v0.2.0/SHA256SUMS") ;;
+  "-fsSL --proto =https --proto-redir =https -o $clone/.xmrig-release."*"/SHA256SUMS $url/v0.2.0/SHA256SUMS") ;;
   *) fail "good: second curl line: $(sed -n 2p "$w/curl.log")" ;;
 esac
 want good apt-get.log "update
@@ -195,7 +195,25 @@ refuse ldd-fails "The release binary cannot be loaded on this host, $left $lib_t
 
 reset
 rm "$clone/xmrig"; mkdir "$clone/xmrig"; chmod 755 "$clone/xmrig"
-refuse folder-at-xmrig "$clone/xmrig is a folder, so the release binary cannot replace it. Remove it, then run the installer again."
+refuse folder-at-xmrig "$clone/xmrig is a link or a folder, so the release binary is not installed over it. Remove it with rm -r $clone/xmrig, then run the installer again."
+
+reset
+mkdir "$w/outside"; printf 'keep' > "$w/outside/keep"
+rm "$clone/xmrig"; ln -s "$w/outside" "$clone/xmrig"
+run -- install_release_binary "$clone"
+want link-to-folder exit 1 "$code"
+want link-to-folder error "[ERROR] $clone/xmrig is a link or a folder, so the release binary is not installed over it. Remove it with rm -r $clone/xmrig, then run the installer again." "$(printf '%s\n' "$out" | grep -F '[ERROR]')"
+want link-to-folder outside "keep" "$(ls -A "$w/outside" | tr '\n' ' ' | sed 's/ $//')"
+[ ! -e "$clone/xmrig.release" ] || fail "link-to-folder: wrote xmrig.release"
+nostage link-to-folder
+
+reset
+mkdir "$clone/xmrig.release"; chmod 755 "$clone/xmrig.release"
+run -- install_release_binary "$clone"
+want folder-at-record exit 1 "$code"
+want folder-at-record error "[ERROR] $clone/xmrig.release is a link or a folder, so the release binary is not installed over it. Remove it with rm -r $clone/xmrig.release, then run the installer again." "$(printf '%s\n' "$out" | grep -F '[ERROR]')"
+want folder-at-record xmrig old "$(cat "$clone/xmrig")"
+nostage folder-at-record
 
 reset
 echo "$w/opt alice 755" > "$w/stat.map"
@@ -211,14 +229,14 @@ want no-tag exit 1 "$code"
 want no-tag text "[ERROR] $clone is checked out at no release tag, so --prebuilt has no release to install." "$out"
 [ ! -e "$w/curl.log" ] || fail "no-tag: curl ran"
 
-# A link at xmrig is replaced; what it points to is not.
+# A link at xmrig is refused; what it points to is not changed.
 reset
 mkdir "$clone/build-xmrig"; chmod 755 "$clone/build-xmrig"
 printf 'compiled' > "$clone/build-xmrig/xmrig"; chmod 755 "$clone/build-xmrig/xmrig"
 rm "$clone/xmrig"; ln -s build-xmrig/xmrig "$clone/xmrig"
 run -- install_release_binary "$clone"
-want link-at-xmrig exit 0 "$code"
-{ [ -f "$clone/xmrig" ] && [ ! -L "$clone/xmrig" ]; } || fail "link-at-xmrig: xmrig is not a regular file"
+want link-at-xmrig exit 1 "$code"
+[ -L "$clone/xmrig" ] || fail "link-at-xmrig: link replaced"
 want link-at-xmrig target compiled "$(cat "$clone/build-xmrig/xmrig")"
 nostage link-at-xmrig
 
@@ -235,6 +253,14 @@ want older-record exit 1 "$code"
 printf 'v0.2.0 %s\n' "$hash" > "$clone/xmrig.release"
 run PREBUILT=yes -- check_if_built
 want other-hash exit 1 "$code"
+
+# A link at xmrig is not an installed release, even when the bytes match the record.
+reset
+printf 'release-binary' > "$w/outside-bin"
+rm "$clone/xmrig"; ln -s "$w/outside-bin" "$clone/xmrig"
+printf 'v0.2.0 %s\n' "$hash" > "$clone/xmrig.release"; chmod 644 "$clone/xmrig.release"
+run PREBUILT=yes -- check_if_built
+want link-installed exit 1 "$code"
 
 # binary_origin: its three texts
 reset

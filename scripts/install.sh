@@ -827,7 +827,7 @@ function check_if_built() {
             error "$target_dir is checked out at no release tag, and --prebuilt installs the release the clone is checked out at. Run git -C $target_dir checkout --recurse-submodules vX.Y.Z with a release from $PROJECT_URL/releases, then the installer again."
             exit 1
         fi
-        if [ -f "$target_dir/xmrig.release" ] &&
+        if [ -f "$target_dir/xmrig.release" ] && [ -f "$target_dir/xmrig" ] && [ ! -L "$target_dir/xmrig" ] &&
             [ "$(binary_origin "$target_dir")" = "release $tag, sha256 $(binary_sha256 "$target_dir/xmrig")" ]; then
             success "XMRig of release $tag is already installed at $target_dir."
             return 0
@@ -1343,7 +1343,7 @@ function donate_level_of() {
 # Every step is checked, and a refusal leaves the binary, the record and the clone as they were. It
 # runs in a subshell, so its trap removes the staging folder however it ends.
 function install_release_binary() (
-    local dir=$1 tag stage file url lines want got out line lib
+    local dir=$1 tag stage file url lines want got out line lib path
     root_only_tree "$dir" || exit 1
     tag=$(release_tag_of "$dir")
     if [ -z "$tag" ]; then
@@ -1390,10 +1390,12 @@ function install_release_binary() (
         error "The release binary needs $lib, which this host lacks after apt installed ${RELEASE_PACKAGES[*]}, so the miner is left as it was. Run the installer without --prebuilt to compile the miner here."
         exit 1
     fi
-    if [ -d "$dir/xmrig" ]; then
-        error "$dir/xmrig is a folder, so the release binary cannot replace it. Remove it, then run the installer again."
-        exit 1
-    fi
+    for path in "$dir/xmrig" "$dir/xmrig.release"; do
+        if [ -L "$path" ] || [ -d "$path" ]; then
+            error "$path is a link or a folder, so the release binary is not installed over it. Remove it with rm -r $path, then run the installer again."
+            exit 1
+        fi
+    done
     chmod 0755 "$stage/$RELEASE_ASSET" && printf '%s %s\n' "$tag" "$want" > "$stage/xmrig.release" && chmod 0644 "$stage/xmrig.release" || {
         error "Failed to install the release binary at $dir/xmrig."
         exit 1
