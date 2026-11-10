@@ -73,4 +73,5 @@ out=$(run build); st=$?
 [ -L "$w/clone/xmrig" ] && [ "$(readlink "$w/clone/xmrig")" = "build-xmrig/xmrig" ] || fail "build: xmrig is not a link to build-xmrig/xmrig"
 [ ! -e "$w/clone/xmrig.release" ] || fail "build: record kept"
 
+[ "$rc" = 0 ] && echo "PASS prebuilt-make"
 exit "$rc"
