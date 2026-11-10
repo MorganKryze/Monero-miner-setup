@@ -245,7 +245,6 @@ want=$(cat <<'YML'
       contents: write
       id-token: write
       attestations: write
-      artifact-metadata: write
     steps:
       - uses: actions/download-artifact@vN
         with:
@@ -290,7 +289,7 @@ got=$({ block "$p" '  release-build:'; block "$p" '  release-publish:'; } | majo
 # A double-quoted value joins two lines at a trailing backslash, and counting quotes cannot tell
 # whether a line sits inside one, so only the manifest step's two shell continuations may end a
 # line with a backslash. The mutants below prove each way in stays shut.
-want='artifact-metadata: write,attestations: write,contents: write,id-token: write,packages: write'
+want='attestations: write,contents: write,id-token: write,packages: write'
 breaks=$(cat <<'YML'
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
