@@ -127,9 +127,10 @@ function apply() {
     return 0
 }
 
-# Gives each recorded policy the maximum, then the governor, it had before apply.
+# Gives each recorded policy the maximum, then the governor, it had before apply. When a write back
+# fails, the record stays (a later apply then keeps what was first found) and the exit is 1.
 function restore() {
-    local name governor max dir
+    local name governor max dir failed=0
     [ -f "$RECORD" ] || return 0
     while read -r name governor max; do
         if ! [[ "$name" =~ ^policy[0-9]{1,4}$ && "$governor" =~ ^[a-z]{1,16}$ && "$max" =~ ^[0-9]{1,9}$ ]]; then
@@ -137,12 +138,14 @@ function restore() {
             continue
         fi
         dir="$CPUFREQ_DIR/$name"
-        if echo "$max" >"$dir/scaling_max_freq" && echo "$governor" >"$dir/scaling_governor"; then
+        if { echo "$max" >"$dir/scaling_max_freq" && echo "$governor" >"$dir/scaling_governor"; } 2>/dev/null; then
             say "$name: given back governor $governor, at most $((10#$max / 1000)) MHz."
         else
             say "$name: could not be given back governor $governor and maximum $max kHz."
+            failed=1
         fi
     done <"$RECORD"
+    [ "$failed" -eq 0 ] || return 1
     rm -f -- "$RECORD"
     return 0
 }

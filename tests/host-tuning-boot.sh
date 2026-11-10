@@ -4,7 +4,7 @@
 # policy the values file names (the mining ones to performance, capped in eco, the others to
 # powersave) and raises the 2 MB huge page reservation, recording what it found once; `restore`
 # gives each policy back its governor and maximum. A policy it cannot set, or a line not of the
-# expected form, is left as found with one journal line, and it always exits 0 so the miner starts.
+# expected form, is left as found with one journal line, and apply always exits 0 so the miner starts.
 # Runs against fixture cpufreq trees holding the values a Raspberry Pi 5 and an Orange Pi 5 Plus
 # report under DietPi; PATH holds only links to plain tools, and nothing of this host's /sys, /proc,
 # /etc or /run is read or written. Run from the repository root. Prints FAIL lines, exits 1 on any
@@ -41,6 +41,7 @@ Type=oneshot
 RemainAfterExit=yes
 RuntimeDirectory=xmrig-host-tuning
 RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=restart
 ExecStart=/usr/local/sbin/xmrig-host-tuning apply
 ExecStop=/usr/local/sbin/xmrig-host-tuning restore
 [Install]
@@ -233,6 +234,19 @@ printf '%s\n' '../../x performance 1' 'policy4 schedutil 2400000' > "$w/opi/run/
 same "malformed record" 'xmrig-host-tuning: skipped a record line that is not of the expected form.
 xmrig-host-tuning: policy4: given back governor schedutil, at most 2400 MHz.
 exit 0' "$(run opi restore)"
+
+# A write back that fails keeps the record and exits non-zero; a later apply does not record the
+# tuned values as found.
+tree opi opi5plus
+printf '%s\n' 'policy4=performance 1800000' > "$w/opi/conf"
+run opi apply >/dev/null
+chmod 444 "$w/opi/cpufreq/policy4/scaling_governor"
+same "failed restore" 'xmrig-host-tuning: policy4: could not be given back governor schedutil and maximum 2400000 kHz.
+exit 1' "$(run opi restore)"
+chmod 644 "$w/opi/cpufreq/policy4/scaling_governor"
+same "record kept after a failed restore" 'policy4 schedutil 2400000' "$(cat "$w/opi/run/found" 2>&1)"
+run opi apply >/dev/null
+same "record after a failed restore and an apply" 'policy4 schedutil 2400000' "$(cat "$w/opi/run/found" 2>&1)"
 
 [ "$rc" -eq 0 ] && echo "PASS host-tuning-boot"
 exit "$rc"
