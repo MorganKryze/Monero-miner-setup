@@ -100,7 +100,21 @@ refused() { # name, error text, vars...
   none_of "$name"
 }
 glibc_low() { echo "--prebuilt needs glibc 2.38 or newer, and this host has $1 (Debian 12 has 2.36). $tail_text"; }
-refused darwin "--prebuilt installs the Linux arm64 release binary, and this host is Darwin arm64. $tail_text" UNAME_S=Darwin UNAME_M=arm64
+# A whole run as macOS needs macOS's own /bin/ls -le to find the installer's clone; elsewhere the
+# refusal is checked on the host check itself, with the same stubs.
+darwin_line="--prebuilt installs the Linux arm64 release binary, and this host is Darwin arm64. $tail_text"
+if [ "$(uname -s)" = Darwin ]; then
+  refused darwin "$darwin_line" UNAME_S=Darwin UNAME_M=arm64
+else
+  out=$({ cat "$r/dependencies/bash-toolbox/src/prefix.sh"
+          sed -n '/^# ===== Constants =====/,/^# ===== Own clone =====/p' "$root/scripts/install.sh"
+          sed -n '/^function check_prebuilt_host() {/,/^}/p' "$root/scripts/install.sh"
+          echo 'check_prebuilt_host'
+        } | env -i HOME="$w/home" PATH="$w/bin:$w/tools" UNAME_S=Darwin UNAME_M=arm64 "$BASH" --norc --noprofile -s 2>&1)
+  code=$?
+  want darwin exit 1 "$code"
+  want darwin "error lines" "[ERROR] $darwin_line" "$(printf '%s\n' "$out" | grep -F '[ERROR]')"
+fi
 refused x86 "--prebuilt installs the Linux arm64 release binary, and this host is Linux x86_64. $tail_text" UNAME_M=x86_64
 refused non-root "--prebuilt installs a binary only root can change, so it runs as root. Run the installer again with sudo, or without --prebuilt to compile the miner as you." ID_UID=1000
 refused bookworm "$(glibc_low 2.36 | sed 's/here\./here, or use --docker./')" GLIBC=2.36
