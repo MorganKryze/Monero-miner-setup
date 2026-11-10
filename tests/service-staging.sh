@@ -180,10 +180,13 @@ out_for() { # account, the line about an earlier account if any
     "The service runs the miner as $1."
 }
 want_unit() { # account, group
+  local origin='h=$$(sha256sum < "$$1/xmrig" | cut -c1-64); d=$$(grep -o "donate-level.: *[0-9]*" "$$2" | grep -o "[0-9]*$$"); if [ ! -e "$$1/xmrig.release" ]; then o="compiled on this host"; elif r=$$(cat "$$1/xmrig.release") && [ -n "$$h" ] && [ "$${r#* }" = "$$h" ]; then o="release $$(echo "$$r" | cut -d" " -f1), sha256 $$h"; else o="unknown (sha256 $${h:-unreadable} matches no release record)"; fi; echo "Miner binary: $$o; donate level $${d:-unknown}"'
   printf '%s\n' "[Unit]" "Description=XMRig Monero Miner" "After=network.target" "" "[Service]" "Type=simple" \
     "User=$1" "Group=$2" "ConfigurationDirectory=xmrig" "StateDirectory=xmrig/$1" "StateDirectoryMode=0700" \
     "LogsDirectory=xmrig/$1" "LogsDirectoryMode=0750" "WorkingDirectory=/var/lib/xmrig/$1" \
     "ExecStartPre=/bin/sh -c 'cmp -s /etc/xmrig/config.json /var/lib/xmrig/$1/seed.json || { cp /etc/xmrig/config.json /var/lib/xmrig/$1/config.json.new && mv -f /var/lib/xmrig/$1/config.json.new /var/lib/xmrig/$1/config.json && cp /etc/xmrig/config.json /var/lib/xmrig/$1/seed.json; }'" \
+    "# Names where the binary comes from and the donate level it starts with; never blocks the start." \
+    "ExecStartPre=-/bin/sh -c '$origin' miner-origin $c /var/lib/xmrig/$1/config.json" \
     "ExecStart=$c/xmrig --config=/var/lib/xmrig/$1/config.json --log-file=/var/log/xmrig/$1/xmrig.log" \
     "Restart=on-failure" "RestartSec=15" "Nice=10" "" "[Install]" "WantedBy=multi-user.target"
 }
