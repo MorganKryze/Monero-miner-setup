@@ -827,6 +827,11 @@ function check_if_built() {
             error "$target_dir is checked out at no release tag, and --prebuilt installs the release the clone is checked out at. Run git -C $target_dir checkout --recurse-submodules vX.Y.Z with a release from $PROJECT_URL/releases, then the installer again."
             exit 1
         fi
+        if [ -f "$target_dir/xmrig.release" ] &&
+            [ "$(binary_origin "$target_dir")" = "release $tag, sha256 $(binary_sha256 "$target_dir/xmrig")" ]; then
+            success "XMRig of release $tag is already installed at $target_dir."
+            return 0
+        fi
         info "Monero miner not yet installed from release $tag."
         return 1
     fi
@@ -1291,7 +1296,11 @@ function root_only_tree() {
     check=
     while :; do
         if ! SUDO_USER="" trusted_by_root "${check:-/}"; then
-            error "${check:-/} can be changed by a user other than root, so --prebuilt does not install a binary under it. Pass -d with a directory only root can change, such as /opt."
+            if [ "${check:-/}" = "$dir" ] && [ "$dir" = "$BASE_DIR/$REPO_NAME" ]; then
+                error "$dir can be changed by a user other than root, so --prebuilt does not install a binary under it. Move $dir away and run the installer again, or pass -d with a directory only root can change."
+            else
+                error "${check:-/} can be changed by a user other than root, so --prebuilt does not install a binary under it. Pass -d with a directory only root can change, such as /opt."
+            fi
             return 1
         fi
         [ "${check:-/}" = "$dir" ] && break
@@ -1299,6 +1308,106 @@ function root_only_tree() {
         check=$check/${rest%%/*}
     done
 }
+
+# The sha256 of a file, or nothing.
+function binary_sha256() {
+    local line
+    line=$(sha256sum -- "$1" 2>/dev/null) || return 0
+    printf '%s' "${line%% *}"
+}
+
+# Where the miner binary in a clone comes from, as one line of text.
+function binary_origin() {
+    local record hash
+    if [ ! -f "$1/xmrig.release" ]; then
+        printf '%s' "compiled on this host"
+        return 0
+    fi
+    record=$(head -n 1 "$1/xmrig.release" 2>/dev/null) || record=""
+    hash=$(binary_sha256 "$1/xmrig")
+    if [ -n "$hash" ] && [ "${record#* }" = "$hash" ]; then
+        printf '%s' "release ${record%% *}, sha256 $hash"
+    else
+        printf '%s' "unknown (sha256 ${hash:-unreadable} matches no release record)"
+    fi
+}
+
+# The donate level a config holds, or unknown.
+function donate_level_of() {
+    local level
+    level=$(grep -o 'donate-level.: *[0-9]*' "$1" 2>/dev/null | grep -o '[0-9]*$' | head -n 1)
+    printf '%s' "${level:-unknown}"
+}
+
+# Installs the release binary at the clone's tag once its sha256 matches the release's SHA256SUMS.
+# Every step is checked, and a refusal leaves the binary, the record and the clone as they were. It
+# runs in a subshell, so its trap removes the staging folder however it ends.
+function install_release_binary() (
+    local dir=$1 tag stage file url lines want got out line lib
+    root_only_tree "$dir" || exit 1
+    tag=$(release_tag_of "$dir")
+    if [ -z "$tag" ]; then
+        error "$dir is checked out at no release tag, so --prebuilt has no release to install."
+        exit 1
+    fi
+    if ! stage=$(mktemp -d "$dir/.xmrig-release.XXXXXX"); then
+        error "Failed to create a folder for the download in $dir."
+        exit 1
+    fi
+    trap 'rm -rf -- "$stage"' EXIT
+    trap 'exit 1' HUP INT TERM
+    for file in "$RELEASE_ASSET" SHA256SUMS; do
+        url="$RELEASE_URL/$tag/$file"
+        if ! curl -fsSL --proto '=https' --proto-redir '=https' -o "$stage/$file" "$RELEASE_URL/$tag/$file" || [ ! -s "$stage/$file" ]; then
+            error "Failed to download $url, so the miner is left as it was. Check your network and that release $tag has this file, then run the installer again."
+            exit 1
+        fi
+    done
+    lines=$(grep -E "[ *]$RELEASE_ASSET\$" "$stage/SHA256SUMS") || lines=""
+    if ! [[ $lines =~ ^([0-9a-f]{64})\ [\ *]$RELEASE_ASSET$ ]]; then
+        error "SHA256SUMS of release $tag does not hold exactly one sum for $RELEASE_ASSET, so the miner is left as it was."
+        exit 1
+    fi
+    want=${BASH_REMATCH[1]}
+    got=$(binary_sha256 "$stage/$RELEASE_ASSET")
+    if [ "$got" != "$want" ]; then
+        error "$RELEASE_ASSET of release $tag has sha256 ${got:-unreadable} where SHA256SUMS says $want, so the miner is left as it was. Run the installer again; if it says the same, report it at $PROJECT_URL/issues."
+        exit 1
+    fi
+    info "Installing ${RELEASE_PACKAGES[*]} for the release binary..."
+    if ! apt-get update || ! apt-get install -y --no-upgrade "${RELEASE_PACKAGES[@]}"; then
+        error "Failed to install ${RELEASE_PACKAGES[*]} through apt, so the miner is left as it was. Fix apt, then run the installer again."
+        exit 1
+    fi
+    if ! out=$(ldd "$stage/$RELEASE_ASSET" 2>&1); then
+        error "The release binary cannot be loaded on this host, so the miner is left as it was. Run the installer without --prebuilt to compile the miner here."
+        exit 1
+    fi
+    line=$(printf '%s\n' "$out" | grep -m 1 '=> not found') || line=""
+    if [ -n "$line" ]; then
+        lib=${line#"${line%%[![:space:]]*}"}
+        lib=${lib%% *}
+        error "The release binary needs $lib, which this host lacks after apt installed ${RELEASE_PACKAGES[*]}, so the miner is left as it was. Run the installer without --prebuilt to compile the miner here."
+        exit 1
+    fi
+    if [ -d "$dir/xmrig" ]; then
+        error "$dir/xmrig is a folder, so the release binary cannot replace it. Remove it, then run the installer again."
+        exit 1
+    fi
+    chmod 0755 "$stage/$RELEASE_ASSET" && printf '%s %s\n' "$tag" "$want" > "$stage/xmrig.release" && chmod 0644 "$stage/xmrig.release" || {
+        error "Failed to install the release binary at $dir/xmrig."
+        exit 1
+    }
+    if ! mv -f -- "$stage/$RELEASE_ASSET" "$dir/xmrig"; then
+        error "Failed to install the release binary at $dir/xmrig."
+        exit 1
+    fi
+    if ! mv -f -- "$stage/xmrig.release" "$dir/xmrig.release"; then
+        error "Installed the release binary at $dir/xmrig, but failed to write $dir/xmrig.release, so its origin shows as unknown. Run the installer again."
+        exit 1
+    fi
+    success "Installed XMRig of release $tag (sha256 $want) at $dir/xmrig."
+)
 
 # A first install, or a re-run that carries out what an earlier run left undone (a failed build, a
 # service never set up), each missing step in the order a first install takes them.
@@ -1335,7 +1444,9 @@ function install_project() {
     fi
 
     if [ "$built" = false ]; then
-        if ! build_project; then
+        if [ "$PREBUILT" = yes ]; then
+            install_release_binary "$BASE_DIR/$REPO_NAME" || exit 1
+        elif ! build_project; then
             error "Failed to build project."
             return 1
         fi
@@ -1395,6 +1506,7 @@ function show_resource_recommendations() {
 }
 
 function display_next_steps() {
+    hint "Miner binary: $(binary_origin "$BASE_DIR/$REPO_NAME"); donate level $(donate_level_of "$BASE_DIR/$REPO_NAME/config_background.json")"
     hint "Next steps:"
     hint "Move to the project directory: ${BLUE}cd $BASE_DIR/$REPO_NAME${RESET}"
 

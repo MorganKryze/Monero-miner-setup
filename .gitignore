@@ -1,6 +1,8 @@
 # Ignore build directories and files
 build-xmrig/
 xmrig
+xmrig.release
+.xmrig-release.*/
 
 configs/
 config.json

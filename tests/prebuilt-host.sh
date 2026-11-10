@@ -126,7 +126,7 @@ d="$w/driver.sh"
     sed -n "/^function $f() {/,/^}/p" "$root/scripts/install.sh"
   done
   echo 'check_base_clone() { return 0; }'
-  echo 'BASE_DIR=$1; shift; "$@"'
+  echo 'BASE_DIR=$1; shift; "$@"; rc=$?; printf "\n[RETURNED] %s\n" "$rc"; exit "$rc"'
 } > "$d"
 chmod 644 "$d"
 clone="$w/opt/Monero-miner-setup"
@@ -138,17 +138,34 @@ fn() {
   rm -f "$w/git.log"
   out=$(cd "$w/home" && env -i HOME="$w/home" PATH="$w/bin:$w/tools" "${vars[@]}" "$BASH" --norc --noprofile "$d" "$w/opt" "$@" 2>&1)
   code=$?
+  # A function that exits never reaches the line after it; one that returns leaves a marker.
+  ret=
+  case $out in
+    *"[RETURNED] "*)
+      ret=${out##*"[RETURNED] "}
+      out=${out%"[RETURNED] "*}
+      while [ "${out%$'\n'}" != "$out" ]; do out=${out%$'\n'}; done ;;
+  esac
 }
 : > "$w/stat.map"
 tag_of() { fn GIT_TAGS="$1" -- release_tag_of "$clone"; want "tag $2" "tag" "$3" "$out"; want "tag $2" exit 0 "$code"; }
+no_return() { [ -z "$ret" ] || fail "$1: returned instead of exiting"; }
 tag_of 'v0.2.0-rc.1\nv0.2.0' final v0.2.0
 tag_of 'v0.2.0-rc.1' pre-release v0.2.0-rc.1
 tag_of 'v0.1.1\nv0.10.0\nv0.2.0' numeric v0.10.0
-tag_of 'vfoo\nv1.2\nv1.2.3;rm\nv1.2.3/x' junk ""
+tag_of 'vfoo\nv1.2\nv1.2.3;rm\nv1.2.3/x\nvx/v1.2.3\nv1.2.3-a/b' junk ""
 
 mkdir -p "$clone"; chmod 755 "$clone"
+chmod 000 "$clone"
+fn PREBUILT=yes GIT_TAGS=v0.2.0 -- check_if_built
+chmod 755 "$clone"
+want unreadable exit 1 "$code"
+want unreadable text "[ERROR] $clone cannot be read, so --prebuilt does not install a binary there." "$out"
+no_return unreadable
+[ ! -e "$w/git.log" ] || fail "unreadable: the tag was read"
 fn PREBUILT=yes -- check_if_built
 want no-tag exit 1 "$code"
+no_return no-tag
 want no-tag text "[ERROR] $clone is checked out at no release tag, and --prebuilt installs the release the clone is checked out at. Run git -C $clone checkout --recurse-submodules vX.Y.Z with a release from https://github.com/MorganKryze/Monero-miner-setup/releases, then the installer again." "$out"
 fn PREBUILT=yes GIT_TAGS=v0.2.0 -- check_if_built
 want tagged exit 1 "$code"
@@ -159,7 +176,13 @@ for entry in "$w/opt alice 755" "$clone alice 755" "$w/opt root 775" "$w root 17
   for s in "" alice; do
     fn PREBUILT=yes GIT_TAGS=v0.2.0 ${s:+SUDO_USER=$s} -- check_if_built
     want "tree $entry sudo=$s" exit 1 "$code"
-    want "tree $entry sudo=$s" text "[ERROR] $p can be changed by a user other than root, so --prebuilt does not install a binary under it. Pass -d with a directory only root can change, such as /opt." "$out"
+    if [ "$p" = "$clone" ]; then
+      want "tree $entry sudo=$s" text "[ERROR] $p can be changed by a user other than root, so --prebuilt does not install a binary under it. Move $p away and run the installer again, or pass -d with a directory only root can change." "$out"
+    else
+      want "tree $entry sudo=$s" text "[ERROR] $p can be changed by a user other than root, so --prebuilt does not install a binary under it. Pass -d with a directory only root can change, such as /opt." "$out"
+    fi
+    no_return "tree $entry sudo=$s"
+    [ ! -e "$w/git.log" ] || fail "tree $entry sudo=$s: the tag was read before the tree check"
   done
 done
 : > "$w/stat.map"
