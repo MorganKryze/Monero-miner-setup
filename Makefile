@@ -285,9 +285,9 @@ clean-build:
 		$(call log-error,"Failed to clean build directory"); \
 		exit 1; \
 	fi
-	@rm -f xmrig; \
+	@rm -f xmrig xmrig.release; \
 	if [ $$? -ne 0 ]; then \
-		$(call log-error,"Failed to remove symbolic link"); \
+		$(call log-error,"Failed to remove xmrig and xmrig.release"); \
 		exit 1; \
 	fi
 	@$(call log-success,"Cleanup complete.")
@@ -337,8 +337,9 @@ build:
 		exit 1; \
 	fi
 	
+# A compiled binary replaces a release binary, so its record goes.
 	@$(call log-info,"Creating symbolic link to the built executable...")
-	@ln -sf $(BUILD_DIR)/xmrig $(CURDIR)/xmrig; \
+	@rm -f xmrig.release; ln -sf $(BUILD_DIR)/xmrig $(CURDIR)/xmrig; \
 	if [ $$? -ne 0 ]; then \
 		$(call log-error,"Failed to create symbolic link"); \
 		exit 1; \
@@ -359,8 +360,13 @@ check:
 	fi
 	@$(call log-success,"All regression checks passed.")
 
+# A clone with a release binary (xmrig.release) is refused: update would delete it and compile again.
 # Update target - pulls latest repo changes, checks out the pinned submodules, then cleans and rebuilds
 update:
+	@if [ -e xmrig.release ]; then \
+		$(call log-error,This clone runs a release binary (xmrig.release) that make update would delete and compile again. To install another release run as root in this clone: git fetch --tags; git checkout --recurse-submodules vX.Y.Z; scripts/install.sh --prebuilt -w YOUR_MONERO_WALLET -y; make restart); \
+		exit 1; \
+	fi
 	@$(call log-info,"Pulling latest changes from repository...")
 	@git pull; \
 	if [ $$? -ne 0 ]; then \
