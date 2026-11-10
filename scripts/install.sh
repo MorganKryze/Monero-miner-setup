@@ -38,6 +38,13 @@ ROOT_BASE_DIR="/opt"
 SYSTEMD_UNIT="/etc/systemd/system/xmrig.service"
 LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.moneroocean.xmrig.plist"
 DOCKER_SCRIPT_URL="https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh"
+# --prebuilt: the binary CI builds for Linux arm64 on Debian 13 and the SHA256SUMS beside it, from the
+# release the clone is checked out at. The release jobs (.github/workflows/publish.yml) read the
+# minimum glibc here and fail a tag whose binary needs a newer one.
+RELEASE_URL="https://github.com/MorganKryze/Monero-miner-setup/releases/download"
+RELEASE_ASSET="xmrig-linux-arm64"
+RELEASE_MIN_GLIBC="2.38"
+RELEASE_PACKAGES=(libuv1t64 libssl3t64 libhwloc15)
 
 # ===== Own clone =====
 # BASH_SOURCE is read here, at the top level: inside a function, bash 5 gives a script read from a
@@ -201,6 +208,7 @@ function usage() {
     echo
     echo "Installation Options:"
     echo "  -d, --dir DIR         Base directory for installation (defaults to HOME; as root on Linux, /opt)"
+    echo "  --prebuilt            Install the release binary instead of compiling: Linux arm64, as root, glibc $RELEASE_MIN_GLIBC or newer"
     echo
     echo "Mining Configuration Options:"
     echo "  -t, --threads PERCENT Share of the CPUs to mine on (1-100, default: $DEFAULT_MAX_THREADS; on arm64, the biggest first)"
@@ -473,6 +481,7 @@ function parse_arguments() {
     SERVICE_MODE=$DEFAULT_SERVICE_MODE
     NON_INTERACTIVE=$DEFAULT_NON_INTERACTIVE
     SERVICE_AS_ROOT=no
+    PREBUILT=no
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -546,6 +555,10 @@ function parse_arguments() {
             SERVICE_AS_ROOT=yes
             shift 1
             ;;
+        --prebuilt)
+            PREBUILT=yes
+            shift 1
+            ;;
         -y | --yes | --non-interactive)
             NON_INTERACTIVE=true
             shift 1
@@ -586,6 +599,10 @@ function parse_arguments() {
     export NON_INTERACTIVE
     # Read by scripts/setup_service_debian.sh: only this flag makes the service run as root.
     export SERVICE_AS_ROOT
+    # A host --prebuilt cannot serve stops here, before anything is cloned, fetched or installed.
+    if [ "$PREBUILT" = yes ] && ! check_prebuilt_host; then
+        exit 1
+    fi
 }
 
 # ===== MoneroOcean Miner Setup Functions =====
@@ -826,7 +843,24 @@ function check_base_clone() {
 }
 
 function check_if_built() {
-    local target_dir="$BASE_DIR/$REPO_NAME"
+    local target_dir="$BASE_DIR/$REPO_NAME" tag
+
+    # --prebuilt installs the release the clone is checked out at, where only root can change it.
+    if [ "$PREBUILT" = yes ]; then
+        root_only_tree "$target_dir" || exit 1
+        tag=$(release_tag_of "$target_dir")
+        if [ -z "$tag" ]; then
+            error "$target_dir is checked out at no release tag, and --prebuilt installs the release the clone is checked out at. Run git -C $target_dir checkout --recurse-submodules vX.Y.Z with a release from $PROJECT_URL/releases, then the installer again."
+            exit 1
+        fi
+        if [ -f "$target_dir/xmrig.release" ] && [ ! -L "$target_dir/xmrig.release" ] && [ -f "$target_dir/xmrig" ] && [ ! -L "$target_dir/xmrig" ] &&
+            [ "$(binary_origin "$target_dir")" = "release $tag, sha256 $(binary_sha256 "$target_dir/xmrig")" ]; then
+            success "XMRig of release $tag is already installed at $target_dir."
+            return 0
+        fi
+        info "Monero miner not yet installed from release $tag."
+        return 1
+    fi
 
     # Check for evidence of a successful build: the Makefile produces
     # $target_dir/build-xmrig/xmrig and a symlink at $target_dir/xmrig.
@@ -840,7 +874,13 @@ function check_if_built() {
 }
 
 function clone_repository() {
-    local target_dir="$BASE_DIR/$REPO_NAME"
+    local target_dir="$BASE_DIR/$REPO_NAME" branch=()
+
+    # --prebuilt clones the release this installer comes from, so its scripts and its binary match.
+    if [ "$PREBUILT" = yes ]; then
+        root_only_tree "$BASE_DIR" || return 1
+        branch=(--branch "v$VERSION")
+    fi
 
     info "Cloning project repository to $target_dir..."
 
@@ -851,7 +891,7 @@ function clone_repository() {
         error "$target_dir is already there or cannot be made, so this run does not clone into it. Move $target_dir away and run the installer again, or pass -d with another base directory."
         return 1
     fi
-    if ! git clone --recurse-submodules "$REPO_URL" "$target_dir"; then
+    if ! git clone --recurse-submodules "${branch[@]}" "$REPO_URL" "$target_dir"; then
         # The folder is this run's own and git left it empty: remove it, so a re-run can clone.
         rmdir -- "$target_dir" 2>/dev/null
         error "Failed to clone repository (with submodules) from $REPO_URL."
@@ -1531,6 +1571,192 @@ function set_script_permissions() {
     return 0
 }
 
+# ===== Release binary =====
+# --prebuilt installs the arm64 binary CI builds for Debian 13 instead of compiling it, and runs as
+# root, so what root installs and runs is a file only root can change. A host the binary cannot run
+# on, and a tree another user can change, are refused first: before anything is cloned, fetched or
+# installed, with the command that gets the user a working install.
+# The host: Linux arm64, root, and a glibc the binary links against.
+function check_prebuilt_host() {
+    local os arch glibc major minor min_major min_minor
+    os=$(uname -s 2>/dev/null) || os=""
+    arch=$(uname -m 2>/dev/null) || arch=""
+    if [ "$os" != "Linux" ] || [ "$arch" != "aarch64" ]; then
+        error "--prebuilt installs the Linux arm64 release binary, and this host is ${os:-unknown} ${arch:-unknown}. Run the installer without --prebuilt to compile the miner here."
+        return 1
+    fi
+    if [ "$(id -u 2>/dev/null)" != "0" ]; then
+        error "--prebuilt installs a binary only root can change, so it runs as root. Run the installer again with sudo, or without --prebuilt to compile the miner as you."
+        return 1
+    fi
+    glibc=$(getconf GNU_LIBC_VERSION 2>/dev/null) || glibc=""
+    glibc=${glibc#glibc }
+    if ! [[ "$glibc" =~ ^([0-9]+)\.([0-9]+) ]]; then
+        error "--prebuilt needs glibc $RELEASE_MIN_GLIBC or newer, and this host's glibc version cannot be read. Run the installer without --prebuilt to compile the miner here."
+        return 1
+    fi
+    major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]}
+    min_major=${RELEASE_MIN_GLIBC%%.*} min_minor=${RELEASE_MIN_GLIBC#*.}
+    if (( 10#$major < 10#$min_major || (10#$major == 10#$min_major && 10#$minor < 10#$min_minor) )); then
+        error "--prebuilt needs glibc $RELEASE_MIN_GLIBC or newer, and this host has $major.$minor (Debian 12 has 2.36). Run the installer without --prebuilt to compile the miner here, or use --docker."
+        return 1
+    fi
+}
+
+# Prints the release tag the clone is checked out at, or nothing. A final tag beats a pre-release
+# and versions sort as numbers; a tag that is not vX.Y.Z (with an optional suffix) is no tag, as it
+# ends up in a download URL.
+function release_tag_of() {
+    local tags tag
+    tags=$(git -C "$1" tag --points-at HEAD --list 'v*' 2>/dev/null) || return 0
+    tags=$(printf '%s\n' "$tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') || return 0
+    tag=$(printf '%s\n' "$tags" | grep -v -e - | sort -V | tail -n 1) || tag=""
+    [ -n "$tag" ] || tag=$(printf '%s\n' "$tags" | sort -V | tail -n 1)
+    printf '%s' "$tag"
+}
+
+# Root owns the directory and every one above it, and no one else can write them: the same walk
+# from / that validate_directory makes. The user who ran sudo does not count (SUDO_USER is
+# emptied), as the binary runs as root and that user is not root.
+function root_only_tree() {
+    local dir check rest
+    if ! dir=$(CDPATH= cd -- "$1" 2>/dev/null && pwd -P); then
+        error "$1 cannot be read, so --prebuilt does not install a binary there."
+        return 1
+    fi
+    check=
+    while :; do
+        if ! SUDO_USER="" trusted_by_root "${check:-/}"; then
+            if [ "${check:-/}" = "$dir" ] && [ "$dir" = "$BASE_DIR/$REPO_NAME" ]; then
+                error "$dir can be changed by a user other than root, so --prebuilt does not install a binary under it. Move $dir away and run the installer again, or pass -d with a directory only root can change."
+            else
+                error "${check:-/} can be changed by a user other than root, so --prebuilt does not install a binary under it. Pass -d with a directory only root can change, such as /opt."
+            fi
+            return 1
+        fi
+        [ "${check:-/}" = "$dir" ] && break
+        rest=${dir#"$check"/}
+        check=$check/${rest%%/*}
+    done
+}
+
+# The sha256 of a file, or nothing.
+function binary_sha256() {
+    local line
+    line=$(sha256sum -- "$1" 2>/dev/null) || return 0
+    printf '%s' "${line%% *}"
+}
+
+# Where the miner binary in a clone comes from, as one line of text.
+function binary_origin() {
+    local record hash
+    if [ ! -f "$1/xmrig.release" ] || [ -L "$1/xmrig.release" ]; then
+        printf '%s' "compiled on this host"
+        return 0
+    fi
+    record=$(head -n 1 "$1/xmrig.release" 2>/dev/null) || record=""
+    hash=$(binary_sha256 "$1/xmrig")
+    if [ -n "$hash" ] && [ "${record#* }" = "$hash" ]; then
+        printf '%s' "release ${record%% *}, sha256 $hash"
+    else
+        printf '%s' "unknown (sha256 ${hash:-unreadable} matches no release record)"
+    fi
+}
+
+# The donate level XMRig applies for a config, or unknown, by the rule the service's start-up line
+# uses: the first pool on moneroocean.stream gives 0, otherwise the configured level, 1 when it is
+# below 1 or above 99.
+function donate_level_of() {
+    local level url
+    level=$(grep -o 'donate-level.: *[0-9]*' "$1" 2>/dev/null | grep -o '[0-9]*$' | head -n 1)
+    if [ -z "$level" ]; then
+        printf 'unknown'
+        return 0
+    fi
+    url=$(grep -m1 -o 'url.: *[^,]*' "$1" 2>/dev/null)
+    if [[ "$url" == *moneroocean.stream* ]]; then
+        level=0
+    elif [ "$level" -lt 1 ] || [ "$level" -gt 99 ]; then
+        level=1
+    fi
+    printf '%s (as XMRig applies it)' "$level"
+}
+
+# Installs the release binary at the clone's tag once its sha256 matches the release's SHA256SUMS.
+# Every step is checked, and a refusal leaves the binary, the record and the clone as they were. It
+# runs in a subshell, so its trap removes the staging folder however it ends.
+function install_release_binary() (
+    local dir=$1 tag stage file url lines want got out line lib path
+    root_only_tree "$dir" || exit 1
+    for path in "$dir/xmrig" "$dir/xmrig.release"; do
+        if [ -d "$path" ] || { [ -L "$path" ] && { [ "$path" = "$dir/xmrig.release" ] || [ -d "$path" ]; }; }; then
+            error "$path is a link or a folder, so the release binary is not installed over it. Remove it with rm -r -- '$path', then run the installer again."
+            exit 1
+        fi
+    done
+    tag=$(release_tag_of "$dir")
+    if [ -z "$tag" ]; then
+        error "$dir is checked out at no release tag, so --prebuilt has no release to install."
+        exit 1
+    fi
+    if ! stage=$(mktemp -d "$dir/.xmrig-release.XXXXXX"); then
+        error "Failed to create a folder for the download in $dir."
+        exit 1
+    fi
+    trap 'rm -rf -- "$stage"' EXIT
+    trap 'exit 1' HUP INT TERM
+    for file in "$RELEASE_ASSET" SHA256SUMS; do
+        url="$RELEASE_URL/$tag/$file"
+        if ! curl -fsSL --proto '=https' --proto-redir '=https' -o "$stage/$file" "$RELEASE_URL/$tag/$file" || [ ! -s "$stage/$file" ]; then
+            error "Failed to download $url, so the miner is left as it was. Check your network and that release $tag has this file, then run the installer again."
+            exit 1
+        fi
+    done
+    lines=$(grep -E "[ *]$RELEASE_ASSET\$" "$stage/SHA256SUMS") || lines=""
+    if ! [[ $lines =~ ^([0-9a-f]{64})\ [\ *]$RELEASE_ASSET$ ]]; then
+        error "SHA256SUMS of release $tag does not hold exactly one sum for $RELEASE_ASSET, so the miner is left as it was."
+        exit 1
+    fi
+    want=${BASH_REMATCH[1]}
+    got=$(binary_sha256 "$stage/$RELEASE_ASSET")
+    if [ "$got" != "$want" ]; then
+        error "$RELEASE_ASSET of release $tag has sha256 ${got:-unreadable} where SHA256SUMS says $want, so the miner is left as it was. Run the installer again; if it says the same, report it at $PROJECT_URL/issues."
+        exit 1
+    fi
+    info "Installing ${RELEASE_PACKAGES[*]} for the release binary..."
+    if ! apt-get update || ! apt-get install -y --no-upgrade "${RELEASE_PACKAGES[@]}"; then
+        error "Failed to install ${RELEASE_PACKAGES[*]} through apt, so the miner is left as it was. Fix apt, then run the installer again."
+        exit 1
+    fi
+    if ! out=$(ldd "$stage/$RELEASE_ASSET" 2>&1); then
+        error "The release binary cannot be loaded on this host, so the miner is left as it was. Run the installer without --prebuilt to compile the miner here."
+        exit 1
+    fi
+    line=$(printf '%s\n' "$out" | grep -m 1 '=> not found') || line=""
+    if [ -n "$line" ]; then
+        lib=${line#"${line%%[![:space:]]*}"}
+        lib=${lib%% *}
+        error "The release binary needs $lib, which this host lacks after apt installed ${RELEASE_PACKAGES[*]}, so the miner is left as it was. Run the installer without --prebuilt to compile the miner here."
+        exit 1
+    fi
+    chmod 0755 "$stage/$RELEASE_ASSET" && printf '%s %s\n' "$tag" "$want" > "$stage/xmrig.release" && chmod 0644 "$stage/xmrig.release" || {
+        error "Failed to install the release binary at $dir/xmrig."
+        exit 1
+    }
+    # A compiled clone links xmrig to the build output. The link goes right before the move, so the
+    # move cannot follow it into a folder; only root can add an entry to the root-only clone.
+    if [ -L "$dir/xmrig" ]; then rm -f -- "$dir/xmrig" || exit 1; fi
+    if ! mv -f -- "$stage/$RELEASE_ASSET" "$dir/xmrig"; then
+        error "Failed to install the release binary at $dir/xmrig."
+        exit 1
+    fi
+    if ! mv -f -- "$stage/xmrig.release" "$dir/xmrig.release"; then
+        error "Installed the release binary at $dir/xmrig, but failed to write $dir/xmrig.release, so its origin shows as unknown. Run the installer again."
+        exit 1
+    fi
+    success "Installed XMRig of release $tag (sha256 $want) at $dir/xmrig."
+)
+
 # A first install, or a re-run that carries out what an earlier run left undone (a failed build, a
 # service never set up), each missing step in the order a first install takes them.
 function install_project() {
@@ -1566,7 +1792,9 @@ function install_project() {
     fi
 
     if [ "$built" = false ]; then
-        if ! build_project; then
+        if [ "$PREBUILT" = yes ]; then
+            install_release_binary "$BASE_DIR/$REPO_NAME" || exit 1
+        elif ! build_project; then
             error "Failed to build project."
             return 1
         fi
@@ -1626,6 +1854,7 @@ function show_resource_recommendations() {
 }
 
 function display_next_steps() {
+    hint "Miner binary: $(binary_origin "$BASE_DIR/$REPO_NAME"); donate level $(donate_level_of "$BASE_DIR/$REPO_NAME/config_background.json")"
     hint "Next steps:"
     hint "Move to the project directory: ${BLUE}cd $BASE_DIR/$REPO_NAME${RESET}"
 

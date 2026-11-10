@@ -117,7 +117,9 @@ run() {
   case $how in
     file:*) (cd "$cwd" && PATH="$w/bin:$PATH" bash "${how#file:}" "$@") ;;
     pipe) (cd "$cwd" && PATH="$w/bin:$PATH" bash -s -- "$@" < "$root/scripts/install.sh") ;;
-    procsub) (cd "$cwd" && PATH="$w/bin:$PATH" bash <(cat "$root/scripts/install.sh") "$@") ;;
+    # The installer can stop before reading to its end (--docker), and the cat that feeds it then
+    # hits a closed pipe on a host whose pipe buffer is smaller than the file: that line is cat's.
+    procsub) (cd "$cwd" && PATH="$w/bin:$PATH" bash <(cat "$root/scripts/install.sh" 2>/dev/null) "$@") ;;
     dashc) (cd "$cwd" && PATH="$w/bin:$PATH" bash -c "$(cat "$root/scripts/install.sh")" -- "$@") ;;
   esac > "$w/out" 2> "$w/err"
   code=$?

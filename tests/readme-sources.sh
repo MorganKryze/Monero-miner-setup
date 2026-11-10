@@ -32,6 +32,7 @@ toolbox=${toolbox//\$\{TOOLBOX_COMMIT\}/<commit>}
 sources=(
     "$toolbox"
     "$(constant scripts/install.sh DOCKER_SCRIPT_URL)"
+    "$(constant scripts/install.sh RELEASE_URL)"
     "$(constant scripts/install.sh REPO_URL)"
     "$(constant scripts/docker_setup.sh REPO_URL)"
     "https://ifconfig.io"
@@ -73,7 +74,7 @@ done
 while IFS= read -r hit; do
     line=${hit#*:*:}
     case $line in
-        *'"$TOOLBOX_URL"'* | *'"$DOCKER_SCRIPT_URL"'* | *'"$REPO_URL"'* | *'https://ifconfig.io'*) ;;
+        *'"$TOOLBOX_URL"'* | *'"$DOCKER_SCRIPT_URL"'* | *'"$REPO_URL"'* | *'"$RELEASE_URL/$tag/$file"'* | *'https://ifconfig.io'*) ;;
         *'command -v curl'*) ;;
         *) fail "a fetch the README may not name: $hit" ;;
     esac

@@ -116,6 +116,33 @@ Common flags (run `install.sh --help` for the complete list):
 - `--only-manual`: install the binary, skip service setup
 - `-y, --yes`: skip the root prompt and the 15 s pre-install delay
 
+### Native on an arm64 board (prebuilt binary)
+
+On a Raspberry Pi 5 or an RK3588 board running Debian 13 or DietPi Trixie, `--prebuilt` skips the compile:
+
+```bash
+sudo git clone --branch vX.Y.Z --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git /opt/Monero-miner-setup
+sudo /opt/Monero-miner-setup/scripts/install.sh --prebuilt -w YOUR_MONERO_WALLET -y
+```
+
+It installs the release the clone is checked out at. A clone at no release tag is refused; with no clone, the installer clones `v<its own version>`. It downloads `xmrig-linux-arm64` and `SHA256SUMS` over HTTPS and checks the sum before it installs anything. It then runs `apt-get install` for `libuv1t64 libssl3t64 libhwloc15` and puts the binary at `<clone>/xmrig`, mode 0755, so only root can change it. The release and the sum go in `xmrig.release`, next to it.
+
+It refuses, with one error line, a host it can't serve: Debian 12 Bookworm and any glibc before 2.38, amd64, macOS, a run without root, and a clone under a directory another user can change. A re-run with the same binary downloads nothing.
+
+To see where the miner binary comes from, run `journalctl -u xmrig | grep 'Miner binary'`. The installer's last lines say the same. There are three origins:
+
+- `release vX.Y.Z, sha256 …`: the binary matches the sum `xmrig.release` records.
+- `compiled on this host`: there's no `xmrig.release`, so the binary was built here.
+- `unknown (sha256 … matches no release record)`: the binary isn't the one the record names. Install again.
+
+To check the binary yourself, on your PC download `xmrig-linux-arm64` from the release page, then run:
+
+```bash
+gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup
+```
+
+`make update` refuses in a clone that runs a release binary. To move to another release, run as root in the clone: `git fetch --tags; git checkout --recurse-submodules vX.Y.Z; scripts/install.sh --prebuilt -w YOUR_MONERO_WALLET -y; make restart`.
+
 ### Manual install
 
 If you'd rather clone and inspect before running anything:
@@ -296,7 +323,7 @@ For the native install, run from the repo root. Targets work on both Linux (syst
 | `make bench-layouts`   | Bench each CPU layout of the board profile offline, one XMRig run per layout (`MODE=eco`, `BENCH=1M`). arm64 Linux only; refuses root |
 | `make update`          | `git pull`, the pinned submodule commits, rebuild, `make service-setup` again |
 | `make service-disable` | Stop and disable the service, remove the unit and the logrotate file; systemd removes `/etc/xmrig`, `/var/lib/xmrig/<account>` and `/var/log/xmrig/<account>` |
-| `make clean-build`     | Remove the build directory and the `xmrig` symlink                    |
+| `make clean-build`     | Remove the build directory, the `xmrig` binary or link, and `xmrig.release` |
 | `make clean-configs`   | Remove generated configs                                              |
 | `make wipe`            | `clean-build` + `clean-configs` + `service-disable`                   |
 | `make check`           | Run the regression checks in `tests/`. No build, no mining            |
@@ -393,6 +420,7 @@ The installers fetch from the sources below and nothing else. All of it comes ov
 | Its log helpers (bash-toolbox) | your clone's submodule, else `https://raw.githubusercontent.com/MorganKryze/bash-toolbox/<commit>/src/prefix.sh` at the commit `dependencies/bash-toolbox` pins | every native install (`--docker` hands off before it loads them) |
 | The Docker installer | your clone's copy, else `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh` | `--docker` |
 | The repository | `https://github.com/MorganKryze/Monero-miner-setup.git`, its submodules at the commits it pins: `https://github.com/MoneroOcean/xmrig.git`, `https://github.com/MorganKryze/bash-toolbox.git` | when there's no clone yet |
+| The release binary | `https://github.com/MorganKryze/Monero-miner-setup/releases/download/<tag>/xmrig-linux-arm64` and `SHA256SUMS` beside it, from the release your clone is checked out at | `--prebuilt` |
 | The image | `ghcr.io/morgankryze/monero-miner-setup`, built by this repository's CI | Docker, unless `--build` |
 | The base image and its packages | `ubuntu` from Docker Hub, at the tag `docker/Dockerfile` names, and Ubuntu's packages through apt in both build stages | `--build`, or when the image pull fails |
 | The Dockerfile frontend | `docker/dockerfile` from Docker Hub, at the version the `# syntax=` line of `docker/Dockerfile` names: BuildKit runs it to read the Dockerfile | `--build`, or when the image pull fails |
@@ -410,6 +438,8 @@ On Linux, these steps go through `sudo` (`make deps-debian`, `scripts/setup_serv
 - `install -d` of `/etc/xmrig`, then `install` of `/etc/xmrig/config.json`, `/etc/logrotate.d/xmrig` and `/etc/systemd/system/xmrig.service`, root-owned, from private temp files
 - `rm -f` of `/etc/systemd/system/xmrig.service` and `/etc/logrotate.d/xmrig`, on `make service-disable`
 - `systemctl daemon-reload`, `enable`, `start`, `stop`, `status`, `disable`, `reset-failed` and `clean`
+
+`--prebuilt` runs the installer itself as root: `apt-get update` and `apt-get install` of `libuv1t64 libssl3t64 libhwloc15`, the download into a root-only folder in the clone, and the rename onto `<clone>/xmrig` and `xmrig.release`.
 
 The service runs the miner as root only with `--service-as-root`. `make test` runs it as whoever runs `make`. An install you run as root runs every step as root, not only these: the clone, the XMRig build, and turning off background mode in the clone's config.
 
