@@ -61,6 +61,10 @@ conf pool.example.org:4444 0
 same "other pool, level 0" 'Miner binary: compiled on this host; donate level 1 (as XMRig applies it)' "$(run)"
 conf pool.example.org:4444 3
 same "other pool, level 3" 'Miner binary: compiled on this host; donate level 3 (as XMRig applies it)' "$(run)"
+printf '    "pools": [{\n        "url": "pool.example.org:4444",\n    }, {\n        "url": "pool.moneroocean.stream:10128",\n    }],\n    "donate-level": 0,\n' > "$w/config.json"
+same "first pool decides, second is moneroocean" 'Miner binary: compiled on this host; donate level 1 (as XMRig applies it)' "$(run)"
+printf '    "pools": [{\n        "url": "pool.moneroocean.stream:10128",\n    }, {\n        "url": "pool.example.org:4444",\n    }],\n    "donate-level": 1,\n' > "$w/config.json"
+same "first pool moneroocean, second other" 'Miner binary: compiled on this host; donate level 0 (as XMRig applies it)' "$(run)"
 mv "$w/config.json" "$w/config.away"
 same "no config" 'Miner binary: compiled on this host; donate level unknown' "$(run)"
 
