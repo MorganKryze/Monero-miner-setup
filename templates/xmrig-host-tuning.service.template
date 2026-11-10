@@ -1,0 +1,19 @@
+[Unit]
+Description=Host tuning for the XMRig miner (CPU frequency, huge pages)
+# After the OS's own CPU settings (DietPi applies its governor in dietpi-preboot, other systems in
+# ondemand or cpufrequtils; a name the host lacks is ignored), before the miner.
+After=dietpi-preboot.service ondemand.service cpufrequtils.service
+Before=xmrig.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# What apply found, for restore: under /run, so a reboot, which resets the kernel's values too,
+# forgets it.
+RuntimeDirectory=xmrig-host-tuning
+RuntimeDirectoryMode=0700
+ExecStart=/usr/local/sbin/xmrig-host-tuning apply
+ExecStop=/usr/local/sbin/xmrig-host-tuning restore
+
+[Install]
+WantedBy=multi-user.target
