@@ -123,10 +123,17 @@ hugepages 1280' "$(state opi)"
 [ -e "$w/opi/run/found" ] && fail "restore left its record"
 same "restore with no record" "exit 0" "$(run opi restore)"
 
-# Orange Pi 5 Plus in max: every policy mines at its hardware maximum.
+# Orange Pi 5 Plus in max: every policy mines at its hardware maximum, raised from a lower cap the
+# OS booted with.
 tree opi opi5plus
+printf '1800000\n' > "$w/opi/cpufreq/policy4/scaling_max_freq"
 printf '%s\n' mode=max 'policy0=performance max' 'policy4=performance max' 'policy6=performance max' hugepages=1280 > "$w/opi/conf"
-run opi apply >/dev/null
+same "opi max apply" 'xmrig-host-tuning: mode max.
+xmrig-host-tuning: policy0: governor performance, at most 1800 MHz.
+xmrig-host-tuning: policy4: governor performance, at most 2400 MHz.
+xmrig-host-tuning: policy6: governor performance, at most 2400 MHz.
+xmrig-host-tuning: huge pages: 1280 of 2 MB reserved (wanted 1280).
+exit 0' "$(run opi apply)"
 same "opi max state" 'policy0 performance 1800000
 policy4 performance 2400000
 policy6 performance 2400000
@@ -141,8 +148,11 @@ exit 0' "$(run pi apply)"
 same "pi eco state" 'policy0 performance 1800000
 hugepages 0' "$(state pi)"
 tree pi pi5
+printf '1800000\n' > "$w/pi/cpufreq/policy0/scaling_max_freq"
 printf '%s\n' mode=max 'policy0=performance max' > "$w/pi/conf"
-run pi apply >/dev/null
+same "pi max apply" 'xmrig-host-tuning: mode max.
+xmrig-host-tuning: policy0: governor performance, at most 2400 MHz.
+exit 0' "$(run pi apply)"
 same "pi max state" 'policy0 performance 2400000
 hugepages 0' "$(state pi)"
 # A huge-page line on a kernel without a 2 MB default page writes nothing.
