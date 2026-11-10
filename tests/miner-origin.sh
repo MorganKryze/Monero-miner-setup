@@ -18,7 +18,7 @@ chmod 755 "$w"
 mkdir "$w/clone" "$w/tools" && chmod 755 "$w/clone" "$w/tools" || exit 1
 
 sed -e "s|%%USER%%|alice|g" -e "s|%%GROUP%%|alice|g" -e "s|%%WORKING_DIR%%|$w/clone|g" \
-  "$root/templates/xmrig.service.template" > "$w/unit"
+  "$root/templates/xmrig.service.template" > "$w/unit" && chmod 644 "$w/unit"
 n=$(grep -c "^ExecStartPre=-/bin/sh -c '.*Miner binary:" "$w/unit")
 same "one start-up step names the binary's origin" "1" "$n"
 line=$(grep "^ExecStartPre=-/bin/sh -c '.*Miner binary:" "$w/unit" | head -n 1)
@@ -37,19 +37,30 @@ for t in sha256sum cut grep cat; do
 done
 printf 'binary-a' > "$w/clone/xmrig" && chmod 755 "$w/clone/xmrig"
 h=$(sha256sum < "$w/clone/xmrig" | cut -c1-64)
-printf '    "donate-level": 1,\n' > "$w/config.json" && chmod 644 "$w/config.json"
+conf() { # pool url, donate level
+  printf '    "pools": [{\n        "url": "%s",\n    }],\n    "donate-level": %s,\n' "$1" "$2" > "$w/config.json" && chmod 644 "$w/config.json"
+}
+conf pool.example.org:4444 1
 zeros=$(printf '%064d' 0)
 run() { env -i PATH="$w/tools" /bin/sh -c "$script" miner-origin "$w/clone" "$w/config.json" 2>/dev/null; }
 
-same "no record" 'Miner binary: compiled on this host; donate level 1' "$(run)"
-printf 'v0.2.0 %s\n' "$h" > "$w/clone/xmrig.release"
-same "matching record" "Miner binary: release v0.2.0, sha256 $h"'; donate level 1' "$(run)"
+same "no record" 'Miner binary: compiled on this host; donate level 1 (as XMRig applies it)' "$(run)"
+printf 'v0.2.0 %s\n' "$h" > "$w/clone/xmrig.release" && chmod 644 "$w/clone/xmrig.release"
+same "matching record" "Miner binary: release v0.2.0, sha256 $h"'; donate level 1 (as XMRig applies it)' "$(run)"
 printf 'v0.2.0 %s\n' "$zeros" > "$w/clone/xmrig.release"
-same "other record" "Miner binary: unknown (sha256 $h matches no release record)"'; donate level 1' "$(run)"
+same "other record" "Miner binary: unknown (sha256 $h matches no release record)"'; donate level 1 (as XMRig applies it)' "$(run)"
 mv "$w/clone/xmrig" "$w/xmrig.away"
-same "record, no binary" 'Miner binary: unknown (sha256 unreadable matches no release record); donate level 1' "$(run)"
+same "record, no binary" 'Miner binary: unknown (sha256 unreadable matches no release record); donate level 1 (as XMRig applies it)' "$(run)"
+printf 'v0.2.0 \n' > "$w/clone/xmrig.release"
+same "empty hash, no binary" 'Miner binary: unknown (sha256 unreadable matches no release record); donate level 1 (as XMRig applies it)' "$(run)"
 mv "$w/xmrig.away" "$w/clone/xmrig"
 rm "$w/clone/xmrig.release"
+conf pool.moneroocean.stream:10128 1
+same "moneroocean pool" 'Miner binary: compiled on this host; donate level 0 (as XMRig applies it)' "$(run)"
+conf pool.example.org:4444 0
+same "other pool, level 0" 'Miner binary: compiled on this host; donate level 1 (as XMRig applies it)' "$(run)"
+conf pool.example.org:4444 3
+same "other pool, level 3" 'Miner binary: compiled on this host; donate level 3 (as XMRig applies it)' "$(run)"
 mv "$w/config.json" "$w/config.away"
 same "no config" 'Miner binary: compiled on this host; donate level unknown' "$(run)"
 

@@ -180,7 +180,7 @@ out_for() { # account, the line about an earlier account if any
     "The service runs the miner as $1."
 }
 want_unit() { # account, group
-  local origin='h=$$(sha256sum < "$$1/xmrig" | cut -c1-64); d=$$(grep -o "donate-level.: *[0-9]*" "$$2" | grep -o "[0-9]*$$"); if [ ! -e "$$1/xmrig.release" ]; then o="compiled on this host"; elif r=$$(cat "$$1/xmrig.release") && [ -n "$$h" ] && [ "$${r#* }" = "$$h" ]; then o="release $$(echo "$$r" | cut -d" " -f1), sha256 $$h"; else o="unknown (sha256 $${h:-unreadable} matches no release record)"; fi; echo "Miner binary: $$o; donate level $${d:-unknown}"'
+  local origin='h=$$(sha256sum < "$$1/xmrig" | cut -c1-64); d=$$(grep -o "donate-level.: *[0-9]*" "$$2" | grep -o "[0-9]*$$"); if [ ! -e "$$1/xmrig.release" ]; then o="compiled on this host"; elif r=$$(cat "$$1/xmrig.release") && [ -n "$$h" ] && [ "$${r#* }" = "$$h" ]; then o="release $$(echo "$$r" | cut -d" " -f1), sha256 $$h"; else o="unknown (sha256 $${h:-unreadable} matches no release record)"; fi; u=$$(grep -m1 -o "url.: *[^,]*" "$$2"); if [ -n "$$d" ]; then if echo "$$u" | grep -q "moneroocean.stream"; then d=0; elif [ "$$d" -lt 1 ] || [ "$$d" -gt 99 ]; then d=1; fi; d="$$d (as XMRig applies it)"; fi; echo "Miner binary: $$o; donate level $${d:-unknown}"'
   printf '%s\n' "[Unit]" "Description=XMRig Monero Miner" "After=network.target" "" "[Service]" "Type=simple" \
     "User=$1" "Group=$2" "ConfigurationDirectory=xmrig" "StateDirectory=xmrig/$1" "StateDirectoryMode=0700" \
     "LogsDirectory=xmrig/$1" "LogsDirectoryMode=0750" "WorkingDirectory=/var/lib/xmrig/$1" \
