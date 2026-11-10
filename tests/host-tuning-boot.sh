@@ -255,6 +255,34 @@ same "huge pages cap" 'xmrig-host-tuning: huge pages: 999999 wanted, capped at 6
 xmrig-host-tuning: huge pages: 673 of 2 MB reserved (wanted 673).
 exit 0' "$(run opi apply)"
 same "huge pages cap state" "673" "$(cat "$w/opi/nr_hugepages")"
+# No directory for the record: the policy is left as found.
+tree opi opi5plus
+rm -rf "${w:?}/opi/run"
+printf '%s\n' 'policy4=performance 1800000' > "$w/opi/conf"
+same "no record directory" 'xmrig-host-tuning: policy4: left as found, the record of what was found cannot be written.
+exit 0' "$(run opi apply)"
+same "no record directory state" 'policy0 schedutil 1800000
+policy4 schedutil 2400000
+policy6 schedutil 2400000
+hugepages 0' "$(state opi)"
+# A frequency matched as a whole word only (16000 is part of 1600000), and a found governor not of
+# the expected form, are each left as found.
+tree opi opi5plus
+printf 'sched2\n' > "$w/opi/cpufreq/policy6/scaling_governor"
+printf '%s\n' 'policy4=performance 16000' 'policy6=performance 1800000' > "$w/opi/conf"
+same "word match and odd governor" 'xmrig-host-tuning: policy4: left as found, 16000 kHz is not one of its available frequencies.
+xmrig-host-tuning: policy6: left as found, its current governor or maximum cannot be read.
+exit 0' "$(run opi apply)"
+same "word match and odd governor state" 'policy0 schedutil 1800000
+policy4 schedutil 2400000
+policy6 sched2 2400000
+hugepages 0' "$(state opi)"
+[ -e "$w/opi/run/found" ] && fail "a left policy was recorded"
+# A record maximum that is not a number is skipped.
+printf '%s\n' 'policy4 schedutil 24x' > "$w/opi/run/found"
+same "malformed record maximum" 'xmrig-host-tuning: skipped a record line that is not of the expected form.
+exit 0' "$(run opi restore)"
+same "malformed record maximum state" 'policy4 schedutil 2400000' "$(sed -n 2p <(state opi))"
 
 [ "$rc" -eq 0 ] && echo "PASS host-tuning-boot"
 exit "$rc"

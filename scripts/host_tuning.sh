@@ -70,7 +70,7 @@ function apply_policy() {
         return 0
     fi
     if ! grep -q "^$name " "$RECORD" 2>/dev/null; then
-        echo "$name $found_gov $found_max" >>"$RECORD" || {
+        { echo "$name $found_gov $found_max" >>"$RECORD"; } 2>/dev/null || {
             say "$name: left as found, the record of what was found cannot be written."
             return 0
         }
