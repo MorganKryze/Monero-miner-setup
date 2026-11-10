@@ -107,6 +107,7 @@ Common flags (run `install.sh --help` for the complete list):
 
 - `-t, --threads PERCENT`: `max-threads-hint` 1–100, a percentage of the host's cores (default: `75`). On arm64, where XMRig would start a thread on every core whatever the hint, the config lists the cores to mine on instead: that share of them, rounded up, the biggest first
 - `-p, --pool URL`: pool override (default: `gulf.moneroocean.stream`). A `stratum+ssl://` URL is used as given, so give its port.
+- `--mode max|eco`: on a board with a profile (Raspberry Pi 5, RK3588 boards), mine on the CPUs of that profile's `max` or `eco` list (see [Board profiles](#board-profiles)). Not with `-t`: the two both choose the CPUs, so the installer stops if you pass both
 - `--name STRING`: worker name (default: random `adjective_noun_NNN`)
 - `-d, --dir DIR`: where the clone goes (default: `$HOME`; as root on Linux, `/opt`)
 - `--service-as-root`: run the systemd service as root, for the x86 RandomX MSR boost (see below)
@@ -316,9 +317,10 @@ For the native install, run from the repo root. Targets work on both Linux (syst
 | `make restart`         | `stop` + `start`                                                      |
 | `make status`          | Service state, PIDs, and the last 5 log lines (systemd: `/var/log/xmrig/<account>/xmrig.log`) |
 | `make test`            | Run XMRig in the foreground. Ctrl-C to exit                           |
-| `make doctor`          | Check host tuning (huge pages, MSR, AES, the CPUs each native config mines on) and print recommendations |
+| `make doctor`          | Check host tuning (huge pages, MSR, AES, the board and its profile, the CPUs each native config mines on) and print recommendations |
 | `make benchmark`       | 1-minute RandomX benchmark. Prints a hashrate score                   |
 | `make benchmark-long`  | 10-minute RandomX benchmark. More stable for hardware comparisons     |
+| `make bench-layouts`   | Bench each CPU layout of the board profile offline, one XMRig run per layout (`MODE=eco`, `BENCH=1M`). arm64 Linux only; refuses root |
 | `make update`          | `git pull`, the pinned submodule commits, rebuild, `make service-setup` again |
 | `make service-disable` | Stop and disable the service, remove the unit and the logrotate file; systemd removes `/etc/xmrig`, `/var/lib/xmrig/<account>` and `/var/log/xmrig/<account>` |
 | `make clean-build`     | Remove the build directory, the `xmrig` binary or link, and `xmrig.release` |
@@ -367,6 +369,21 @@ Run `make doctor` first. It inspects your host and prints a numbered list of con
 - **Enable 1 GB pages** (if the CPU has `pdpe1gb`): add `hugepagesz=1G hugepages=3 default_hugepagesz=2M` to `GRUB_CMDLINE_LINUX`, regenerate GRUB, reboot. Worth 1–5%.
 
 macOS has no userspace equivalent for any of these. Expect 10–30% less hashrate than a tuned Linux host on the same silicon.
+
+### Board profiles
+
+`scripts/board_profiles.conf` lists the boards the installer knows, matched on the device tree's `compatible` strings. With `--mode max|eco` a new native config mines on that profile's CPU list. Both profiles are `untested` until someone records a measured run on a given board model.
+
+| Profile | Boards (`compatible`) | `max` CPUs | `eco` CPUs | `eco` cap (cpufreq, kHz) | Status |
+| ------- | --------------------- | ---------- | ---------- | ------------------------ | ------ |
+| `bcm2712` | `brcm,bcm2712` | `0-3` | `0-3` | `policy0=1800000` | untested |
+| `rk3588` | `rockchip,rk3588`, `rockchip,rk3588s` | `0-7` | `4-7` | `policy4=1800000`, `policy6=1800000` | untested |
+
+Nothing here sets a CPU frequency, a governor or huge pages. The `eco` cap is only what `make doctor` shows next to each policy's current maximum; set it yourself if you want it. `eco` differs from `max` on the CPU list alone.
+
+Under 2560 MiB of memory RandomX's fast mode does not fit: the installer warns and new configs use light mode, slower but within memory. `make doctor` warns about it too.
+
+To compare the layouts on your board, run `make bench-layouts [MODE=eco] [BENCH=1M]` on the arm64 Linux board as a normal user (it refuses root and other hosts). It runs XMRig once per layout of the profile (`MODE=eco`: the `eco` list), offline, from a throwaway folder, and prints the hashrate of each. `BENCH` is 250K by default, or 500K, or 1M to 10M; the time per layout grows with it, so start with the default.
 
 ## Configuration
 

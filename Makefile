@@ -24,7 +24,7 @@ BUILD_JOBS := $(shell j=$(CPUS); m=$(MEM_GIB); [ "$${m:-0}" -lt "$$j" ] && j=$${
 .PHONY: help install-debian install-macos docker-setup \
 		deps-debian deps-macos \
 		build clean-build clean-configs wipe test check update doctor \
-		benchmark benchmark-long \
+		benchmark benchmark-long bench-layouts \
 		start stop restart status service-setup service-disable
 
 # Logging macros
@@ -61,6 +61,7 @@ help:
 	@echo "    doctor                     Check host tuning (huge pages, MSR, AES-NI, ...)"
 	@echo "    benchmark                  Run XMRig's 1-minute RandomX benchmark"
 	@echo "    benchmark-long             Run the 10-minute RandomX benchmark"
+	@echo "    bench-layouts              Bench each CPU layout of the board profile offline (MODE=eco, BENCH=1M)"
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    update                     git pull + rebuild + re-setup service"
@@ -276,6 +277,9 @@ benchmark-long:
 		exit 1; \
 	fi
 	@./xmrig --bench=10M
+
+bench-layouts:
+	@bash ./scripts/bench_layouts.sh
 
 # Clean target - removes build directory
 clean-build:
