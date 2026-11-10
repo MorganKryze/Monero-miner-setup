@@ -201,6 +201,32 @@ same "no values file" "xmrig-host-tuning: no values file at $w/opi/conf: nothing
 exit 0" "$(run opi apply)"
 out=$(env -i PATH="$w/tools" "$BASH" --norc --noprofile "$root/scripts/host_tuning.sh" start 2>&1); code=$?
 [ "$code" -eq 2 ] && [[ "$out" == "Usage: "*" apply|restore" ]] || fail "unknown command: exit $code, $out"
+# The unit's own entry points: the script run as a file with `apply`, then `restore`, from a copy
+# whose constants name the fixture tree.
+tree opi opi5plus
+printf '%s\n' mode=eco 'policy4=performance 1800000' > "$w/opi/conf"
+sed -e "s|^TUNING_CONF=.*|TUNING_CONF=\"$w/opi/conf\"|" -e "s|^RECORD=.*|RECORD=\"$w/opi/run/found\"|" \
+  -e "s|^CPUFREQ_DIR=.*|CPUFREQ_DIR=\"$w/opi/cpufreq\"|" -e "s|^MEMINFO=.*|MEMINFO=\"$w/opi/meminfo\"|" \
+  -e "s|^NR_HUGEPAGES=.*|NR_HUGEPAGES=\"$w/opi/nr_hugepages\"|" "$root/scripts/host_tuning.sh" > "$w/host_tuning.sh"
+same "fixture copy" 5 "$(grep -c "^[A-Z_]*=\"$w/opi/" "$w/host_tuning.sh")"
+out=$(env -i PATH="$w/tools" "$BASH" --norc --noprofile "$w/host_tuning.sh" apply 2>&1); code=$?
+same "file apply" 'xmrig-host-tuning: mode eco.
+xmrig-host-tuning: policy4: governor performance, at most 1800 MHz.
+exit 0' "$out
+exit $code"
+same "file apply state" 'policy0 schedutil 1800000
+policy4 performance 1800000
+policy6 schedutil 2400000
+hugepages 0' "$(state opi)"
+out=$(env -i PATH="$w/tools" "$BASH" --norc --noprofile "$w/host_tuning.sh" restore 2>&1); code=$?
+same "file restore" 'xmrig-host-tuning: policy4: given back governor schedutil, at most 2400 MHz.
+exit 0' "$out
+exit $code"
+same "file restore state" 'policy0 schedutil 1800000
+policy4 schedutil 2400000
+policy6 schedutil 2400000
+hugepages 0' "$(state opi)"
+[ -e "$w/opi/run/found" ] && fail "restore run as a file left its record"
 # A record line not of the expected form is skipped, never written to a path.
 tree opi opi5plus
 printf '%s\n' '../../x performance 1' 'policy4 schedutil 2400000' > "$w/opi/run/found"
