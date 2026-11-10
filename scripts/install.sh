@@ -827,7 +827,7 @@ function check_if_built() {
             error "$target_dir is checked out at no release tag, and --prebuilt installs the release the clone is checked out at. Run git -C $target_dir checkout --recurse-submodules vX.Y.Z with a release from $PROJECT_URL/releases, then the installer again."
             exit 1
         fi
-        if [ -f "$target_dir/xmrig.release" ] && [ -f "$target_dir/xmrig" ] && [ ! -L "$target_dir/xmrig" ] &&
+        if [ -f "$target_dir/xmrig.release" ] && [ ! -L "$target_dir/xmrig.release" ] && [ -f "$target_dir/xmrig" ] && [ ! -L "$target_dir/xmrig" ] &&
             [ "$(binary_origin "$target_dir")" = "release $tag, sha256 $(binary_sha256 "$target_dir/xmrig")" ]; then
             success "XMRig of release $tag is already installed at $target_dir."
             return 0
@@ -1319,7 +1319,7 @@ function binary_sha256() {
 # Where the miner binary in a clone comes from, as one line of text.
 function binary_origin() {
     local record hash
-    if [ ! -f "$1/xmrig.release" ]; then
+    if [ ! -f "$1/xmrig.release" ] || [ -L "$1/xmrig.release" ]; then
         printf '%s' "compiled on this host"
         return 0
     fi
@@ -1345,6 +1345,16 @@ function donate_level_of() {
 function install_release_binary() (
     local dir=$1 tag stage file url lines want got out line lib path
     root_only_tree "$dir" || exit 1
+    for path in "$dir/xmrig" "$dir/xmrig.release"; do
+        if [ -d "$path" ] || { [ -L "$path" ] && { [ "$path" = "$dir/xmrig.release" ] || [ -d "$path" ]; }; }; then
+            error "$path is a link or a folder, so the release binary is not installed over it. Remove it with rm -r -- '$path', then run the installer again."
+            exit 1
+        fi
+    done
+    # A compiled clone links xmrig to the build output: the link goes, the build output stays.
+    if [ -L "$dir/xmrig" ]; then
+        rm -f -- "$dir/xmrig" || exit 1
+    fi
     tag=$(release_tag_of "$dir")
     if [ -z "$tag" ]; then
         error "$dir is checked out at no release tag, so --prebuilt has no release to install."
@@ -1390,12 +1400,6 @@ function install_release_binary() (
         error "The release binary needs $lib, which this host lacks after apt installed ${RELEASE_PACKAGES[*]}, so the miner is left as it was. Run the installer without --prebuilt to compile the miner here."
         exit 1
     fi
-    for path in "$dir/xmrig" "$dir/xmrig.release"; do
-        if [ -L "$path" ] || [ -d "$path" ]; then
-            error "$path is a link or a folder, so the release binary is not installed over it. Remove it with rm -r $path, then run the installer again."
-            exit 1
-        fi
-    done
     chmod 0755 "$stage/$RELEASE_ASSET" && printf '%s %s\n' "$tag" "$want" > "$stage/xmrig.release" && chmod 0644 "$stage/xmrig.release" || {
         error "Failed to install the release binary at $dir/xmrig."
         exit 1
