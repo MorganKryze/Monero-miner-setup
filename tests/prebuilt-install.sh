@@ -361,8 +361,37 @@ h=$(sha_of)
 printf 'v0.2.0 %s\n' "$h" > "$clone/xmrig.release"
 for pu in "" "https://example.test"; do
   run REPO_NAME=Monero-miner-setup SERVICE_MODE=setup BLUE= RESET= LINK= UNDERLINE= PROJECT_URL="$pu" -- display_next_steps
-  want "next-steps $pu" first "[HINT] Miner binary: release v0.2.0, sha256 $h; donate level 1" "$(printf '%s\n' "$out" | sed -n 1p)"
+  want "next-steps $pu" first "[HINT] Miner binary: release v0.2.0, sha256 $h; donate level 1 (as XMRig applies it)" "$(printf '%s\n' "$out" | sed -n 1p)"
 done
+
+# the closing line gives the level XMRig applies, as the service's start-up line does
+donate_case() { # name, expected level text, config body
+  printf '%s' "$3" > "$clone/config_background.json"; chmod 644 "$clone/config_background.json"
+  run REPO_NAME=Monero-miner-setup SERVICE_MODE=setup BLUE= RESET= LINK= UNDERLINE= PROJECT_URL= -- display_next_steps
+  want "donate $1" first "[HINT] Miner binary: release v0.2.0, sha256 $h; donate level $2" "$(printf '%s\n' "$out" | sed -n 1p)"
+}
+pool() { printf '    "pools": [{\n        "url": "%s",\n    }],\n    "donate-level": %s,\n' "$1" "$2"; }
+donate_case "other pool, level 0" "1 (as XMRig applies it)" "$(pool pool.example.org:4444 0)"
+donate_case "other pool, level 3" "3 (as XMRig applies it)" "$(pool pool.example.org:4444 3)"
+donate_case "other pool, level 100" "1 (as XMRig applies it)" "$(pool pool.example.org:4444 100)"
+donate_case "moneroocean, level 1" "0 (as XMRig applies it)" "$(pool pool.moneroocean.stream:10128 1)"
+donate_case "first pool decides, second moneroocean" "1 (as XMRig applies it)" '    "pools": [{
+        "url": "pool.example.org:4444",
+    }, {
+        "url": "pool.moneroocean.stream:10128",
+    }],
+    "donate-level": 0,
+'
+donate_case "first pool moneroocean, second other" "0 (as XMRig applies it)" '    "pools": [{
+        "url": "pool.moneroocean.stream:10128",
+    }, {
+        "url": "pool.example.org:4444",
+    }],
+    "donate-level": 1,
+'
+rm -f "$clone/config_background.json"
+run REPO_NAME=Monero-miner-setup SERVICE_MODE=setup BLUE= RESET= LINK= UNDERLINE= PROJECT_URL= -- display_next_steps
+want "donate no config" first "[HINT] Miner binary: release v0.2.0, sha256 $h; donate level unknown" "$(printf '%s\n' "$out" | sed -n 1p)"
 
 [ "$rc" = 0 ] && echo "PASS prebuilt-install"
 exit "$rc"

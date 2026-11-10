@@ -1663,11 +1663,23 @@ function binary_origin() {
     fi
 }
 
-# The donate level a config holds, or unknown.
+# The donate level XMRig applies for a config, or unknown, by the rule the service's start-up line
+# uses: the first pool on moneroocean.stream gives 0, otherwise the configured level, 1 when it is
+# below 1 or above 99.
 function donate_level_of() {
-    local level
+    local level url
     level=$(grep -o 'donate-level.: *[0-9]*' "$1" 2>/dev/null | grep -o '[0-9]*$' | head -n 1)
-    printf '%s' "${level:-unknown}"
+    if [ -z "$level" ]; then
+        printf 'unknown'
+        return 0
+    fi
+    url=$(grep -m1 -o 'url.: *[^,]*' "$1" 2>/dev/null)
+    if [[ "$url" == *moneroocean.stream* ]]; then
+        level=0
+    elif [ "$level" -lt 1 ] || [ "$level" -gt 99 ]; then
+        level=1
+    fi
+    printf '%s (as XMRig applies it)' "$level"
 }
 
 # Installs the release binary at the clone's tag once its sha256 matches the release's SHA256SUMS.
