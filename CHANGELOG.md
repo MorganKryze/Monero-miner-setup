@@ -6,6 +6,14 @@ Every release of Monero-miner-setup, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Each `v*` tag also publishes XMRig for Linux arm64 boards (`xmrig-linux-arm64`), built unmodified by CI on Debian 13 from the commit the tag pins, with `SHA256SUMS` and a GitHub build attestation (`gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup`). `install.sh --prebuilt`, as root on Linux arm64 with glibc 2.38 or newer (Debian 13, not 12), installs it instead of compiling: the release the clone is checked out at, checked against `SHA256SUMS`, as a binary only root can change. The service's journal and the installer's last lines say where the binary comes from and the donate level.
+
+### Fixed
+
+- A pre-release tag (`v0.2.0-rc.1`) moved the image's `:latest`. It now publishes `:0.2.0-rc.1` alone and makes a GitHub pre-release.
+
 ## [0.1.1] - 2026-11-09
 
 ### Changed
