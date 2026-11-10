@@ -38,7 +38,7 @@ done
 printf 'binary-a' > "$w/clone/xmrig" && chmod 755 "$w/clone/xmrig"
 h=$(sha256sum < "$w/clone/xmrig" | cut -c1-64)
 conf() { # pool url, donate level
-  printf '    "pools": [{\n        "url": "%s",\n    }],\n    "donate-level": %s,\n' "$1" "$2" > "$w/config.json" && chmod 644 "$w/config.json"
+  printf '    "pools": [{\n        "url": "%s",\n        "pass": "rig-secret",\n    }],\n    "donate-level": %s,\n' "$1" "$2" > "$w/config.json" && chmod 644 "$w/config.json"
 }
 conf pool.example.org:4444 1
 zeros=$(printf '%064d' 0)
@@ -61,6 +61,10 @@ conf pool.example.org:4444 0
 same "other pool, level 0" 'Miner binary: compiled on this host; donate level 1 (as XMRig applies it)' "$(run)"
 conf pool.example.org:4444 3
 same "other pool, level 3" 'Miner binary: compiled on this host; donate level 3 (as XMRig applies it)' "$(run)"
+conf pool.example.org:4444 100
+same "other pool, level 100" 'Miner binary: compiled on this host; donate level 1 (as XMRig applies it)' "$(run)"
+# The step writes nothing to stderr, which systemd sends to the journal too.
+same "stderr" "" "$(env -i PATH="$w/tools" /bin/sh -c "$script" miner-origin "$w/clone" "$w/config.json" 2>&1 >/dev/null)"
 printf '    "pools": [{\n        "url": "pool.example.org:4444",\n    }, {\n        "url": "pool.moneroocean.stream:10128",\n    }],\n    "donate-level": 0,\n' > "$w/config.json"
 same "first pool decides, second is moneroocean" 'Miner binary: compiled on this host; donate level 1 (as XMRig applies it)' "$(run)"
 printf '    "pools": [{\n        "url": "pool.moneroocean.stream:10128",\n    }, {\n        "url": "pool.example.org:4444",\n    }],\n    "donate-level": 1,\n' > "$w/config.json"
