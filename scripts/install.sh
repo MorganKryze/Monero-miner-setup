@@ -31,6 +31,13 @@ ROOT_BASE_DIR="/opt"
 SYSTEMD_UNIT="/etc/systemd/system/xmrig.service"
 LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.moneroocean.xmrig.plist"
 DOCKER_SCRIPT_URL="https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh"
+# --prebuilt: the binary CI builds for Linux arm64 on Debian 13 and the SHA256SUMS beside it, from the
+# release the clone is checked out at. The release jobs (.github/workflows/publish.yml) read the
+# minimum glibc here and fail a tag whose binary needs a newer one.
+RELEASE_URL="https://github.com/MorganKryze/Monero-miner-setup/releases/download"
+RELEASE_ASSET="xmrig-linux-arm64"
+RELEASE_MIN_GLIBC="2.38"
+RELEASE_PACKAGES=(libuv1t64 libssl3t64 libhwloc15)
 
 # ===== Own clone =====
 # BASH_SOURCE is read here, at the top level: inside a function, bash 5 gives a script read from a
@@ -194,6 +201,7 @@ function usage() {
     echo
     echo "Installation Options:"
     echo "  -d, --dir DIR         Base directory for installation (defaults to HOME; as root on Linux, /opt)"
+    echo "  --prebuilt            Install the release binary instead of compiling: Linux arm64, as root, glibc $RELEASE_MIN_GLIBC or newer"
     echo
     echo "Mining Configuration Options:"
     echo "  -t, --threads PERCENT Share of the CPUs to mine on (1-100, default: $DEFAULT_MAX_THREADS; on arm64, the biggest first)"
@@ -461,6 +469,7 @@ function parse_arguments() {
     SERVICE_MODE=$DEFAULT_SERVICE_MODE
     NON_INTERACTIVE=$DEFAULT_NON_INTERACTIVE
     SERVICE_AS_ROOT=no
+    PREBUILT=no
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -525,6 +534,10 @@ function parse_arguments() {
             SERVICE_AS_ROOT=yes
             shift 1
             ;;
+        --prebuilt)
+            PREBUILT=yes
+            shift 1
+            ;;
         -y | --yes | --non-interactive)
             NON_INTERACTIVE=true
             shift 1
@@ -560,6 +573,10 @@ function parse_arguments() {
     export NON_INTERACTIVE
     # Read by scripts/setup_service_debian.sh: only this flag makes the service run as root.
     export SERVICE_AS_ROOT
+    # A host --prebuilt cannot serve stops here, before anything is cloned, fetched or installed.
+    if [ "$PREBUILT" = yes ] && ! check_prebuilt_host; then
+        exit 1
+    fi
 }
 
 # ===== MoneroOcean Miner Setup Functions =====
@@ -800,7 +817,19 @@ function check_base_clone() {
 }
 
 function check_if_built() {
-    local target_dir="$BASE_DIR/$REPO_NAME"
+    local target_dir="$BASE_DIR/$REPO_NAME" tag
+
+    # --prebuilt installs the release the clone is checked out at, where only root can change it.
+    if [ "$PREBUILT" = yes ]; then
+        root_only_tree "$target_dir" || exit 1
+        tag=$(release_tag_of "$target_dir")
+        if [ -z "$tag" ]; then
+            error "$target_dir is checked out at no release tag, and --prebuilt installs the release the clone is checked out at. Run git -C $target_dir checkout --recurse-submodules vX.Y.Z with a release from $PROJECT_URL/releases, then the installer again."
+            exit 1
+        fi
+        info "Monero miner not yet installed from release $tag."
+        return 1
+    fi
 
     # Check for evidence of a successful build: the Makefile produces
     # $target_dir/build-xmrig/xmrig and a symlink at $target_dir/xmrig.
@@ -814,7 +843,13 @@ function check_if_built() {
 }
 
 function clone_repository() {
-    local target_dir="$BASE_DIR/$REPO_NAME"
+    local target_dir="$BASE_DIR/$REPO_NAME" branch=()
+
+    # --prebuilt clones the release this installer comes from, so its scripts and its binary match.
+    if [ "$PREBUILT" = yes ]; then
+        root_only_tree "$BASE_DIR" || return 1
+        branch=(--branch "v$VERSION")
+    fi
 
     info "Cloning project repository to $target_dir..."
 
@@ -825,7 +860,7 @@ function clone_repository() {
         error "$target_dir is already there or cannot be made, so this run does not clone into it. Move $target_dir away and run the installer again, or pass -d with another base directory."
         return 1
     fi
-    if ! git clone --recurse-submodules "$REPO_URL" "$target_dir"; then
+    if ! git clone --recurse-submodules "${branch[@]}" "$REPO_URL" "$target_dir"; then
         # The folder is this run's own and git left it empty: remove it, so a re-run can clone.
         rmdir -- "$target_dir" 2>/dev/null
         error "Failed to clone repository (with submodules) from $REPO_URL."
@@ -1198,6 +1233,71 @@ function set_script_permissions() {
 
     success "Script permissions set successfully."
     return 0
+}
+
+# ===== Release binary =====
+# --prebuilt installs the arm64 binary CI builds for Debian 13 instead of compiling it, and runs as
+# root, so what root installs and runs is a file only root can change. A host the binary cannot run
+# on, and a tree another user can change, are refused first: before anything is cloned, fetched or
+# installed, with the command that gets the user a working install.
+# The host: Linux arm64, root, and a glibc the binary links against.
+function check_prebuilt_host() {
+    local os arch glibc major minor min_major min_minor
+    os=$(uname -s 2>/dev/null) || os=""
+    arch=$(uname -m 2>/dev/null) || arch=""
+    if [ "$os" != "Linux" ] || [ "$arch" != "aarch64" ]; then
+        error "--prebuilt installs the Linux arm64 release binary, and this host is ${os:-unknown} ${arch:-unknown}. Run the installer without --prebuilt to compile the miner here."
+        return 1
+    fi
+    if [ "$(id -u 2>/dev/null)" != "0" ]; then
+        error "--prebuilt installs a binary only root can change, so it runs as root. Run the installer again with sudo, or without --prebuilt to compile the miner as you."
+        return 1
+    fi
+    glibc=$(getconf GNU_LIBC_VERSION 2>/dev/null) || glibc=""
+    glibc=${glibc#glibc }
+    if ! [[ "$glibc" =~ ^([0-9]+)\.([0-9]+) ]]; then
+        error "--prebuilt needs glibc $RELEASE_MIN_GLIBC or newer, and this host's glibc version cannot be read. Run the installer without --prebuilt to compile the miner here."
+        return 1
+    fi
+    major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]}
+    min_major=${RELEASE_MIN_GLIBC%%.*} min_minor=${RELEASE_MIN_GLIBC#*.}
+    if (( 10#$major < 10#$min_major || (10#$major == 10#$min_major && 10#$minor < 10#$min_minor) )); then
+        error "--prebuilt needs glibc $RELEASE_MIN_GLIBC or newer, and this host has $major.$minor (Debian 12 has 2.36). Run the installer without --prebuilt to compile the miner here, or use --docker."
+        return 1
+    fi
+}
+
+# Prints the release tag the clone is checked out at, or nothing. A final tag beats a pre-release
+# and versions sort as numbers; a tag that is not vX.Y.Z (with an optional suffix) is no tag, as it
+# ends up in a download URL.
+function release_tag_of() {
+    local tags tag
+    tags=$(git -C "$1" tag --points-at HEAD --list 'v*' 2>/dev/null) || return 0
+    tags=$(printf '%s\n' "$tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') || return 0
+    tag=$(printf '%s\n' "$tags" | grep -v -e - | sort -V | tail -n 1) || tag=""
+    [ -n "$tag" ] || tag=$(printf '%s\n' "$tags" | sort -V | tail -n 1)
+    printf '%s' "$tag"
+}
+
+# Root owns the directory and every one above it, and no one else can write them: the same walk
+# from / that validate_directory makes. The user who ran sudo does not count (SUDO_USER is
+# emptied), as the binary runs as root and that user is not root.
+function root_only_tree() {
+    local dir check rest
+    if ! dir=$(CDPATH= cd -- "$1" 2>/dev/null && pwd -P); then
+        error "$1 cannot be read, so --prebuilt does not install a binary there."
+        return 1
+    fi
+    check=
+    while :; do
+        if ! SUDO_USER="" trusted_by_root "${check:-/}"; then
+            error "${check:-/} can be changed by a user other than root, so --prebuilt does not install a binary under it. Pass -d with a directory only root can change, such as /opt."
+            return 1
+        fi
+        [ "${check:-/}" = "$dir" ] && break
+        rest=${dir#"$check"/}
+        check=$check/${rest%%/*}
+    done
 }
 
 # A first install, or a re-run that carries out what an earlier run left undone (a failed build, a
