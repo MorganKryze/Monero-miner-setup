@@ -247,14 +247,20 @@ chmod 644 "$w/opi/cpufreq/policy4/scaling_governor"
 same "record kept after a failed restore" 'policy4 schedutil 2400000' "$(cat "$w/opi/run/found" 2>&1)"
 run opi apply >/dev/null
 same "record after a failed restore and an apply" 'policy4 schedutil 2400000' "$(cat "$w/opi/run/found" 2>&1)"
-# A count larger than the memory can hold is capped, leaving 2560 MiB free: (3906 - 2560) / 2 = 673.
+# The full count is reserved while 1024 MiB stays free: a 4 GB board, MemTotal 3776 MiB, keeps 1280.
 tree opi opi5plus
-printf 'MemTotal:        4000000 kB\nHugepagesize:       2048 kB\n' > "$w/opi/meminfo"
-printf '%s\n' hugepages=999999 > "$w/opi/conf"
-same "huge pages cap" 'xmrig-host-tuning: huge pages: 999999 wanted, capped at 673 to leave 2560 MiB free.
-xmrig-host-tuning: huge pages: 673 of 2 MB reserved (wanted 673).
+printf 'MemTotal:        3866960 kB\nHugepagesize:       2048 kB\n' > "$w/opi/meminfo"
+printf '%s\n' hugepages=1280 > "$w/opi/conf"
+same "huge pages on a 4 GB board" 'xmrig-host-tuning: huge pages: 1280 of 2 MB reserved (wanted 1280).
 exit 0' "$(run opi apply)"
-same "huge pages cap state" "673" "$(cat "$w/opi/nr_hugepages")"
+same "huge pages on a 4 GB board state" "1280" "$(cat "$w/opi/nr_hugepages")"
+# A count that would leave less than 1024 MiB free is not reserved at all: the dataset needs it whole.
+tree opi opi5plus
+printf 'MemTotal:        2699264 kB\nHugepagesize:       2048 kB\n' > "$w/opi/meminfo"
+printf '%s\n' hugepages=1280 > "$w/opi/conf"
+same "huge pages too many" 'xmrig-host-tuning: huge pages: none reserved, 1280 would leave less than 1024 MiB free.
+exit 0' "$(run opi apply)"
+same "huge pages too many state" "0" "$(cat "$w/opi/nr_hugepages")"
 # No directory for the record: the policy is left as found.
 tree opi opi5plus
 rm -rf "${w:?}/opi/run"

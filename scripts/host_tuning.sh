@@ -87,9 +87,9 @@ function apply_policy() {
 }
 
 # Raises the 2 MB huge page reservation to <count>, never lowers it (a larger one is the user's),
-# and only on a kernel whose default huge page is 2 MB. The count is capped so that at least
-# 2560 MiB of MemTotal stays outside the reservation: (MemTotal in MiB - 2560) / 2 pages, none on a
-# board with less or an unreadable MemTotal.
+# and only on a kernel whose default huge page is 2 MB. At least 1024 MiB of MemTotal stays outside
+# the reservation: when <count> does not fit in (MemTotal in MiB - 1024) / 2 pages, or MemTotal is
+# unreadable, none is reserved, since the miner's dataset uses huge pages only when it fits whole.
 function apply_hugepages() {
     local want="$1" size have total cap
     size=$(awk '/^Hugepagesize:/ && $3 == "kB" { print $2; exit }' "$MEMINFO" 2>/dev/null)
@@ -99,11 +99,10 @@ function apply_hugepages() {
     fi
     total=$(awk '/^MemTotal:/ && $3 == "kB" { print $2; exit }' "$MEMINFO" 2>/dev/null)
     [[ "$total" =~ ^[0-9]{1,12}$ ]] || total=0
-    cap=$(((10#$total / 1024 - 2560) / 2))
-    [ "$cap" -ge 0 ] || cap=0
+    cap=$(((10#$total / 1024 - 1024) / 2))
     if [ $((10#$want)) -gt "$cap" ]; then
-        say "huge pages: $want wanted, capped at $cap to leave 2560 MiB free."
-        want=$cap
+        say "huge pages: none reserved, $want would leave less than 1024 MiB free."
+        return 0
     fi
     have=$(read_first "$NR_HUGEPAGES")
     [[ "$have" =~ ^[0-9]{1,9}$ ]] || have=0
