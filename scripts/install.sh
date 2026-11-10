@@ -1351,10 +1351,6 @@ function install_release_binary() (
             exit 1
         fi
     done
-    # A compiled clone links xmrig to the build output: the link goes, the build output stays.
-    if [ -L "$dir/xmrig" ]; then
-        rm -f -- "$dir/xmrig" || exit 1
-    fi
     tag=$(release_tag_of "$dir")
     if [ -z "$tag" ]; then
         error "$dir is checked out at no release tag, so --prebuilt has no release to install."
@@ -1404,6 +1400,7 @@ function install_release_binary() (
         error "Failed to install the release binary at $dir/xmrig."
         exit 1
     }
+    # A compiled clone links xmrig to the build output: the move replaces the link, the build output stays.
     if ! mv -f -- "$stage/$RELEASE_ASSET" "$dir/xmrig"; then
         error "Failed to install the release binary at $dir/xmrig."
         exit 1

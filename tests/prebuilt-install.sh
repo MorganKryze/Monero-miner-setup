@@ -242,6 +242,20 @@ want compiled-clone build compiled "$(cat "$clone/build-xmrig/xmrig")"
 want compiled-clone record "v0.2.0 $hash" "$(cat "$clone/xmrig.release")"
 nostage compiled-clone
 
+# A compiled clone stays a link to its build output after a download, apt or ldd refusal.
+for v in CURL_FAIL=$asset CURL_FAIL=SHA256SUMS APT_FAIL=1 LDD_FAIL=1; do
+  reset
+  mkdir "$clone/build-xmrig"; chmod 755 "$clone/build-xmrig"
+  printf 'compiled' > "$clone/build-xmrig/xmrig"; chmod 755 "$clone/build-xmrig/xmrig"
+  rm "$clone/xmrig"; ln -s build-xmrig/xmrig "$clone/xmrig"
+  run "$v" -- install_release_binary "$clone"
+  want "compiled-refused $v" exit 1 "$code"
+  [ -L "$clone/xmrig" ] || fail "compiled-refused $v: xmrig link removed"
+  want "compiled-refused $v" build compiled "$(cat "$clone/xmrig" 2>/dev/null)"
+  [ ! -e "$clone/xmrig.release" ] || fail "compiled-refused $v: wrote xmrig.release"
+  nostage "compiled-refused $v"
+done
+
 # A link to a folder is refused before any download or apt.
 reset
 mkdir "$w/outside2"
