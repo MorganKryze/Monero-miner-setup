@@ -16,7 +16,7 @@ trap 'chmod -R u+rwx -- "$w" 2>/dev/null; rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
 mkdir -p "$w/bin" "$w/tools" "$w/home" "$w/opt"
 chmod 755 "$w" "$w/home" "$w/opt"
-for t in awk cat chmod cut dirname find grep head ls mkdir mktemp mv rm rmdir sed sha256sum sort tail tr wc; do
+for t in awk cat chmod cut dirname find grep head ln ls mkdir mktemp mv rm rmdir sed sha256sum sort tail tr wc; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
@@ -59,6 +59,7 @@ cat > "$w/bin/apt-get" <<STUB
 #!/bin/bash
 echo "\$*" >> "$w/apt-get.log"
 [ -z "\${APT_FAIL:-}" ] || exit 100
+if [ -n "\${APT_SWAP:-}" ]; then rm -f -- "\$APT_SWAP_LINK"; ln -s "\$APT_SWAP" "\$APT_SWAP_LINK"; fi
 exit 0
 STUB
 cat > "$w/bin/ldd" <<'STUB'
@@ -255,6 +256,19 @@ for v in CURL_FAIL=$asset CURL_FAIL=SHA256SUMS APT_FAIL=1 LDD_FAIL=1; do
   [ ! -e "$clone/xmrig.release" ] || fail "compiled-refused $v: wrote xmrig.release"
   nostage "compiled-refused $v"
 done
+
+# The link's target turns into a link to a folder another account chose while apt runs: the release
+# binary still lands as a plain file at xmrig, and that folder stays empty.
+reset
+mkdir "$clone/build-xmrig" "$w/victim"; chmod 755 "$clone/build-xmrig" "$w/victim"
+printf 'compiled' > "$clone/build-xmrig/xmrig"; chmod 755 "$clone/build-xmrig/xmrig"
+rm "$clone/xmrig"; ln -s build-xmrig/xmrig "$clone/xmrig"
+run APT_SWAP="$w/victim" APT_SWAP_LINK="$clone/build-xmrig/xmrig" -- install_release_binary "$clone"
+want swapped-target exit 0 "$code"
+want swapped-target victim "" "$(ls -A "$w/victim")"
+[ ! -L "$clone/xmrig" ] && [ -f "$clone/xmrig" ] || fail "swapped-target: xmrig is not a plain file"
+want swapped-target binary release-binary "$(cat "$clone/xmrig")"
+nostage swapped-target
 
 # A link to a folder is refused before any download or apt.
 reset

@@ -1400,7 +1400,9 @@ function install_release_binary() (
         error "Failed to install the release binary at $dir/xmrig."
         exit 1
     }
-    # A compiled clone links xmrig to the build output: the move replaces the link, the build output stays.
+    # A compiled clone links xmrig to the build output. The link goes right before the move, so the
+    # move cannot follow it into a folder; only root can add an entry to the root-only clone.
+    if [ -L "$dir/xmrig" ]; then rm -f -- "$dir/xmrig" || exit 1; fi
     if ! mv -f -- "$stage/$RELEASE_ASSET" "$dir/xmrig"; then
         error "Failed to install the release binary at $dir/xmrig."
         exit 1
