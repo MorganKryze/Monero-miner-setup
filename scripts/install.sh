@@ -1362,7 +1362,7 @@ function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
-    local name kept listed every="" unlisted=false missing=()
+    local name kept service_kept="" listed every="" unlisted=false missing=()
 
     info "Generating miner configuration files..."
 
@@ -1397,6 +1397,7 @@ function generate_config_files() {
         if [ -e "$target_dir/$name" ] && [ ! -L "$target_dir/$name" ]; then
             kept="$target_dir/$name"
         fi
+        [ "$name" != config_background.json ] || service_kept=$kept
         if [ -n "$kept" ]; then
             info "Keeping $kept. To regenerate it, run 'make clean-configs', then the installer again."
             # The "rx" list sits on a line of its own, whether this installer wrote it or the miner
@@ -1456,8 +1457,9 @@ function generate_config_files() {
             fi
         done
         success "Configuration files generated successfully."
-        # The service setup tunes the host for the mode the service config was written for.
-        if [[ " ${missing[*]} " == *" config_background.json "* ]]; then
+        # The service setup tunes the host for the mode the service config was written for: a kept
+        # one, under configs/ or at the clone root, keeps the board-mode it came with.
+        if [ -z "$service_kept" ]; then
             if [ -n "$MODE" ]; then
                 if ! printf '%s\n' "$MODE" >"$dest_config_dir/board-mode"; then
                     error "Failed to write $dest_config_dir/board-mode."

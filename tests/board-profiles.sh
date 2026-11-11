@@ -164,6 +164,13 @@ gen opi5plus aarch64 75
 printf 'eco\n' > "$clone/configs/board-mode"; rm "$clone/configs/config.json"
 gen opi5plus aarch64 75 MODE=max
 want "board-mode, service config kept" content "eco" "$(cat "$clone/configs/board-mode" 2>/dev/null)"
+# A service config edited in place at the clone root is kept too, with no copy under configs/.
+fresh; printf '{"x": 1}\n' > "$clone/config_background.json"
+gen opi5plus aarch64 75 MODE=eco
+[ ! -e "$clone/configs/board-mode" ] || fail "board-mode: written beside a kept service config at the clone root"
+fresh; printf '{"x": 1}\n' > "$clone/config_background.json"; mkdir -p "$clone/configs"; printf 'eco\n' > "$clone/configs/board-mode"
+gen opi5plus aarch64 75
+want "board-mode, root service config kept" content "eco" "$(cat "$clone/configs/board-mode" 2>/dev/null)"
 
 # no --mode, v0.1.1's lists and configs; the board line says the share.
 fresh; gen opi5plus aarch64 75
