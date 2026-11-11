@@ -1456,6 +1456,17 @@ function generate_config_files() {
             fi
         done
         success "Configuration files generated successfully."
+        # The service setup tunes the host for the mode the service config was written for.
+        if [[ " ${missing[*]} " == *" config_background.json "* ]]; then
+            if [ -n "$MODE" ]; then
+                if ! printf '%s\n' "$MODE" >"$dest_config_dir/board-mode"; then
+                    error "Failed to write $dest_config_dir/board-mode."
+                    return 1
+                fi
+            else
+                rm -f -- "$dest_config_dir/board-mode"
+            fi
+        fi
     fi
 
     # Link each config at the clone root, where the miner reads it, unless something is already
