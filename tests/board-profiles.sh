@@ -164,6 +164,15 @@ gen opi5plus aarch64 75
 printf 'eco\n' > "$clone/configs/board-mode"; rm "$clone/configs/config.json"
 gen opi5plus aarch64 75 MODE=max
 want "board-mode, service config kept" content "eco" "$(cat "$clone/configs/board-mode" 2>/dev/null)"
+# A new service config under another mode: the new mode, never the old one. A generation that
+# fails leaves no board-mode, so the old mode cannot outlive the config it was written for.
+fresh; gen opi5plus aarch64 75 MODE=eco; rm "$clone/configs/config_background.json"
+gen opi5plus aarch64 75 MODE=max
+want "board-mode eco then max" content "max" "$(cat "$clone/configs/board-mode" 2>/dev/null)"
+fresh; gen opi5plus aarch64 75 MODE=eco; rm "$clone/configs/config_background.json" "$clone/templates/config_background.json.template"
+gen opi5plus aarch64 75 MODE=max
+[ "$code" -ne 0 ] || fail "board-mode, generation fails: exit 0"
+[ ! -e "$clone/configs/board-mode" ] || fail "board-mode: the old mode kept after a failed generation"
 # A service config edited in place at the clone root is kept too, with no copy under configs/.
 fresh; printf '{"x": 1}\n' > "$clone/config_background.json"
 gen opi5plus aarch64 75 MODE=eco
