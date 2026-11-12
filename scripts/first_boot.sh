@@ -386,7 +386,7 @@ function set_hostname() {
 # Without ssh_key, stops and disables the SSH server DietPi enabled; with one, adds it once to
 # root's authorized_keys and leaves the server running (DietPi already turned password logins off).
 function ssh_policy() {
-    local unit line file="$ROOT_SSH_DIR/authorized_keys"
+    local unit line lead="" file="$ROOT_SSH_DIR/authorized_keys"
     if [ -z "$S_SSH_KEY" ]; then
         for unit in $SSH_UNITS; do
             systemctl is-enabled --quiet "$unit" || continue
@@ -402,12 +402,13 @@ function ssh_policy() {
         error "Failed to add the ssh_key to $file. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
         return 1
     fi
+    # A last line without a newline gets one first, so the key starts on its own line.
     if [ -f "$file" ]; then
-        while IFS= read -r line || [ -n "$line" ]; do
+        while IFS= read -r line || { [ -n "$line" ] && lead=$'\n'; }; do
             [ "$line" != "$S_SSH_KEY" ] || { info "SSH takes the key from the settings only."; return 0; }
         done <"$file"
     fi
-    if ! (umask 077 && printf '%s\n' "$S_SSH_KEY" >>"$file") || ! chmod 0600 "$file"; then
+    if ! (umask 077 && printf '%s%s\n' "$lead" "$S_SSH_KEY" >>"$file") || ! chmod 0600 "$file"; then
         error "Failed to add the ssh_key to $file. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
         return 1
     fi

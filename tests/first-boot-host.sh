@@ -159,6 +159,15 @@ board newkey raspberrypi,5-model-b
 KEY=$key run newkey ssh_policy > /dev/null
 same "key, no folder" "$key" "$(cat "$w/newkey/ssh/authorized_keys" 2>/dev/null)"
 same "key, no folder: file mode" "600" "$(mode "$w/newkey/ssh/authorized_keys")"
+board nonl raspberrypi,5-model-b
+mkdir -p "$w/nonl/ssh"; printf 'ssh-rsa AAAAB3 old@host' > "$w/nonl/ssh/authorized_keys"
+KEY=$key run nonl ssh_policy > /dev/null
+same "key after a last line without a newline" "ssh-rsa AAAAB3 old@host
+$key" "$(cat "$w/nonl/ssh/authorized_keys")"
+board emptykeys raspberrypi,5-model-b
+mkdir -p "$w/emptykeys/ssh"; : > "$w/emptykeys/ssh/authorized_keys"
+KEY=$key run emptykeys ssh_policy > /dev/null
+same "key in an empty file" "$key" "$(cat "$w/emptykeys/ssh/authorized_keys")"
 
 # ---- mDNS ----
 board moff raspberrypi,5-model-b
