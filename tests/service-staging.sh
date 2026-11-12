@@ -26,13 +26,24 @@ fail() { echo "FAIL $*"; rc=1; }
 same() { # label, expected, got
   [ "$2" = "$3" ] || { fail "$1"; diff <(printf '%s\n' "$2") <(printf '%s\n' "$3") | sed 's/^/    /'; }
 }
-# A copy that still stages under /tmp would write there: refuse to run it.
-grep -n '/tmp/' "$root/$script" && { echo "FAIL $script names a fixed path under /tmp; not run"; exit 1; }
+# A copy that still stages under /tmp would write there: refuse to run it. The tuning file it
+# sources stages too.
+for f in "$script" scripts/setup_service_tuning.sh; do
+  grep -n '/tmp/' "$root/$f" && { echo "FAIL $f names a fixed path under /tmp; not run"; exit 1; }
+done
 # Nothing in the setup changes an owner or a mode, searches a tree or removes a path, its exit
 # cleanup of the staged files aside (a line it only prints may name them).
 same "commands that change owners or modes, search or remove" \
-  'trap '\''rm -f -- "$UNIT_STAGED" "${SEED_STAGED:-}" "${LOGROTATE_STAGED:-}"'\'' EXIT' \
+  'trap '\''rm -f -- "$UNIT_STAGED" "${SEED_STAGED:-}" "${LOGROTATE_STAGED:-}" "${TUNING_STAGED[@]}"'\'' EXIT' \
   "$(grep -wE 'chown|chmod|find|rm' "$root/$script" | grep -vE '^ *echo ')"
+# The tuning file removes, as root, its own three installed files and nothing else.
+same "tuning: commands that change owners or modes, search or remove" \
+  '    if ! sudo rm -f -- "$TUNING_UNIT" "$TUNING_BIN" "$TUNING_CONF" || ! sudo systemctl daemon-reload; then' \
+  "$(grep -wE 'chown|chmod|find|rm' "$root/scripts/setup_service_tuning.sh" | grep -vE '^ *(echo|#)')"
+same "tuning: the paths root removes" 'TUNING_BIN="/usr/local/sbin/xmrig-host-tuning"
+TUNING_CONF="/etc/xmrig-host-tuning.conf"
+TUNING_UNIT="/etc/systemd/system/xmrig-host-tuning.service"' \
+  "$(grep -E '^TUNING_(BIN|CONF|UNIT)=' "$root/scripts/setup_service_tuning.sh")"
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
@@ -40,11 +51,17 @@ c="$w/clone"
 b="$w/bin"
 SERVICE_ROOT="$w/root"
 mkdir -p "$b" "$c/scripts" "$c/templates"
-for t in bash sh sed cat mktemp dirname readlink rm ls cut awk cp mv mkdir basename grep tr cmp; do
+for t in bash sh sed cat mktemp dirname readlink rm ls cut awk cp mv mkdir basename grep tr cmp head sort; do
   p=$(command -v "$t") && [ -x "$p" ] || { echo "FAIL no $t on PATH"; exit 1; }
   case $t in mktemp|sed|cat) ln -s "$p" "$b/$t.real" ;; *) ln -s "$p" "$b/$t" ;; esac
 done
 cp "$root/$script" "$root/scripts/setup_service_common.sh" "$c/scripts/"
+# A setup without a mode looks for the tuning's three installed files: they sit in a fixture
+# directory, absent unless a case creates them.
+old="$w/old"
+old_paths=(-e "s|^TUNING_UNIT=.*|TUNING_UNIT=\"$old/xmrig-host-tuning.service\"|"
+  -e "s|^TUNING_BIN=.*|TUNING_BIN=\"$old/xmrig-host-tuning\"|" -e "s|^TUNING_CONF=.*|TUNING_CONF=\"$old/xmrig-host-tuning.conf\"|")
+sed "${old_paths[@]}" "$root/scripts/setup_service_tuning.sh" > "$c/scripts/setup_service_tuning.sh"
 cp "$root/templates/xmrig.service.template" "$root/templates/logrotate.xmrig.template" "$c/templates/"
 # The binary sits in the build directory behind a link in the clone, as make build leaves it.
 mkdir "$c/build-xmrig"
@@ -90,9 +107,12 @@ case \$# in
   *) exit 1 ;;
 esac
 STUB
-# systemctl: OLD_USER is the User= of an already installed unit.
+# systemctl: OLD_USER is the User= of an already installed unit; TUNING_FRAGMENT the file of a
+# tuning unit an earlier setup with a mode installed.
 cat > "$b/systemctl" <<STUB
 #!$b/bash
+[ "\$1 \$3" = "show FragmentPath" ] && { echo "\${TUNING_FRAGMENT:-}"; exit 0; }
+[ "\$1 \$3" = "show Result" ] && { echo success; exit 0; }
 [ "\$1" = show ] && echo "\${OLD_USER:-}"
 exit 0
 STUB
@@ -470,10 +490,12 @@ done
 mv "$c/templates/logrotate.xmrig.template" "$w/logrotate.xmrig.template"
 printf 'KEEP\n' > "$w/victim"
 printf 'KEEP\n' > "$w/victim2"
-LOGROTATE_STAGED="$w/victim" SEED_STAGED="$w/victim2" setup
+printf 'KEEP\n' > "$w/victim3"
+LOGROTATE_STAGED="$w/victim" SEED_STAGED="$w/victim2" TUNING_STAGED="$w/victim3" setup
 [ "$code" -eq 0 ] || fail "inherited staging variables: exit $code"
 same "inherited staging variables: the files they name" "KEEP
-KEEP" "$(cat "$w/victim" "$w/victim2" 2>/dev/null)"
+KEEP
+KEEP" "$(cat "$w/victim" "$w/victim2" "$w/victim3" 2>/dev/null)"
 [ -z "$(left)" ] || fail "inherited staging variables: staged files left behind"
 mv "$w/logrotate.xmrig.template" "$c/templates/logrotate.xmrig.template"
 
@@ -500,6 +522,129 @@ same "start, config changed: config, remembered copy" "SEED2
 SEED2" "$(cat "$st/config.json" "$st/seed.json" 2>/dev/null)"
 same "start: files in the state directory" "config.json
 seed.json" "$(ls -A "$st")"
+
+# A board installed with --mode (configs/board-mode, which the installer writes): the tuning's
+# values, script and unit are staged with the rest, read from the clone as the caller (as the
+# account when that is root), installed by root before the miner unit, which then runs the miner
+# at normal priority, restarts it after any exit and wants the tuning first; the tuning is enabled,
+# and restarted when already active, and one closing line names each change. The tuning file's
+# kernel paths point at a fixture Orange Pi 5 Plus.
+mkdir -p "$c/configs" "$w/board/cpufreq/policy0" "$w/board/cpufreq/policy4" "$w/board/cpufreq/policy6"
+cp "$root/scripts/host_tuning.sh" "$root/scripts/board_profiles.conf" "$c/scripts/"
+cp "$root/templates/xmrig-host-tuning.service.template" "$c/templates/"
+printf '0 1 2 3\n' > "$w/board/cpufreq/policy0/related_cpus"
+printf '4 5\n' > "$w/board/cpufreq/policy4/related_cpus"
+printf '6 7\n' > "$w/board/cpufreq/policy6/related_cpus"
+printf 'MemTotal:       16184388 kB\nHugepagesize:       2048 kB\n' > "$w/board/meminfo"
+printf '%s\0' xunlong,orangepi-5-plus rockchip,rk3588 > "$w/board/compatible"
+sed -e "s|^TUNING_CPUFREQ_DIR=.*|TUNING_CPUFREQ_DIR=\"$w/board/cpufreq\"|" -e "s|^DT_COMPATIBLE=.*|DT_COMPATIBLE=\"$w/board/compatible\"|" \
+  -e "s|^MEMINFO=.*|MEMINFO=\"$w/board/meminfo\"|" "$root/scripts/setup_service_tuning.sh" > "$c/scripts/setup_service_tuning.sh"
+tuning_installs='sudo install -o root -g root -m 644 STAGED /etc/xmrig-host-tuning.conf
+sudo install -o root -g root -m 755 STAGED /usr/local/sbin/xmrig-host-tuning
+sudo install -o root -g root -m 644 STAGED /etc/systemd/system/xmrig-host-tuning.service'
+tuned_calls() { # account, group, mode of the caller (1000 or 0)
+  reach "$1"
+  [ "$3" != 0 ] || printf '%s\n' "$(read_seed "$1")" "sudo -u $1 cat -- $c/configs/board-mode" \
+    "sudo -u $1 cat -- $c/scripts/board_profiles.conf" "sudo -u $1 cat -- $c/scripts/host_tuning.sh" "sudo -u $1 cat -- $c/templates/xmrig-host-tuning.service.template"
+  seed_install "$2"
+  printf '%s\n' "$lr_install" "$tuning_installs" "$unit_install" "sudo systemctl daemon-reload" "sudo systemctl enable xmrig.service" \
+    "sudo systemctl enable xmrig-host-tuning.service" "sudo systemctl try-restart xmrig-host-tuning.service"
+}
+tuned_unit() { # account, group: the plain unit with the three changes
+  want_unit "$1" "$2" | awk '$0 == "Nice=10" { next } $0 == "Restart=on-failure" { print "Restart=always"; next } { print }
+    $0 == "After=network.target" { print "Wants=xmrig-host-tuning.service" }'
+}
+eco_lines="Host tuning for --mode eco, applied by xmrig-host-tuning.service at each boot before the miner:
+  policy0 (CPUs 0 1 2 3): powersave governor, no mining there.
+  policy4 (CPUs 4 5): performance governor, at most 1800 MHz.
+  policy6 (CPUs 6 7): performance governor, at most 1800 MHz.
+  Huge pages: 1280 of 2 MB reserved at each boot.
+  The miner runs at normal priority (no Nice) and restarts 15 s after any exit.
+  Files: /etc/systemd/system/xmrig-host-tuning.service, /usr/local/sbin/xmrig-host-tuning, /etc/xmrig-host-tuning.conf; 'make service-disable' removes them and gives the CPU settings back."
+tuned_ends_well() { # label, account, group, caller uid, mode
+  [ "$code" -eq 0 ] || fail "$1: exit $code"
+  same "$1: sudo calls" "$(tuned_calls "$2" "$3" "$4")" "$calls"
+  same "$1: the unit root installed" "$(tuned_unit "$2" "$3")" "$(cat "$SERVICE_ROOT/etc/systemd/system/xmrig.service" 2>/dev/null)"
+  cmp -s "$c/scripts/host_tuning.sh" "$SERVICE_ROOT/usr/local/sbin/xmrig-host-tuning" || fail "$1: the boot script root installed"
+  cmp -s "$c/templates/xmrig-host-tuning.service.template" "$SERVICE_ROOT/etc/systemd/system/xmrig-host-tuning.service" || fail "$1: the tuning unit root installed"
+  [ -z "$(left)" ] || fail "$1: staged files left behind: $(left | tr '\n' ' ')"
+}
+accounts
+printf 'eco\n' > "$c/configs/board-mode"
+setup
+tuned_ends_well "tuned eco, caller alice" alice alice 1000
+same "tuned eco: output" "$(out_for alice)
+$eco_lines" "$out"
+same "tuned eco: values root installed" "# Written by the miner's service setup; make service-disable removes it.
+mode=eco
+policy0=powersave
+policy4=performance 1800000
+policy6=performance 1800000
+hugepages=1280" "$(cat "$SERVICE_ROOT/etc/xmrig-host-tuning.conf" 2>/dev/null)"
+accounts
+printf 'max\n' > "$c/configs/board-mode"
+SUDO_USER=alice FAKE_UID=0 FAKE_USER=root setup
+tuned_ends_well "tuned max, sudo by alice" alice alice 0
+same "tuned max: values root installed" "# Written by the miner's service setup; make service-disable removes it.
+mode=max
+policy0=performance max
+policy4=performance max
+policy6=performance max
+hugepages=1280" "$(cat "$SERVICE_ROOT/etc/xmrig-host-tuning.conf" 2>/dev/null)"
+# A failed install of the tuning stops before the unit.
+accounts
+SUDO_FAIL=/etc/xmrig-host-tuning.conf setup
+[ "$code" -ne 0 ] || fail "tuning install fails: exit 0"
+[ ! -e "$SERVICE_ROOT/etc/systemd/system/xmrig.service" ] || fail "tuning install fails: the unit was installed"
+[ -z "$(left)" ] || fail "tuning install fails: staged files left behind"
+# A mode the board has no profile for: one error line, nothing installed.
+printf '%s\0' acme,desktop > "$w/board/compatible"
+accounts
+setup
+[ "$code" -eq 1 ] || fail "no profile: exit $code"
+same "no profile: error" "ERROR: The service config was written for --mode max, and this board has no valid profile in $c/scripts/board_profiles.conf. Run the installer again without --mode, or update the clone: git -C $c pull" "$(printf '%s\n' "$out" | grep '^ERROR')"
+nothing "no profile"
+printf '%s\0' xunlong,orangepi-5-plus rockchip,rk3588 > "$w/board/compatible"
+# From here on the setup runs without a mode, so it looks for the installed tuning: at the fixture
+# paths.
+sed -i.bak "${old_paths[@]}" "$c/scripts/setup_service_tuning.sh" && rm -f "$c/scripts/setup_service_tuning.sh.bak"
+# A board-mode that is not max or eco: the plain unit, as without one.
+for m in 'eco; rm -rf /' ECO; do
+  printf '%s\n' "$m" > "$c/configs/board-mode"
+  accounts
+  setup
+  ends_well "board-mode '$m'" alice alice
+done
+# No board-mode while an earlier setup's tuning is installed: the plain unit, then the tuning
+# stopped (its stop gives the CPU settings back) and removed, with one line.
+rm -f "$c/configs/board-mode"
+old_rm="sudo rm -f -- $old/xmrig-host-tuning.service $old/xmrig-host-tuning $old/xmrig-host-tuning.conf"
+mkdir -p "$old"
+: > "$old/xmrig-host-tuning.service"; : > "$old/xmrig-host-tuning"; : > "$old/xmrig-host-tuning.conf"
+accounts
+TUNING_FRAGMENT=/etc/systemd/system/xmrig-host-tuning.service setup
+[ "$code" -eq 0 ] || fail "untuned again: exit $code"
+same "untuned again: sudo calls" "$(calls_for alice alice)
+sudo systemctl stop xmrig-host-tuning.service
+sudo systemctl disable xmrig-host-tuning.service
+$old_rm
+sudo systemctl daemon-reload" "$calls"
+same "untuned again: output" "$(out_for alice | sed '/^XMRig service has been setup/i\
+Host tuning removed: CPU settings given back; the huge pages are freed at the next boot.')" "$out"
+same "untuned again: the unit root installed" "$(want_unit alice alice)" "$(cat "$SERVICE_ROOT/etc/systemd/system/xmrig.service" 2>/dev/null)"
+# A partial install (the values file, the boot script or the unit alone, none systemd knows), as a setup that
+# failed half way or a removed unit leaves: removed all the same, nothing to stop.
+for only in xmrig-host-tuning.conf xmrig-host-tuning xmrig-host-tuning.service; do
+  rm -f "$old/"*; : > "$old/$only"
+  accounts
+  setup
+  [ "$code" -eq 0 ] || fail "only $only left: exit $code"
+  same "only $only left: sudo calls" "$(calls_for alice alice)
+$old_rm
+sudo systemctl daemon-reload" "$calls"
+  same "only $only left: output" "$(out_for alice | sed '/^XMRig service has been setup/i\
+Host tuning removed: systemd did not know its unit, so nothing was stopped; the huge pages are freed at the next boot.')" "$out"
+done
 
 [ "$rc" -eq 0 ] && echo "PASS service-staging"
 exit "$rc"

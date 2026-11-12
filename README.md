@@ -143,6 +143,41 @@ gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup
 
 `make update` refuses in a clone that runs a release binary. To move to another release, run as root in the clone: `git fetch --tags; git checkout --recurse-submodules vX.Y.Z; scripts/install.sh --prebuilt -w YOUR_MONERO_WALLET -y; make restart`.
 
+### Dedicated board (--mode)
+
+With `--mode max|eco` on a board with a profile (see [Board profiles](#board-profiles)) and the systemd service, the board is set up to mine and do nothing else. At each boot, before the miner starts, `xmrig-host-tuning.service` sets each cpufreq policy:
+
+- a policy holding a CPU the mode mines on gets the `performance` governor: with `max`, at its hardware maximum; with `eco`, capped at the profile's `eco` cap.
+- every other policy gets the `powersave` governor.
+
+It also reserves 1280 huge pages of 2 MB when the kernel's default huge page is 2 MB, the board has at least 3584 MiB of memory and the service config runs RandomX's fast mode. RK3588 boards qualify; the Pi 5's stock kernel has no huge pages, so a Pi 5 gets none. It raises the reservation and never lowers it.
+
+The miner's own unit changes too: no `Nice`, so it runs at normal priority, and it restarts 15 s after any exit, not only after a failure.
+
+| File | What it does |
+| ---- | ------------ |
+| `/etc/systemd/system/xmrig-host-tuning.service` | Runs the boot script as root before `xmrig.service`, and runs it again to give the settings back when stopped |
+| `/usr/local/sbin/xmrig-host-tuning` | The boot script, a root-owned copy of `scripts/host_tuning.sh`. Nothing in the clone is read at boot |
+| `/etc/xmrig-host-tuning.conf` | The values: the mode, one line per policy, the huge pages |
+| `/run/xmrig-host-tuning/found` | The governor and maximum each policy had before the boot script changed it. Gone at shutdown |
+
+When the installer writes a new service config, it writes the mode to `configs/board-mode` in the clone. A kept service config keeps the `configs/board-mode` it came with, so a re-run of the installer, with or without `--mode`, leaves the mode as it was. `make service-setup` reads it and writes the values again, and `make update` keeps the mode since it runs `make service-setup`. The values file is written at each setup, so a hand edit of `/etc/xmrig-host-tuning.conf` is replaced at the next one. A setup with no `configs/board-mode` removes the three files, giving the settings back. To keep the service and mine without the tuning, run `make clean-configs`, the installer again without `--mode`, then `make service-setup` and `make restart`, passing your wallet and flags again.
+
+To give the settings back, run `make service-disable` (or `make wipe`). It stops the tuning, which gives each policy the governor and maximum it had, then removes the three files. The huge pages stay reserved until the next boot frees them.
+
+This release never raises a CPU past its stock maximum frequency.
+
+`make status` adds a board readout under the service's status: the hottest thermal zone, each policy's frequency, the last hashrate the miner logged, and the cost per day.
+
+- Raspberry Pi 5: the firmware's throttle flags, now and since boot (under-voltage, frequency capped, throttled, soft temperature limit). Power is the PMIC's, the sum of its rails: it excludes USB, the fan and the 5 V input, so the wall draws more.
+- RK3588: there's no throttle flag, so a line such as `CPU policy4 runs at 1608 MHz, below the 2256 MHz its mode set: likely held by heat.` stands in for one. The board has no power sensor: use a wall meter.
+
+For the cost per day, give your wall meter's watts and your price per kWh:
+
+```bash
+make status WALL_WATTS=9.5 KWH_PRICE=0.25
+```
+
 ### Manual install
 
 If you'd rather clone and inspect before running anything:
@@ -315,14 +350,14 @@ For the native install, run from the repo root. Targets work on both Linux (syst
 | `make start`           | Start the mining service                                              |
 | `make stop`            | Stop the service and kill any stray `xmrig` processes                 |
 | `make restart`         | `stop` + `start`                                                      |
-| `make status`          | Service state, PIDs, and the last 5 log lines (systemd: `/var/log/xmrig/<account>/xmrig.log`) |
+| `make status`          | Service state, PIDs, and the last 5 log lines (systemd: `/var/log/xmrig/<account>/xmrig.log`). On Linux, a board readout: temperature, CPU frequencies, and on a board with a profile throttling, hashrate, power and cost (`WALL_WATTS=9.5 KWH_PRICE=0.25`) |
 | `make test`            | Run XMRig in the foreground. Ctrl-C to exit                           |
 | `make doctor`          | Check host tuning (huge pages, MSR, AES, the board and its profile, the CPUs each native config mines on) and print recommendations |
 | `make benchmark`       | 1-minute RandomX benchmark. Prints a hashrate score                   |
 | `make benchmark-long`  | 10-minute RandomX benchmark. More stable for hardware comparisons     |
 | `make bench-layouts`   | Bench each CPU layout of the board profile offline, one XMRig run per layout (`MODE=eco`, `BENCH=1M`). arm64 Linux only; refuses root |
 | `make update`          | `git pull`, the pinned submodule commits, rebuild, `make service-setup` again |
-| `make service-disable` | Stop and disable the service, remove the unit and the logrotate file; systemd removes `/etc/xmrig`, `/var/lib/xmrig/<account>` and `/var/log/xmrig/<account>` |
+| `make service-disable` | Stop and disable the service, remove the unit and the logrotate file; systemd removes `/etc/xmrig`, `/var/lib/xmrig/<account>` and `/var/log/xmrig/<account>`. On a board set up with `--mode`, it also gives the CPU settings back and removes `/etc/systemd/system/xmrig-host-tuning.service`, `/usr/local/sbin/xmrig-host-tuning` and `/etc/xmrig-host-tuning.conf` |
 | `make clean-build`     | Remove the build directory, the `xmrig` binary or link, and `xmrig.release` |
 | `make clean-configs`   | Remove generated configs                                              |
 | `make wipe`            | `clean-build` + `clean-configs` + `service-disable`                   |
@@ -379,7 +414,7 @@ macOS has no userspace equivalent for any of these. Expect 10–30% less hashrat
 | `bcm2712` | `brcm,bcm2712` | `0-3` | `0-3` | `policy0=1800000` | untested |
 | `rk3588` | `rockchip,rk3588`, `rockchip,rk3588s` | `0-7` | `4-7` | `policy4=1800000`, `policy6=1800000` | untested |
 
-Nothing here sets a CPU frequency, a governor or huge pages. The `eco` cap is only what `make doctor` shows next to each policy's current maximum; set it yourself if you want it. `eco` differs from `max` on the CPU list alone.
+With the systemd service, `--mode` also sets each policy's governor and maximum (the `eco` cap in `eco`) and, where the kernel has 2 MB huge pages (RK3588, not the Pi 5's stock kernel), huge pages at each boot: see [Dedicated board](#dedicated-board---mode). `make doctor` shows the `eco` cap next to each policy's current maximum.
 
 Under 2560 MiB of memory RandomX's fast mode does not fit: the installer warns and new configs use light mode, slower but within memory. `make doctor` warns about it too.
 
@@ -437,7 +472,8 @@ On Linux, these steps go through `sudo` (`make deps-debian`, `scripts/setup_serv
 - `useradd --system` to create the `xmrig` account, when the service needs it
 - `install -d` of `/etc/xmrig`, then `install` of `/etc/xmrig/config.json`, `/etc/logrotate.d/xmrig` and `/etc/systemd/system/xmrig.service`, root-owned, from private temp files
 - `rm -f` of `/etc/systemd/system/xmrig.service` and `/etc/logrotate.d/xmrig`, on `make service-disable`
-- `systemctl daemon-reload`, `enable`, `start`, `stop`, `status`, `disable`, `reset-failed` and `clean`
+- with `--mode` on a board with a profile: `install` of `/etc/xmrig-host-tuning.conf`, `/usr/local/sbin/xmrig-host-tuning` and `/etc/systemd/system/xmrig-host-tuning.service`, root-owned, from private temp files, and removed again by a setup without a mode or by `make service-disable`
+- `systemctl daemon-reload`, `enable`, `start`, `try-restart`, `stop`, `status`, `disable`, `reset-failed` and `clean`
 
 `--prebuilt` runs the installer itself as root: `apt-get update` and `apt-get install` of `libuv1t64 libssl3t64 libhwloc15`, the download into a root-only folder in the clone, and the rename onto `<clone>/xmrig` and `xmrig.release`.
 

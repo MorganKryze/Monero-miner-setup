@@ -56,14 +56,10 @@ case $section in
     *) fail "$README: What runs as root does not say the service runs the miner as root only with --service-as-root" ;;
 esac
 
-count=0
-while IFS= read -r hit; do
-    file=${hit%%:*}
-    cmd=${hit#*:}
-    at=$file:${cmd%%:*}
-    cmd=${cmd#*:}
-    cmd=${cmd#*sudo }
-    case $cmd in -u\ *) continue ;; esac
+# Checks the command that follows one sudo: $1 is the file, $2 its file:line, $3 the command.
+function check_command() {
+    local file="$1" at="$2" cmd="$3" target words
+    case $cmd in -u\ *) return 0 ;; esac
     cmd=${cmd%%;*} cmd=${cmd%%||*} cmd=${cmd%%&&*} cmd=${cmd%% 2>*} cmd=${cmd%\\}
     read -ra words <<< "$cmd"
     count=$((count + 1))
@@ -82,6 +78,19 @@ while IFS= read -r hit; do
             ;;
         *) named "${words[0]}" || fail "$README does not name ${words[0]}, which $at runs through sudo" ;;
     esac
+}
+
+count=0
+while IFS= read -r hit; do
+    file=${hit%%:*}
+    cmd=${hit#*:}
+    at=$file:${cmd%%:*}
+    cmd=${cmd#*:}
+    # Every sudo on the line counts: "sudo a || sudo b" runs both as root.
+    while [[ $cmd == *"sudo "* ]]; do
+        cmd=${cmd#*sudo }
+        check_command "$file" "$at" "$cmd"
+    done
 done < <(grep -nE '(^|[[:space:];&|(!@])sudo ' Makefile scripts/*.sh |
     grep -vE '^[^:]+:[0-9]+:[[:space:]]*(#|echo |@echo |warning |info |error |hint |RECOMMENDATIONS)')
 

@@ -12,6 +12,8 @@ SEED_TARGET="$SEED_DIR/config.json"
 
 # shellcheck source=setup_service_common.sh
 source "$SCRIPT_DIR/setup_service_common.sh" || { echo "ERROR: $SCRIPT_DIR/setup_service_common.sh not found."; exit 1; }
+# shellcheck source=setup_service_tuning.sh
+source "$SCRIPT_DIR/setup_service_tuning.sh" || { echo "ERROR: $SCRIPT_DIR/setup_service_tuning.sh not found."; exit 1; }
 
 # Check if systemd is available
 if ! command -v systemctl >/dev/null 2>&1; then
@@ -147,8 +149,9 @@ fi
 # Cleared before the trap names them: a value inherited from the environment would be removed on exit.
 SEED_STAGED=
 LOGROTATE_STAGED=
+TUNING_STAGED=()
 UNIT_STAGED=$(mktemp "${TMPDIR:-/tmp}/xmrig-unit.XXXXXXXXXX") || { echo "ERROR: Failed to create a temporary file."; exit 1; }
-trap 'rm -f -- "$UNIT_STAGED" "${SEED_STAGED:-}" "${LOGROTATE_STAGED:-}"' EXIT
+trap 'rm -f -- "$UNIT_STAGED" "${SEED_STAGED:-}" "${LOGROTATE_STAGED:-}" "${TUNING_STAGED[@]}"' EXIT
 SEED_STAGED=$(mktemp "${TMPDIR:-/tmp}/xmrig-config.XXXXXXXXXX") || { echo "ERROR: Failed to create a temporary file."; exit 1; }
 if [ "$LOGROTATE" = true ]; then
     LOGROTATE_STAGED=$(mktemp "${TMPDIR:-/tmp}/xmrig-logrotate.XXXXXXXXXX") || { echo "ERROR: Failed to create a temporary file."; exit 1; }
@@ -180,6 +183,14 @@ if [ "$LOGROTATE" = true ]; then
     fi
 fi
 
+# A board installed with --mode mines and does nothing else (setup_service_tuning.sh): its CPUs and
+# huge pages are set at each boot before the miner, which runs at normal priority and restarts
+# after any exit. Staged with the rest, so a failure leaves the host as it was.
+TUNING_MODE=$(tuning_mode)
+if [ -n "$TUNING_MODE" ] && ! stage_tuning "$TUNING_MODE" "$UNIT_STAGED" "$SEED_STAGED"; then
+    exit 1
+fi
+
 # The service copies this config into its own state directory as the account when it starts;
 # root writes only here, a directory the account can read through its group but not write.
 if ! sudo install -d -o root -g root -m 0755 "$SEED_DIR"; then
@@ -205,6 +216,10 @@ else
     echo "Skipping logrotate setup (logrotate not installed)."
 fi
 
+if [ -n "$TUNING_MODE" ] && ! install_tuning; then
+    exit 1
+fi
+
 # Install systemd service file
 if ! sudo install -o root -g root -m 644 "$UNIT_STAGED" "$TARGET_FILE"; then
     echo "ERROR: Failed to install $TARGET_FILE."
@@ -212,6 +227,12 @@ if ! sudo install -o root -g root -m 644 "$UNIT_STAGED" "$TARGET_FILE"; then
 fi
 sudo systemctl daemon-reload
 sudo systemctl enable xmrig.service
+# Without a mode, a tuning an earlier setup installed goes, giving the CPU settings back.
+if [ -n "$TUNING_MODE" ]; then
+    enable_tuning || exit 1
+elif tuning_installed; then
+    remove_tuning || exit 1
+fi
 # Miners an earlier background-mode start left ran on the clone's config, as the account the
 # installed unit named.
 report_detached_miners "$SEED_SOURCE" "$(systemctl show -p MainPID --value xmrig.service 2>/dev/null)" "$OLD_ACCOUNT"
@@ -223,5 +244,6 @@ fi
 echo "XMRig service has been setup and enabled, but not started."
 echo "Use 'make start' to start mining."
 echo "The service runs the miner as $ACCOUNT."
+[ -z "$TUNING_MODE" ] || printf '%s\n' "$TUNING_LINES"
 
 exit 0

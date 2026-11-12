@@ -53,6 +53,12 @@ expect "another systemctl verb" 1 \
     'FAIL README\.md does not name systemctl mask, which scripts/setup_service_debian\.sh:[0-9]+ runs through sudo'
 
 fresh
+printf '%s\n' 'if ! sudo systemctl enable xmrig.service || ! sudo systemctl mask xmrig.service; then :; fi' \
+    >> "$w/repo/scripts/setup_service_debian.sh"
+expect "two sudo calls on one line" 1 \
+    'FAIL README\.md does not name systemctl mask, which scripts/setup_service_debian\.sh:[0-9]+ runs through sudo'
+
+fresh
 printf '%s\n' 'sudo modprobe msr' >> "$w/repo/scripts/setup_service_debian.sh"
 expect "another program" 1 \
     'FAIL README\.md does not name modprobe, which scripts/setup_service_debian\.sh:[0-9]+ runs through sudo'

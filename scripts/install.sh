@@ -1362,7 +1362,7 @@ function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
-    local name kept listed every="" unlisted=false missing=()
+    local name kept service_kept="" listed every="" unlisted=false missing=()
 
     info "Generating miner configuration files..."
 
@@ -1397,6 +1397,7 @@ function generate_config_files() {
         if [ -e "$target_dir/$name" ] && [ ! -L "$target_dir/$name" ]; then
             kept="$target_dir/$name"
         fi
+        [ "$name" != config_background.json ] || service_kept=$kept
         if [ -n "$kept" ]; then
             info "Keeping $kept. To regenerate it, run 'make clean-configs', then the installer again."
             # The "rx" list sits on a line of its own, whether this installer wrote it or the miner
@@ -1448,6 +1449,10 @@ function generate_config_files() {
             info "Generated random worker name: $worker_name"
         fi
 
+        # The service setup tunes the host for the mode the service config was written for: a kept
+        # one, under configs/ or at the clone root, keeps the board-mode it came with. A new one
+        # drops the old board-mode first, and gets its own only once written.
+        [ -n "$service_kept" ] || rm -f -- "$dest_config_dir/board-mode"
         # Each missing file from its template, with the same settings
         for name in "${missing[@]}"; do
             if ! write_miner_config "$source_config_dir/$name.template" "$dest_config_dir/$name" "$log_file" "$full_pool_url" "$worker_name"; then
@@ -1456,6 +1461,10 @@ function generate_config_files() {
             fi
         done
         success "Configuration files generated successfully."
+        if [ -z "$service_kept" ] && [ -n "$MODE" ] && ! printf '%s\n' "$MODE" >"$dest_config_dir/board-mode"; then
+            error "Failed to write $dest_config_dir/board-mode."
+            return 1
+        fi
     fi
 
     # Link each config at the clone root, where the miner reads it, unless something is already

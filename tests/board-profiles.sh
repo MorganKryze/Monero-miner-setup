@@ -151,6 +151,36 @@ want "measured" line "[INFO] Board: Xunlong Orange Pi 5 Plus, profile rk3588, mo
 data rk3588.measured "Xunlong Orange Pi 5"; fresh "$w/data.conf"; gen opi5plus aarch64 75 MODE=eco
 want "measured prefix" line "[INFO] Board: Xunlong Orange Pi 5 Plus, profile rk3588, mode eco, untested." "$(bline)"
 
+# The service setup reads the mode the service config was written for from configs/board-mode:
+# written with a new service config under --mode, removed with a new one without, kept with a
+# kept one.
+for mode in eco max; do
+  fresh; gen opi5plus aarch64 75 MODE=$mode
+  want "board-mode $mode" content "$mode" "$(cat "$clone/configs/board-mode" 2>/dev/null)"
+done
+printf 'eco\n' > "$clone/configs/board-mode"; rm "$clone/configs/config_background.json"
+gen opi5plus aarch64 75
+[ ! -e "$clone/configs/board-mode" ] || fail "board-mode: kept after a new service config without --mode"
+printf 'eco\n' > "$clone/configs/board-mode"; rm "$clone/configs/config.json"
+gen opi5plus aarch64 75 MODE=max
+want "board-mode, service config kept" content "eco" "$(cat "$clone/configs/board-mode" 2>/dev/null)"
+# A new service config under another mode: the new mode, never the old one. A generation that
+# fails leaves no board-mode, so the old mode cannot outlive the config it was written for.
+fresh; gen opi5plus aarch64 75 MODE=eco; rm "$clone/configs/config_background.json"
+gen opi5plus aarch64 75 MODE=max
+want "board-mode eco then max" content "max" "$(cat "$clone/configs/board-mode" 2>/dev/null)"
+fresh; gen opi5plus aarch64 75 MODE=eco; rm "$clone/configs/config_background.json" "$clone/templates/config_background.json.template"
+gen opi5plus aarch64 75 MODE=max
+[ "$code" -ne 0 ] || fail "board-mode, generation fails: exit 0"
+[ ! -e "$clone/configs/board-mode" ] || fail "board-mode: the old mode kept after a failed generation"
+# A service config edited in place at the clone root is kept too, with no copy under configs/.
+fresh; printf '{"x": 1}\n' > "$clone/config_background.json"
+gen opi5plus aarch64 75 MODE=eco
+[ ! -e "$clone/configs/board-mode" ] || fail "board-mode: written beside a kept service config at the clone root"
+fresh; printf '{"x": 1}\n' > "$clone/config_background.json"; mkdir -p "$clone/configs"; printf 'eco\n' > "$clone/configs/board-mode"
+gen opi5plus aarch64 75
+want "board-mode, root service config kept" content "eco" "$(cat "$clone/configs/board-mode" 2>/dev/null)"
+
 # no --mode, v0.1.1's lists and configs; the board line says the share.
 fresh; gen opi5plus aarch64 75
 want "no mode" list '"rx": [0, 1, 4, 5, 6, 7],' "$(rxs config.json)"
