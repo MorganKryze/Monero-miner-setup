@@ -112,6 +112,18 @@ same "no speed line" "  Hashrate: unavailable (no speed line in the service log 
 mkdir -p "$FX/root"; printf '%s\n' "$speed" > "$FX/root/xmrig.log"; : > "$w/sudo.log"
 same "bad account name" "  Hashrate: unavailable (no speed line in the service log yet)." "$(status SVC_USER='../root' | grep 'Hashrate')"
 same "bad account name: no read" "" "$(cat "$w/sudo.log")"
+same "account name with a path in it" "  Hashrate: unavailable (no speed line in the service log yet)." "$(status SVC_USER='alice/../root' | grep 'Hashrate')"
+same "account name with a path in it: no read" "" "$(cat "$w/sudo.log")"
+# A speed line is the miner's log, not trusted text: no byte of it but the figure is printed.
+printf '[2026-11-10 12:00:00.123]  miner    speed 10s/60s/15m 1.0 \033]0;owned\007 \033[2J n/a H/s\n' > "$FX/log/alice/xmrig.log"
+hostile=$(status | grep 'Hashrate')
+same "hostile speed line" "  Hashrate: 1.0 H/s, the last the miner logged." "$hostile"
+case $hostile in *[[:cntrl:]]*) fail "hostile speed line: a control byte was printed" ;; esac
+printf '[2026-11-10 12:00:00.123]  miner    speed 10s/60s/15m \033[2J n/a n/a H/s\n' > "$FX/log/alice/xmrig.log"
+same "speed line with no figure" "  Hashrate: unavailable (no speed line in the service log yet)." "$(status | grep 'Hashrate')"
+# No 60s figure yet: the 10s one.
+printf '%s\n' '[2026-11-10 12:00:00.123]  miner    speed 10s/60s/15m 2345.6 n/a n/a H/s max 2400.3 H/s' > "$FX/log/alice/xmrig.log"
+same "no 60s figure" "  Hashrate: 2345.6 H/s, the last the miner logged." "$(status | grep 'Hashrate')"
 
 # Raspberry Pi 5: the firmware flags in words, the PMIC sum labelled partial, never in the cost.
 fx pi raspberrypi,5-model-b brcm,bcm2712
