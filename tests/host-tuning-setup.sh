@@ -192,8 +192,19 @@ same "pi max lines" 'Host tuning for --mode max, applied by xmrig-host-tuning.se
   "$(fn pi eval 'tuning_values max $d/seed.json | tuning_lines' | head -n 2)"
 
 # Staged as root: the profile is read through the account (sudo -u, recorded), into a staged copy
-# that every later read uses; the error line still names the clone's file.
-printf '#!/bin/sh\necho "sudo $*" >> "%s/sudo.log"\n[ "$1" = -u ] && shift 2 && exec "$@"\n' "$w" > "$w/tools/sudo"
+# that every later read uses; the error line still names the clone's file. While the file cut-read
+# exists, a read of the profile stops before the RK3588 eco caps and fails.
+cat > "$w/tools/sudo" <<EOS
+#!/bin/sh
+echo "sudo \$*" >> "$w/sudo.log"
+[ "\$1" = -u ] || exit 1
+shift 2
+if [ -f "$w/cut-read" ] && [ "\${3##*/}" = board_profiles.conf ]; then
+  awk '/^rk3588[.]eco-cap=/ { exit } { print }' "\$3"
+  exit 1
+fi
+exec "\$@"
+EOS
 chmod 755 "$w/tools/sudo"
 mkdir -p "$w/opi/clone/templates" "$w/tmp"
 cp "$root/scripts/host_tuning.sh" "$w/opi/clone/scripts/"
@@ -212,6 +223,14 @@ exit 0
 sudo -u miner cat -- $w/opi/clone/scripts/board_profiles.conf
 sudo -u miner cat -- $w/opi/clone/scripts/host_tuning.sh
 sudo -u miner cat -- $w/opi/clone/templates/xmrig-host-tuning.service.template" "$(staged opi)"
+# A read of the profile that fails part way, after the RK3588 lines but before their eco caps:
+# the staged copy is emptied, so the tuning is refused rather than staged uncapped.
+: > "$w/cut-read"
+same "profile read cut short" "ERROR: The service config was written for --mode eco, and this board has no valid profile in $w/opi/clone/scripts/board_profiles.conf. Run the installer again without --mode, or update the clone: git -C $w/opi/clone pull
+profile staged
+exit 1
+sudo -u miner cat -- $w/opi/clone/scripts/board_profiles.conf" "$(staged opi)"
+rm -f "$w/cut-read"
 mkdir -p "$w/pc/clone/templates"
 cp "$root/scripts/host_tuning.sh" "$w/pc/clone/scripts/"
 cp "$root/templates/xmrig-host-tuning.service.template" "$w/pc/clone/templates/"
