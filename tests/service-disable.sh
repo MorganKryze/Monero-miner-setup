@@ -140,6 +140,15 @@ sudo rm -f -- /etc/systemd/system/xmrig-host-tuning.service /usr/local/sbin/xmri
 sudo systemctl daemon-reload" "$calls"
 same "partial tuning: line" "Host tuning removed: systemd did not know its unit, so nothing was stopped; the huge pages are freed at the next boot." \
   "$(printf '%s\n' "$out" | grep '^Host tuning')"
+# Any one of the three files is enough to run the removal: the values file alone is what a setup
+# leaves when it fails after installing it first, the boot script alone what a removed unit leaves.
+for only in xmrig-host-tuning.conf xmrig-host-tuning; do
+  setup "etc/$only" run/keep; mkdir -p "$w/run/scripts"; cp "$root/scripts/setup_service_tuning.sh" "$w/run/scripts/"
+  target service-disable
+  [ "$code" -eq 0 ] || fail "only $only: exit $code"
+  printf '%s\n' "$calls" | grep -qxF 'sudo rm -f -- /etc/systemd/system/xmrig-host-tuning.service /usr/local/sbin/xmrig-host-tuning /etc/xmrig-host-tuning.conf' \
+    || fail "only $only: the tuning was not removed"
+done
 # systemd host where clean fails: the target stops there with an error and a non-zero exit,
 # before the unit is removed, so a second run can retry; the logrotate file is not touched.
 setup etc/xmrig.service etc/logrotate-xmrig run/keep
