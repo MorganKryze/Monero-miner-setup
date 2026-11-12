@@ -26,13 +26,24 @@ fail() { echo "FAIL $*"; rc=1; }
 same() { # label, expected, got
   [ "$2" = "$3" ] || { fail "$1"; diff <(printf '%s\n' "$2") <(printf '%s\n' "$3") | sed 's/^/    /'; }
 }
-# A copy that still stages under /tmp would write there: refuse to run it.
-grep -n '/tmp/' "$root/$script" && { echo "FAIL $script names a fixed path under /tmp; not run"; exit 1; }
+# A copy that still stages under /tmp would write there: refuse to run it. The tuning file it
+# sources stages too.
+for f in "$script" scripts/setup_service_tuning.sh; do
+  grep -n '/tmp/' "$root/$f" && { echo "FAIL $f names a fixed path under /tmp; not run"; exit 1; }
+done
 # Nothing in the setup changes an owner or a mode, searches a tree or removes a path, its exit
 # cleanup of the staged files aside (a line it only prints may name them).
 same "commands that change owners or modes, search or remove" \
   'trap '\''rm -f -- "$UNIT_STAGED" "${SEED_STAGED:-}" "${LOGROTATE_STAGED:-}" "${TUNING_STAGED[@]}"'\'' EXIT' \
   "$(grep -wE 'chown|chmod|find|rm' "$root/$script" | grep -vE '^ *echo ')"
+# The tuning file removes, as root, its own three installed files and nothing else.
+same "tuning: commands that change owners or modes, search or remove" \
+  '    if ! sudo rm -f -- "$TUNING_UNIT" "$TUNING_BIN" "$TUNING_CONF" || ! sudo systemctl daemon-reload; then' \
+  "$(grep -wE 'chown|chmod|find|rm' "$root/scripts/setup_service_tuning.sh" | grep -vE '^ *(echo|#)')"
+same "tuning: the paths root removes" 'TUNING_BIN="/usr/local/sbin/xmrig-host-tuning"
+TUNING_CONF="/etc/xmrig-host-tuning.conf"
+TUNING_UNIT="/etc/systemd/system/xmrig-host-tuning.service"' \
+  "$(grep -E '^TUNING_(BIN|CONF|UNIT)=' "$root/scripts/setup_service_tuning.sh")"
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
@@ -473,10 +484,12 @@ done
 mv "$c/templates/logrotate.xmrig.template" "$w/logrotate.xmrig.template"
 printf 'KEEP\n' > "$w/victim"
 printf 'KEEP\n' > "$w/victim2"
-LOGROTATE_STAGED="$w/victim" SEED_STAGED="$w/victim2" setup
+printf 'KEEP\n' > "$w/victim3"
+LOGROTATE_STAGED="$w/victim" SEED_STAGED="$w/victim2" TUNING_STAGED="$w/victim3" setup
 [ "$code" -eq 0 ] || fail "inherited staging variables: exit $code"
 same "inherited staging variables: the files they name" "KEEP
-KEEP" "$(cat "$w/victim" "$w/victim2" 2>/dev/null)"
+KEEP
+KEEP" "$(cat "$w/victim" "$w/victim2" "$w/victim3" 2>/dev/null)"
 [ -z "$(left)" ] || fail "inherited staging variables: staged files left behind"
 mv "$w/logrotate.xmrig.template" "$c/templates/logrotate.xmrig.template"
 
