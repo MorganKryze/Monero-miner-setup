@@ -468,9 +468,10 @@ function wait_for_apt() {
     done
 }
 
-# Exit 0 when the release's SHA256SUMS answers: the tag is published and the network is up.
+# Exit 0 when the release's SHA256SUMS answers: the tag is published and the network is up. curl's
+# own error lines are dropped: the retry loop logs its waits.
 function release_reachable() {
-    curl "${CURL_OPTS[@]}" -I -o /dev/null "$RELEASE_URL/$RELEASE_TAG/SHA256SUMS"
+    curl "${CURL_OPTS[@]}" -I -o /dev/null "$RELEASE_URL/$RELEASE_TAG/SHA256SUMS" 2>/dev/null
 }
 
 # Fetches the release's installer to $STATE_DIR/install.sh. Exit 1 when the download fails, 2
@@ -478,7 +479,7 @@ function release_reachable() {
 function fetch_installer() {
     local file="$STATE_DIR/install.sh" got
     rm -f -- "$file"
-    if ! curl "${CURL_OPTS[@]}" -o "$file" "$RAW_URL/$RELEASE_TAG/scripts/install.sh"; then
+    if ! curl "${CURL_OPTS[@]}" -o "$file" "$RAW_URL/$RELEASE_TAG/scripts/install.sh" 2>/dev/null; then
         rm -f -- "$file"
         return 1
     fi

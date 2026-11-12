@@ -30,18 +30,20 @@ n=0; [ -f "$1" ] && read -r n < "$1"
 [ "$n" -gt 0 ] || exit 1
 echo $((n - 1)) > "$1"
 EOF
-# curl serves srv/install.sh and answers the SHA256SUMS HEAD; it fails while curl-fails counts down.
+# curl serves srv/install.sh and answers the SHA256SUMS HEAD; it fails with curl's own error line while
+# curl-fails counts down, and on the download alone while fetch-fails does.
 cat > "$w/stubs/curl" <<EOF
 #!/bin/bash
 echo "curl \$*" >> "$w/calls.log"
-bash "$w/count.sh" "$w/curl-fails" && exit 7
+bash "$w/count.sh" "$w/curl-fails" && { echo "curl: (7) Failed to connect to github.com port 443" >&2; exit 7; }
 out=- url=
 while [ \$# -gt 0 ]; do
   case "\$1" in -o) out=\$2; shift ;; https://*) url=\$1 ;; esac
   shift
 done
 case "\$url" in
-  */scripts/install.sh) if [ "\$out" = - ]; then cat "$w/srv/install.sh"; else cat "$w/srv/install.sh" > "\$out"; fi ;;
+  */scripts/install.sh) bash "$w/count.sh" "$w/fetch-fails" && { echo "curl: (56) Recv failure: Connection reset by peer" >&2; exit 56; }
+    if [ "\$out" = - ]; then cat "$w/srv/install.sh"; else cat "$w/srv/install.sh" > "\$out"; fi ;;
   */SHA256SUMS) ;;
   *) exit 22 ;;
 esac
@@ -84,7 +86,7 @@ W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBE
 # board <fixture> [settings lines...]: a Pi 5 with 8 GiB, its LED off, the settings given.
 board() {
   local fx="$w/$1"; shift
-  rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/installer-exit" "$w/ssh-on"
+  rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/fetch-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/installer-exit" "$w/ssh-on"
   mkdir -p "$fx/state" "$fx/leds/ACT" "$fx/net/eth0" "$fx/dev" "$fx/etc"
   printf 'raspberrypi,5-model-b\0brcm,bcm2712\0' > "$fx/compatible"
   ln -s "$fx/dev" "$fx/net/eth0/device"; printf '1\n' > "$fx/net/eth0/type"
@@ -155,6 +157,11 @@ sleep 10
 $head
 sleep 10
 $(ok_calls net)" "$(calls)"
+board dl; echo 1 > "$w/fetch-fails"
+same "download cut once" "$ssh_line
+[  INFO   ] Waiting for the network to fetch the installer of v9.9.9...
+$done_line rpi5-3fa2.
+exit 0" "$(run dl)"
 board apt; echo 2 > "$w/apt-busy"
 same "apt busy then idle" "$ssh_line
 [  INFO   ] Waiting for apt to finish: the installer installs packages.
