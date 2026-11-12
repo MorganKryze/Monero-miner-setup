@@ -51,6 +51,7 @@ echo "systemctl \$*" >> "$w/calls"
 [ "\$1" = show ] && [ -f "$w/no-bus" ] && exit 1
 [ "\$1 \$3" = "show StateDirectory" ] && [ ! -f "$w/old-unit" ] && echo xmrig/fixture-miner
 [ "\$1 \$3" = "show FragmentPath" ] && [ -f "$w/etc/xmrig-host-tuning.service" ] && echo /etc/systemd/system/xmrig-host-tuning.service
+if [ "\$1 \$3" = "show Result" ]; then [ -f "$w/tuning-stop-failed" ] && echo exit-code || echo success; fi
 exit 0
 EOS
 chmod +x "$w/bin/"*
@@ -105,6 +106,7 @@ sudo systemctl daemon-reload
 systemctl show -p FragmentPath --value xmrig-host-tuning.service
 sudo systemctl stop xmrig-host-tuning.service
 sudo systemctl disable xmrig-host-tuning.service
+systemctl show -p Result --value xmrig-host-tuning.service
 sudo rm -f -- /etc/systemd/system/xmrig-host-tuning.service /usr/local/sbin/xmrig-host-tuning /etc/xmrig-host-tuning.conf
 sudo systemctl daemon-reload
 sudo rm -f $w/etc/logrotate-xmrig" "$calls"
@@ -118,6 +120,15 @@ printf '%s\n' "$calls" | grep -q 'logrotate-xmrig' && fail "tuning stop fails: t
 printf '%s\n' "$calls" | grep -q 'rm -f -- /etc/systemd/system/xmrig-host-tuning.service' && fail "tuning stop fails: the tuning was removed"
 printf '%s\n' "$out" | grep -qxF "ERROR: Failed to stop xmrig-host-tuning.service, so the host tuning is kept. Fix the error, then run 'make service-disable' again." \
   || fail "tuning stop fails: no line saying the tuning is kept"
+# The stop ran, but the tuning's own stop step failed: the files go, and the line says the CPU
+# settings come back at the next boot rather than that they were given back.
+tuned
+: > "$w/tuning-stop-failed"
+target service-disable
+rm -f "$w/tuning-stop-failed"
+[ "$code" -eq 0 ] || fail "tuning stop step fails: exit $code"
+same "tuning stop step fails: line" "Host tuning removed, but its stop step reported exit-code: the CPU settings and the huge pages come back at the next boot." \
+  "$(printf '%s\n' "$out" | grep '^Host tuning')"
 # A partial install (the values file and the boot script, no unit systemd knows): nothing to
 # stop, the files are removed all the same.
 setup etc/xmrig-host-tuning etc/xmrig-host-tuning.conf run/keep; mkdir -p "$w/run/scripts"; cp "$root/scripts/setup_service_tuning.sh" "$w/run/scripts/"
@@ -127,6 +138,8 @@ same "partial tuning: calls" "pgrep -x xmrig
 systemctl show -p FragmentPath --value xmrig-host-tuning.service
 sudo rm -f -- /etc/systemd/system/xmrig-host-tuning.service /usr/local/sbin/xmrig-host-tuning /etc/xmrig-host-tuning.conf
 sudo systemctl daemon-reload" "$calls"
+same "partial tuning: line" "Host tuning removed: systemd did not know its unit, so nothing was stopped; the huge pages are freed at the next boot." \
+  "$(printf '%s\n' "$out" | grep '^Host tuning')"
 # systemd host where clean fails: the target stops there with an error and a non-zero exit,
 # before the unit is removed, so a second run can retry; the logrotate file is not touched.
 setup etc/xmrig.service etc/logrotate-xmrig run/keep

@@ -95,6 +95,7 @@ STUB
 cat > "$b/systemctl" <<STUB
 #!$b/bash
 [ "\$1 \$3" = "show FragmentPath" ] && { echo "\${TUNING_FRAGMENT:-}"; exit 0; }
+[ "\$1 \$3" = "show Result" ] && { echo success; exit 0; }
 [ "\$1" = show ] && echo "\${OLD_USER:-}"
 exit 0
 STUB

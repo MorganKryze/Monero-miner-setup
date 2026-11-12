@@ -291,19 +291,29 @@ function tuning_installed() {
 # Stops the tuning, which gives the CPU settings back, then removes its unit, script and values;
 # a partial install whose unit systemd does not know has nothing to stop. The huge pages are not
 # written back: they are freed at the next boot (a live write would also drop a reservation the
-# user made). A failed stop keeps everything, so a retry can finish.
+# user made). A failed stop keeps everything, so a retry can finish. The closing line says the CPU
+# settings were given back only when systemd reports the tuning's stop step succeeded.
 function remove_tuning() {
+    local result=""
     if tuning_installed; then
         if ! sudo systemctl stop xmrig-host-tuning.service || ! sudo systemctl disable xmrig-host-tuning.service; then
             echo "ERROR: Failed to stop xmrig-host-tuning.service, so the host tuning is kept. Fix the error, then run 'make service-disable' again."
             return 1
         fi
+        result=$(systemctl show -p Result --value xmrig-host-tuning.service 2>/dev/null)
+        [[ "$result" =~ ^[a-z-]{1,32}$ ]] || result=unknown
     fi
     if ! sudo rm -f -- "$TUNING_UNIT" "$TUNING_BIN" "$TUNING_CONF" || ! sudo systemctl daemon-reload; then
         echo "ERROR: Failed to remove $TUNING_UNIT, $TUNING_BIN or $TUNING_CONF."
         return 1
     fi
-    echo "Host tuning removed: CPU settings given back; the huge pages are freed at the next boot."
+    if [ -z "$result" ]; then
+        echo "Host tuning removed: systemd did not know its unit, so nothing was stopped; the huge pages are freed at the next boot."
+    elif [ "$result" = success ]; then
+        echo "Host tuning removed: CPU settings given back; the huge pages are freed at the next boot."
+    else
+        echo "Host tuning removed, but its stop step reported $result: the CPU settings and the huge pages come back at the next boot."
+    fi
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
