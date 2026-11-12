@@ -13,6 +13,7 @@ BUILD_DIR := build-xmrig
 SYSTEMD_UNIT := /etc/systemd/system/xmrig.service
 LAUNCHD_PLIST := $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist
 LOGROTATE_CONF := /etc/logrotate.d/xmrig
+TUNING_UNIT := /etc/systemd/system/xmrig-host-tuning.service
 
 # One compile job per CPU, but no more than one per whole GiB of memory available now, not
 # installed: `make update` often runs while the miner holds ~2.3 GB for RandomX. macOS has no
@@ -242,6 +243,9 @@ service-disable:
 		else \
 			$(call log-info,"No XMRig service configuration or running processes found."); \
 		fi; \
+	fi
+	@if [ -f "$(TUNING_UNIT)" ]; then \
+		bash ./scripts/setup_service_tuning.sh remove || exit 1; \
 	fi
 	@if [ -f "$(LOGROTATE_CONF)" ]; then \
 		sudo rm -f "$(LOGROTATE_CONF)"; \

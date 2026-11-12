@@ -34,6 +34,7 @@ cat > "$w/bin/sudo" <<EOS
 #!/bin/sh
 echo "sudo \$*" >> "$w/calls"
 [ "\$1 \$2" = "systemctl reset-failed" ] && /bin/rm -f "$w/failed"
+[ "\$*" = "systemctl stop xmrig-host-tuning.service" ] && [ -f "$w/fail-tuning-stop" ] && exit 1
 if [ "\$1 \$2" = "systemctl clean" ]; then
   [ -f "$w/fail-clean" ] && exit 1
   [ -f "$w/failed" ] && { echo "Failed to clean unit xmrig.service: Unit is not inactive or has pending job." >&2; exit 2; }
@@ -52,8 +53,9 @@ echo "systemctl \$*" >> "$w/calls"
 exit 0
 EOS
 chmod +x "$w/bin/"*
-paths=(SYSTEMD_UNIT="$w/etc/xmrig.service" LAUNCHD_PLIST="$w/agents/com.moneroocean.xmrig.plist" LOGROTATE_CONF="$w/etc/logrotate-xmrig")
-# The targets must reach the service only through the three variables: with them set, no recipe
+paths=(SYSTEMD_UNIT="$w/etc/xmrig.service" LAUNCHD_PLIST="$w/agents/com.moneroocean.xmrig.plist" LOGROTATE_CONF="$w/etc/logrotate-xmrig"
+  TUNING_UNIT="$w/etc/xmrig-host-tuning.service")
+# The targets must reach the service only through these variables: with them set, no recipe
 # may name another path under /etc, /usr/local/etc or a LaunchAgents directory. Otherwise not run.
 for t in start stop status service-disable; do
   TERM=dumb make -s -n -f "$root/Makefile" "${paths[@]}" "$t" | grep -nE '/etc/|/usr/local/etc|LaunchAgents' | grep -v "$w/" \
@@ -85,6 +87,33 @@ sudo rm -f $w/etc/xmrig.service
 sudo systemctl daemon-reload
 sudo rm -f $w/etc/logrotate-xmrig" "$calls"
 printf '%s\n' "$out" | grep -qxF '[ SUCCESS ] XMRig logrotate config removed.' || fail "systemd: no line saying the logrotate config was removed"
+# A board set up with --mode: after the miner's unit, the host tuning is stopped (its stop gives
+# the CPU settings back), disabled and its unit, script and values removed, with one line; the
+# logrotate file after it. A failed stop keeps the tuning and the logrotate file, non-zero.
+tuned() { setup etc/xmrig.service etc/xmrig-host-tuning.service etc/logrotate-xmrig run/keep; mkdir -p "$w/run/scripts"; cp "$root/scripts/setup_service_tuning.sh" "$w/run/scripts/"; }
+tuned
+target service-disable
+[ "$code" -eq 0 ] || fail "tuned: exit $code"
+same "tuned: calls" "sudo systemctl stop xmrig.service
+sudo systemctl disable xmrig.service
+sudo systemctl reset-failed xmrig.service
+systemctl show -p StateDirectory --value xmrig.service
+sudo systemctl clean --what=configuration --what=state --what=logs xmrig.service
+sudo rm -f $w/etc/xmrig.service
+sudo systemctl daemon-reload
+sudo systemctl stop xmrig-host-tuning.service
+sudo systemctl disable xmrig-host-tuning.service
+sudo rm -f -- /etc/systemd/system/xmrig-host-tuning.service /usr/local/sbin/xmrig-host-tuning /etc/xmrig-host-tuning.conf
+sudo systemctl daemon-reload
+sudo rm -f $w/etc/logrotate-xmrig" "$calls"
+printf '%s\n' "$out" | grep -qxF 'Host tuning removed: CPU settings given back; the huge pages are freed at the next boot.' || fail "tuned: no line saying the tuning was removed"
+tuned
+: > "$w/fail-tuning-stop"
+target service-disable
+rm -f "$w/fail-tuning-stop"
+[ "$code" -ne 0 ] || fail "tuning stop fails: exit 0"
+printf '%s\n' "$calls" | grep -q 'logrotate-xmrig' && fail "tuning stop fails: the logrotate file was removed"
+printf '%s\n' "$calls" | grep -q 'rm -f -- /etc/systemd/system/xmrig-host-tuning.service' && fail "tuning stop fails: the tuning was removed"
 # systemd host where clean fails: the target stops there with an error and a non-zero exit,
 # before the unit is removed, so a second run can retry; the logrotate file is not touched.
 setup etc/xmrig.service etc/logrotate-xmrig run/keep
