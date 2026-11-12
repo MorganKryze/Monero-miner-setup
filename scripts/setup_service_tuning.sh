@@ -164,7 +164,7 @@ function tuning_mode() {
 # cpufreq policy, the huge pages. Exit 1 with one line when the board has no valid profile or the
 # kernel no cpufreq policy.
 function tuning_values() {
-    local mode="$1" seed="$2" profile cpus caps cap policy related cpu mining mem size
+    local mode="$1" seed="$2" profile cpus caps cap policy related cpu mining mem size lines=""
     profile=$(find_profile)
     if [ -z "$profile" ] || ! profile_ok "$profile"; then
         echo "ERROR: The service config was written for --mode $mode, and this board has no valid profile in $BASE_DIR/scripts/board_profiles.conf. Run the installer again without --mode, or update the clone: git -C $BASE_DIR pull"
@@ -173,7 +173,6 @@ function tuning_values() {
     cpus=$(expand_cpus "$(profile_value "$profile" "$mode")") || cpus=""
     caps=""
     [ "$mode" != eco ] || caps=$(profile_value "$profile" eco-cap) || caps=""
-    echo "mode=$mode"
     for policy in "$TUNING_CPUFREQ_DIR"/policy*; do
         [ -d "$policy" ] || continue
         policy=${policy##*/}
@@ -184,15 +183,21 @@ function tuning_values() {
             [[ "$cpu" =~ ^[0-9]{1,4}$ ]] && [[ $'\n'"$cpus"$'\n' == *$'\n'"$cpu"$'\n'* ]] && mining=yes
         done
         if [ "$mining" = no ]; then
-            echo "$policy=powersave"
+            lines+="$policy=powersave"$'\n'
         elif [ "$mode" = max ]; then
-            echo "$policy=performance max"
+            lines+="$policy=performance max"$'\n'
         else
             cap=""
             for cpu in $caps; do [ "${cpu%%=*}" != "$policy" ] || cap=${cpu#*=}; done
-            echo "$policy=performance${cap:+ $cap}"
+            lines+="$policy=performance${cap:+ $cap}"$'\n'
         fi
     done
+    if [ -z "$lines" ]; then
+        echo "ERROR: The service config was written for --mode $mode, and this kernel has no cpufreq policy under $TUNING_CPUFREQ_DIR. Run the installer again without --mode."
+        return 1
+    fi
+    echo "mode=$mode"
+    printf '%s' "$lines"
     mem=$(total_mem_mib)
     size=$(awk '/^Hugepagesize:/ && $3 == "kB" { print $2; exit }' "$MEMINFO" 2>/dev/null)
     # The boot script reserves the pages only when 1024 MiB stay outside them (host_tuning.sh).

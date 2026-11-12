@@ -63,6 +63,7 @@ board small 2097152 2048 rockchip,rk3588s
 pol small policy0 "0 1 2 3"; pol small policy4 "4 5"; pol small policy6 "6 7"
 board three 3145728 2048 rockchip,rk3588
 pol three policy0 "0 1 2 3"; pol three policy4 "4 5"; pol three policy6 "6 7"
+board nopol 16184388 2048 rockchip,rk3588
 board gib 16184388 1048576 rockchip,rk3588
 pol gib policy0 "0 1 2 3"; pol gib policy4 "4 5"; pol gib policy6 "6 7"
 board pc 16184388 2048 acme,desktop
@@ -123,6 +124,9 @@ policy0=powersave
 policy4=performance 1800000
 policy6=performance 1800000
 exit 0' "$(fn opi tuning_values eco "$w/opi/light.json")"
+# A kernel with no cpufreq policy: one error line, exit 1.
+same "no cpufreq policy" "ERROR: The service config was written for --mode eco, and this kernel has no cpufreq policy under $w/nopol/cpufreq. Run the installer again without --mode.
+exit 1" "$(fn nopol tuning_values eco "$w/nopol/seed.json")"
 # No profile, or a profile that fails its check: one error line, exit 1.
 same "no profile" "ERROR: The service config was written for --mode eco, and this board has no valid profile in $w/pc/clone/scripts/board_profiles.conf. Run the installer again without --mode, or update the clone: git -C $w/pc/clone pull
 exit 1" "$(fn pc tuning_values eco "$w/pc/seed.json")"
