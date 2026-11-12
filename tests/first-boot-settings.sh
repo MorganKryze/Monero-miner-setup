@@ -311,6 +311,21 @@ loop_gone opi
 same "blink then heartbeat" "exit 0" "$(run "$script" "$w/opi" blink_then heartbeat)"
 loop_gone opi
 same "heartbeat LED" "heartbeat" "$(cat "$w/opi/leds/green:indicator-2/trigger")"
+# The setup refuses bad settings with the error line and leaves the LED steady on, its blink ended.
+cat >> "$w/extra.sh" <<'EOF2'
+function setup_then() {
+    setup
+    local code=$?
+    printf 'pid %s\n' "$!" > "$FX/pid"
+    return "$code"
+}
+EOF2
+led pi raspberrypi,5-model-b ACT
+mkdir -p "$w/pi/state"; printf 'mode = eco\n' > "$w/pi/state/settings"
+same "setup on bad settings" "[  ERROR  ] Setting 'wallet' is missing. $remedy
+exit 1" "$(run "$script" "$w/pi" setup_then)"
+same "setup error LED" "none 255" "$(leds pi ACT)"
+loop_gone pi
 same "no LED, one warning" "[ WARNING ] No status LED ACT on this board: the setup goes on without LEDs.
 exit 0" "$(run "$script" "$w/gone" blink_then error)"
 same "no LED written" "" "$(ls -A "$w/gone/leds")"
