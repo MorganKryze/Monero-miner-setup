@@ -9,7 +9,7 @@ Every release of Monero-miner-setup, newest first. The format follows
 ### Added
 
 - `--mode max|eco` for the native installer: new configs mine on the CPUs of the board's profile. Not with `--threads`.
-- With `--mode` and the systemd service, `xmrig-host-tuning.service` sets each cpufreq policy at each boot (`performance` where the mode mines, `eco` capped, `powersave` elsewhere) and, on RK3588, 1280 huge pages; the miner runs without `Nice` and restarts after any exit. `make service-disable` gives the settings back.
+- With `--mode` and the systemd service, `xmrig-host-tuning.service` sets each cpufreq policy at each boot (`performance` where the mode mines, `eco` capped, `powersave` elsewhere) and 1280 huge pages where the kernel has 2 MB huge pages and 3584 MiB of memory (RK3588, not the Pi 5); the miner runs without `Nice` and restarts after any exit. `make service-disable` gives the settings back.
 - `make status` on Linux adds a board readout: the hottest thermal zone, each policy's frequency, throttling (Pi 5 firmware flags; RK3588 a policy held below its mode), the last hashrate, the Pi 5's PMIC power and the cost per day from `WALL_WATTS` and `KWH_PRICE`.
 - Board profiles for the Raspberry Pi 5 (`bcm2712`) and RK3588 boards in `scripts/board_profiles.conf`, both `untested`.
 - `make bench-layouts [MODE=eco] [BENCH=1M]`: benches each CPU layout of the profile offline.
