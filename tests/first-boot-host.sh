@@ -2,8 +2,9 @@
 # The first-boot setup's host steps (scripts/first_boot.sh): the board's name (short model name and
 # the first wired interface's MAC tail, lower case), the refusal of a board outside the profiles,
 # the hostname files, SSH closed without a key or opened to the key alone, and avahi-daemon only
-# when mdns is on. Every function runs under env -i against fixture trees, with stub systemctl,
-# hostname, apt-get and dpkg-query that only record their arguments. Run from the repository root.
+# when mdns is on; each step that fails exits 1 with its error on stderr. Every function runs under
+# env -i against fixture trees, with stub systemctl, hostname, apt-get and dpkg-query that only
+# record their arguments, or fail on request. Run from the repository root.
 # Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -19,7 +20,8 @@ for t in chmod cp mkdir mktemp mv rm cat; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
-# systemctl: is-enabled answers yes for the units listed in the enabled file.
+# systemctl: is-enabled answers yes for the units listed in the enabled file; disable fails while
+# disable-fails exists.
 cat > "$w/stubs/systemctl" <<EOF
 #!/bin/bash
 echo "systemctl \$*" >> "$w/calls.log"
@@ -28,10 +30,12 @@ if [ "\$1" = is-enabled ]; then
   while read -r e; do [ "\$e" = "\$u" ] && exit 0; done < "$w/enabled"
   exit 1
 fi
+[ "\$1" = disable ] && [ -e "$w/disable-fails" ] && exit 1
 exit 0
 EOF
 printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\n' "$w" > "$w/stubs/hostname"
-printf '#!/bin/bash\necho "apt-get $*" >> "%s/calls.log"\n[ -e "%s/mdns-installed-seen" ] || [ ! -e "$STATE/mdns-installed" ] || : > "%s/mdns-installed-seen"\n' "$w" "$w" "$w" > "$w/stubs/apt-get"
+# apt-get fails while apt-fails exists.
+printf '#!/bin/bash\necho "apt-get $*" >> "%s/calls.log"\n[ -e "%s/mdns-installed-seen" ] || [ ! -e "$STATE/mdns-installed" ] || : > "%s/mdns-installed-seen"\n[ ! -e "%s/apt-fails" ]\n' "$w" "$w" "$w" "$w" > "$w/stubs/apt-get"
 # dpkg-query reports avahi-daemon installed when the avahi file exists.
 printf '#!/bin/bash\necho "dpkg-query $*" >> "%s/calls.log"\nif [ -e "%s/avahi" ]; then printf "installed"; else exit 1; fi\n' "$w" "$w" > "$w/stubs/dpkg-query"
 chmod +x "$w/stubs/"*
@@ -53,6 +57,16 @@ run() {
   code=$?
   cat "$w/run.out"; echo "exit $code"
 }
+# split <fixture> <function> [args]: like run, stdout lines as "out", stderr lines as "err".
+split() {
+  local fx="$w/$1" code; shift
+  env -i PATH="$w/stubs:$w/tools" SCRIPT="$script" FX="$fx" STATE="$fx/state" KEY="${KEY-}" MDNS="${MDNS-off}" \
+    "$BASH" --norc --noprofile "$w/drive.sh" "$@" > "$w/run.out" 2> "$w/run.err"
+  code=$?
+  while IFS= read -r l; do echo "out $l"; done < "$w/run.out"
+  while IFS= read -r l; do echo "err $l"; done < "$w/run.err"
+  echo "exit $code"
+}
 calls() { cat "$w/calls.log" 2>/dev/null; }
 # iface <fixture> <name> <mac> [wireless|phy80211|nodevice|loopback]
 iface() {
@@ -71,7 +85,7 @@ iface() {
 # board <fixture> <compatible...>: a device tree list, eth0 wired and wlan0 wireless.
 board() {
   local fx="$w/$1" c; shift
-  rm -rf -- "$fx" "$w/calls.log" "$w/avahi" "$w/mdns-installed-seen"
+  rm -rf -- "$fx" "$w/calls.log" "$w/avahi" "$w/mdns-installed-seen" "$w/disable-fails" "$w/apt-fails"
   mkdir -p "$fx/state" "$fx/etc"
   : > "$w/enabled"
   : > "$fx/compatible"
@@ -133,6 +147,10 @@ printf '127.0.0.1 localhost\n' > "$w/nohosts/etc/hosts"
 run nohosts set_hostname rpi5-3fa2 > /dev/null
 same "hosts line added" "127.0.0.1 localhost
 127.0.1.1 rpi5-3fa2" "$(cat "$w/nohosts/etc/hosts")"
+board hostdir raspberrypi,5-model-b; mkdir "$w/hostdir/etc/hostname"
+same "hostname file not writable" "err [  ERROR  ] Failed to set the host name to rpi5-3fa2. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
+exit 1" "$(split hostdir set_hostname rpi5-3fa2)"
+same "hostname file not writable: not applied" "" "$(calls)"
 
 # ---- SSH ----
 board nokey raspberrypi,5-model-b; echo dropbear.service > "$w/enabled"
@@ -168,6 +186,15 @@ board emptykeys raspberrypi,5-model-b
 mkdir -p "$w/emptykeys/ssh"; : > "$w/emptykeys/ssh/authorized_keys"
 KEY=$key run emptykeys ssh_policy > /dev/null
 same "key in an empty file" "$key" "$(cat "$w/emptykeys/ssh/authorized_keys")"
+board offfails raspberrypi,5-model-b; echo dropbear.service > "$w/enabled"; : > "$w/disable-fails"
+same "no key, the server not turned off" "err [  ERROR  ] Failed to turn off dropbear.service. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
+exit 1" "$(split offfails ssh_policy)"
+board sshfile raspberrypi,5-model-b; : > "$w/sshfile/ssh"
+out=$(KEY=$key split sshfile ssh_policy)
+same "key, ssh folder not writable: exit" "exit 1" "$(tail -n 1 <<<"$out")"
+same "key, ssh folder not writable: stdout" "" "$(grep '^out ' <<<"$out")"
+same "key, ssh folder not writable: last error" "err [  ERROR  ] Failed to add the ssh_key to $w/sshfile/ssh/authorized_keys. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service." \
+  "$(grep '^err ' <<<"$out" | tail -n 1)"
 
 # ---- mDNS ----
 board moff raspberrypi,5-model-b
@@ -184,6 +211,10 @@ board mhas raspberrypi,5-model-b; : > "$w/avahi"
 same "mdns on, avahi present" "exit 0" "$(MDNS=on run mhas mdns_setup)"
 same "mdns on, present: no install" "dpkg-query -W -f=\${db:Status-Status} avahi-daemon" "$(calls)"
 [ -e "$w/mhas/state/mdns-installed" ] && fail "mdns on, present: a record is written"
+board mfail raspberrypi,5-model-b; : > "$w/apt-fails"
+same "mdns on, the install fails" "out [  INFO   ] Installing avahi-daemon to announce this board as its host name .local.
+err [  ERROR  ] Failed to install avahi-daemon for mdns = on. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
+exit 1" "$(MDNS=on split mfail mdns_setup)"
 
 # ---- the SoC table ----
 same "SOCS equal to the board profiles" "$(grep '^[a-z0-9]*\.compatible=' "$root/scripts/board_profiles.conf")" \

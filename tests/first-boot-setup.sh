@@ -4,7 +4,8 @@
 # unless its sha256 is the one the script carries, and runs it with --prebuilt. The setup is
 # recorded done only once the installer exits 0 and xmrig.service is enabled and running; every
 # refusal leaves it undone, exits 1 and lights the error LED, and a done board only sets the
-# heartbeat. A clone a power cut left at the wrong commit is removed before the next run.
+# heartbeat. SSH left on or the host name not set stops the setup before the installer. A clone a
+# power cut left at the wrong commit is removed before the next run.
 # Every run is under env -i with stub curl, git, pgrep, systemctl, hostname and sleep, and a stub
 # installer served by the stub curl; nothing reaches the network. Run from the repository root.
 # Prints FAIL lines, exits 1 on any miss.
@@ -47,8 +48,9 @@ esac
 EOF
 # pgrep finds apt busy while apt-busy counts down.
 printf '#!/bin/bash\necho "pgrep $*" >> "%s/calls.log"\nbash "%s/count.sh" "%s/apt-busy"\n' "$w" "$w" "$w" > "$w/stubs/pgrep"
-# systemctl: xmrig.service is enabled and running unless no-service exists; no SSH server is enabled.
-printf '#!/bin/bash\necho "systemctl $*" >> "%s/calls.log"\ncase "$1 ${*: -1}" in "is-"*" xmrig.service") [ ! -e "%s/no-service" ] ;; is-*) exit 1 ;; esac\n' "$w" "$w" > "$w/stubs/systemctl"
+# systemctl: xmrig.service is enabled and running unless no-service exists; no SSH server is enabled
+# unless ssh-on exists, and then its disable fails.
+printf '#!/bin/bash\necho "systemctl $*" >> "%s/calls.log"\ncase "$1 ${*: -1}" in "is-"*" xmrig.service") [ ! -e "%s/no-service" ] ;; "is-enabled ssh.service") [ -e "%s/ssh-on" ] ;; is-*) exit 1 ;; disable*) exit 1 ;; esac\n' "$w" "$w" "$w" > "$w/stubs/systemctl"
 # git describe answers the tag clone-tag holds, or fails as on an untagged commit.
 printf '#!/bin/bash\necho "git $*" >> "%s/calls.log"\n[ -f "%s/clone-tag" ] || exit 128\ncat "%s/clone-tag"\n' "$w" "$w" "$w" > "$w/stubs/git"
 printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\n' "$w" > "$w/stubs/hostname"
@@ -82,7 +84,7 @@ W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBE
 # board <fixture> [settings lines...]: a Pi 5 with 8 GiB, its LED off, the settings given.
 board() {
   local fx="$w/$1"; shift
-  rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/installer-exit"
+  rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/installer-exit" "$w/ssh-on"
   mkdir -p "$fx/state" "$fx/leds/ACT" "$fx/net/eth0" "$fx/dev" "$fx/etc"
   printf 'raspberrypi,5-model-b\0brcm,bcm2712\0' > "$fx/compatible"
   ln -s "$fx/dev" "$fx/net/eth0/device"; printf '1\n' > "$fx/net/eth0/type"
@@ -187,6 +189,21 @@ exit 1" "$(run pi4)"
 same "pi4: no call" "" "$(calls)"
 same "pi4: host name kept" "DietPi" "$(cat "$w/pi4/etc/hostname")"
 no_done pi4
+
+# ---- the host steps ----
+board sshon; : > "$w/ssh-on"
+same "SSH not turned off" "[  ERROR  ] Failed to turn off ssh.service. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
+exit 1" "$(run sshon)"
+grep -q '^installer' "$w/calls.log" && fail "SSH not turned off: the installer ran"
+same "SSH not turned off: error LED" "none 255" "$(led sshon)"
+no_done sshon
+board hostdir; rm -f "$w/hostdir/etc/hostname"; mkdir "$w/hostdir/etc/hostname"
+same "host name not set" "$ssh_line
+[  ERROR  ] Failed to set the host name to rpi5-3fa2. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
+exit 1" "$(run hostdir)"
+grep -q '^installer' "$w/calls.log" && fail "host name not set: the installer ran"
+same "host name not set: error LED" "none 255" "$(led hostdir)"
+no_done hostdir
 
 # ---- the installer ----
 board refused; echo 1 > "$w/installer-exit"
