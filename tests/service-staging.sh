@@ -539,7 +539,7 @@ sudo install -o root -g root -m 644 STAGED /etc/systemd/system/xmrig-host-tuning
 tuned_calls() { # account, group, mode of the caller (1000 or 0)
   reach "$1"
   [ "$3" != 0 ] || printf '%s\n' "$(read_seed "$1")" "sudo -u $1 cat -- $c/configs/board-mode" \
-    "sudo -u $1 cat -- $c/scripts/host_tuning.sh" "sudo -u $1 cat -- $c/templates/xmrig-host-tuning.service.template"
+    "sudo -u $1 cat -- $c/scripts/board_profiles.conf" "sudo -u $1 cat -- $c/scripts/host_tuning.sh" "sudo -u $1 cat -- $c/templates/xmrig-host-tuning.service.template"
   seed_install "$2"
   printf '%s\n' "$lr_install" "$tuning_installs" "$unit_install" "sudo systemctl daemon-reload" "sudo systemctl enable xmrig.service" \
     "sudo systemctl enable xmrig-host-tuning.service" "sudo systemctl try-restart xmrig-host-tuning.service"

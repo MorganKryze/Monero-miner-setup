@@ -34,7 +34,7 @@ w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
 mkdir -p "$w/tools"
-for t in awk cat grep head sort tr; do
+for t in awk cat grep head sort tr mktemp rm; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
@@ -144,6 +144,36 @@ exit 0' "$(fn opi eval 'tuning_values eco $d/seed.json | tuning_lines')"
 same "pi max lines" 'Host tuning for --mode max, applied by xmrig-host-tuning.service at each boot before the miner:
   policy0 (CPUs 0 1 2 3): performance governor, at its hardware maximum.' \
   "$(fn pi eval 'tuning_values max $d/seed.json | tuning_lines' | head -n 2)"
+
+# Staged as root: the profile is read through the account (sudo -u, recorded), into a staged copy
+# that every later read uses; the error line still names the clone's file.
+printf '#!/bin/sh\necho "sudo $*" >> "%s/sudo.log"\n[ "$1" = -u ] && shift 2 && exec "$@"\n' "$w" > "$w/tools/sudo"
+chmod 755 "$w/tools/sudo"
+mkdir -p "$w/opi/clone/templates" "$w/tmp"
+cp "$root/scripts/host_tuning.sh" "$w/opi/clone/scripts/"
+cp "$root/templates/xmrig-host-tuning.service.template" "$w/opi/clone/templates/"
+cp "$root/templates/xmrig.service.template" "$w/unit"
+staged() { # <board>: stage_tuning eco as root, then the profile it read and its sudo calls
+  rm -f "$w/sudo.log"
+  FAKE_UID=0 fn "$1" eval 'ACCOUNT=miner SCRIPT_DIR=$BASE_DIR/scripts TMPDIR='"$w/tmp"' TUNING_STAGED=()
+    stage_tuning eco '"$w/unit"' $d/seed.json; c=$?
+    for f in "${TUNING_STAGED[@]}"; do [ "$f" = "$PROFILE_FILE" ] && echo "profile staged"; done
+    rm -f -- "${TUNING_STAGED[@]}"; exit $c'
+  cat "$w/sudo.log" 2>/dev/null
+}
+same "staged as root" "profile staged
+exit 0
+sudo -u miner cat -- $w/opi/clone/scripts/board_profiles.conf
+sudo -u miner cat -- $w/opi/clone/scripts/host_tuning.sh
+sudo -u miner cat -- $w/opi/clone/templates/xmrig-host-tuning.service.template" "$(staged opi)"
+mkdir -p "$w/pc/clone/templates"
+cp "$root/scripts/host_tuning.sh" "$w/pc/clone/scripts/"
+cp "$root/templates/xmrig-host-tuning.service.template" "$w/pc/clone/templates/"
+same "staged as root, no profile" "ERROR: The service config was written for --mode eco, and this board has no valid profile in $w/pc/clone/scripts/board_profiles.conf. Run the installer again without --mode, or update the clone: git -C $w/pc/clone pull
+profile staged
+exit 1
+sudo -u miner cat -- $w/pc/clone/scripts/board_profiles.conf" "$(staged pc)"
+[ -z "$(ls -A "$w/tmp")" ] || fail "staged files left behind"
 
 # The miner unit of a dedicated miner, from the shipped template.
 cp "$root/templates/xmrig.service.template" "$w/unit"

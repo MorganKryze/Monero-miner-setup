@@ -166,7 +166,7 @@ function tuning_values() {
     local mode="$1" seed="$2" profile cpus caps cap policy related cpu mining mem size
     profile=$(find_profile)
     if [ -z "$profile" ] || ! profile_ok "$profile"; then
-        echo "ERROR: The service config was written for --mode $mode, and this board has no valid profile in $PROFILE_FILE. Run the installer again without --mode, or update the clone: git -C $BASE_DIR pull"
+        echo "ERROR: The service config was written for --mode $mode, and this board has no valid profile in $BASE_DIR/scripts/board_profiles.conf. Run the installer again without --mode, or update the clone: git -C $BASE_DIR pull"
         return 1
     fi
     cpus=$(expand_cpus "$(profile_value "$profile" "$mode")") || cpus=""
@@ -238,23 +238,28 @@ function tune_unit() {
     printf '%s\n' "$out" >"$1"
 }
 
-# Stages the values file, the boot script and the tuning unit in files mktemp creates for this
-# user, and tunes the staged miner unit. Sets TUNING_STAGED (removed by the setup's exit trap) and
-# TUNING_LINES. Exit 1 with one line on any failure, nothing installed.
+# Stages the board profile, the values file, the boot script and the tuning unit in files mktemp
+# creates for this user, and tunes the staged miner unit. The profile is read once through
+# read_clone and PROFILE_FILE then names the staged copy, so root never reads the clone by path.
+# Sets TUNING_STAGED (removed by the setup's exit trap) and TUNING_LINES. Exit 1 with one line on
+# any failure, nothing installed.
 function stage_tuning() {
     local mode="$1" unit="$2" seed="$3" values file
-    values=$(tuning_values "$mode" "$seed") || { echo "$values"; return 1; }
-    for file in values bin unit; do
+    for file in profile values bin unit; do
         file=$(mktemp "${TMPDIR:-/tmp}/xmrig-tuning-$file.XXXXXXXXXX") || {
             echo "ERROR: Failed to create a temporary file."
             return 1
         }
         TUNING_STAGED+=("$file")
     done
-    if ! printf '%s\n' "# Written by the miner's service setup; make service-disable removes it." "$values" >"${TUNING_STAGED[0]}" ||
-        ! read_clone "$SCRIPT_DIR/host_tuning.sh" >"${TUNING_STAGED[1]}" ||
-        ! read_clone "$BASE_DIR/templates/xmrig-host-tuning.service.template" >"${TUNING_STAGED[2]}" ||
-        ! [ -s "${TUNING_STAGED[1]}" ] || ! [ -s "${TUNING_STAGED[2]}" ]; then
+    # A profile that cannot be read stages empty: no valid profile, said as such.
+    read_clone "$PROFILE_FILE" >"${TUNING_STAGED[0]}" 2>/dev/null || : >"${TUNING_STAGED[0]}"
+    PROFILE_FILE=${TUNING_STAGED[0]}
+    values=$(tuning_values "$mode" "$seed") || { echo "$values"; return 1; }
+    if ! printf '%s\n' "# Written by the miner's service setup; make service-disable removes it." "$values" >"${TUNING_STAGED[1]}" ||
+        ! read_clone "$SCRIPT_DIR/host_tuning.sh" >"${TUNING_STAGED[2]}" ||
+        ! read_clone "$BASE_DIR/templates/xmrig-host-tuning.service.template" >"${TUNING_STAGED[3]}" ||
+        ! [ -s "${TUNING_STAGED[2]}" ] || ! [ -s "${TUNING_STAGED[3]}" ]; then
         echo "ERROR: Failed to stage the host tuning from $BASE_DIR."
         return 1
     fi
@@ -267,9 +272,9 @@ function stage_tuning() {
 
 # Installs the staged files as root, before the miner unit.
 function install_tuning() {
-    if ! sudo install -o root -g root -m 644 "${TUNING_STAGED[0]}" "$TUNING_CONF" ||
-        ! sudo install -o root -g root -m 755 "${TUNING_STAGED[1]}" "$TUNING_BIN" ||
-        ! sudo install -o root -g root -m 644 "${TUNING_STAGED[2]}" "$TUNING_UNIT"; then
+    if ! sudo install -o root -g root -m 644 "${TUNING_STAGED[1]}" "$TUNING_CONF" ||
+        ! sudo install -o root -g root -m 755 "${TUNING_STAGED[2]}" "$TUNING_BIN" ||
+        ! sudo install -o root -g root -m 644 "${TUNING_STAGED[3]}" "$TUNING_UNIT"; then
         echo "ERROR: Failed to install the host tuning."
         return 1
     fi
