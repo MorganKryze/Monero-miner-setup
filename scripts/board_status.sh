@@ -122,7 +122,7 @@ function temperature_line() {
         echo "  Temperature: unavailable."
         return 0
     fi
-    awk -v t="$best" -v z="$best_type" -v n="$n" 'BEGIN { printf "  Temperature: %s at %.1f °C, the hottest of %d zones.\n", z, t / 1000, n }'
+    awk -v t="$best" -v z="$best_type" -v n="$n" 'BEGIN { printf "  Temperature: %s at %.1f °C, the hottest of %d zone%s.\n", z, t / 1000, n, (n == 1 ? "" : "s") }'
 }
 
 # Each cpufreq policy's current and maximum frequency, in MHz.

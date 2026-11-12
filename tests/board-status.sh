@@ -123,7 +123,7 @@ printf '%s\n' ' 3V3_SYS_A current(1)=0.50000000A' '  VDD_CORE_A current(7)=2.000
   '  VDD_CORE_V volt(15)=0.80000000V' '     EXT5V_V volt(24)=5.07190000V' '  HDMI_A current(22)=0.02002440A' > "$FX/vc-pmic_read_adc"
 same "pi" '
 Board readout:
-  Temperature: cpu-thermal at 71.2 °C, the hottest of 1 zones.
+  Temperature: cpu-thermal at 71.2 °C, the hottest of 1 zone.
   CPU policy0: 1800 MHz now, at most 1800 MHz.
   Throttling now: under-voltage, throttled.
   Throttling since boot: under-voltage, throttled.
@@ -159,7 +159,7 @@ zone 0 x86_pkg_temp 45000
 pol policy0 3000000 4000000 4000000
 same "no profile" '
 Board readout:
-  Temperature: x86_pkg_temp at 45.0 °C, the hottest of 1 zones.
+  Temperature: x86_pkg_temp at 45.0 °C, the hottest of 1 zone.
   CPU policy0: 3000 MHz now, at most 4000 MHz.
 exit 0' "$(status)"
 same "macOS" "exit 0" "$(status UNAME_S=Darwin)"
