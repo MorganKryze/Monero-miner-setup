@@ -632,9 +632,9 @@ sudo systemctl daemon-reload" "$calls"
 same "untuned again: output" "$(out_for alice | sed '/^XMRig service has been setup/i\
 Host tuning removed: CPU settings given back; the huge pages are freed at the next boot.')" "$out"
 same "untuned again: the unit root installed" "$(want_unit alice alice)" "$(cat "$SERVICE_ROOT/etc/systemd/system/xmrig.service" 2>/dev/null)"
-# A partial install (the values file or the boot script, no unit systemd knows), as a setup that
+# A partial install (the values file, the boot script or the unit alone, none systemd knows), as a setup that
 # failed half way or a removed unit leaves: removed all the same, nothing to stop.
-for only in xmrig-host-tuning.conf xmrig-host-tuning; do
+for only in xmrig-host-tuning.conf xmrig-host-tuning xmrig-host-tuning.service; do
   rm -f "$old/"*; : > "$old/$only"
   accounts
   setup
