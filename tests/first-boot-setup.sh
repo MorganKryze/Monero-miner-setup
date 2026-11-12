@@ -18,7 +18,7 @@ w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
 mkdir -p "$w/tools" "$w/stubs" "$w/srv"
-for t in chmod mkdir mktemp mv rm cat sha256sum bash; do
+for t in chmod cp mkdir mktemp mv rm cat sha256sum bash; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
@@ -47,10 +47,11 @@ esac
 EOF
 # pgrep finds apt busy while apt-busy counts down.
 printf '#!/bin/bash\necho "pgrep $*" >> "%s/calls.log"\nbash "%s/count.sh" "%s/apt-busy"\n' "$w" "$w" "$w" > "$w/stubs/pgrep"
-printf '#!/bin/bash\necho "systemctl $*" >> "%s/calls.log"\ncase "$1" in is-*) [ ! -e "%s/no-service" ] ;; esac\n' "$w" "$w" > "$w/stubs/systemctl"
+# systemctl: xmrig.service is enabled and running unless no-service exists; no SSH server is enabled.
+printf '#!/bin/bash\necho "systemctl $*" >> "%s/calls.log"\ncase "$1 ${*: -1}" in "is-"*" xmrig.service") [ ! -e "%s/no-service" ] ;; is-*) exit 1 ;; esac\n' "$w" "$w" > "$w/stubs/systemctl"
 # git describe answers the tag clone-tag holds, or fails as on an untagged commit.
 printf '#!/bin/bash\necho "git $*" >> "%s/calls.log"\n[ -f "%s/clone-tag" ] || exit 128\ncat "%s/clone-tag"\n' "$w" "$w" "$w" > "$w/stubs/git"
-printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\necho rpi5-3fa2\n' "$w" > "$w/stubs/hostname"
+printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\n' "$w" > "$w/stubs/hostname"
 # sleep: the blink loop's half seconds pass fast and unlogged; the retry waits are logged, not slept.
 printf '#!/bin/bash\nif [ "$1" = 0.5 ]; then exec "%s" 0.05; fi\necho "sleep $*" >> "%s/calls.log"\n' "$real_sleep" "$w" > "$w/stubs/sleep"
 chmod +x "$w/stubs/"*
@@ -70,7 +71,7 @@ source "$SCRIPT"
 RELEASE_TAG="$TAG" INSTALLER_SHA256="$SUM"
 STATE_DIR="$FX/state" SETUP_BIN="$FX/sbin/xmrig-first-boot" SETUP_UNIT="$FX/unit/xmrig-first-boot.service"
 LEDS_DIR="$FX/leds" DT_COMPATIBLE="$FX/compatible" NET_DIR="$FX/net" MEMINFO="$FX/meminfo"
-HOSTNAME_FILE="$FX/hostname" HOSTS_FILE="$FX/hosts" ROOT_SSH_DIR="$FX/ssh" CLONE_DIR="$FX/clone"
+HOSTNAME_FILE="$FX/etc/hostname" HOSTS_FILE="$FX/etc/hosts" ROOT_SSH_DIR="$FX/ssh" CLONE_DIR="$FX/clone"
 setup
 code=$?
 printf 'pid %s\n' "$BLINK_PID" > "$FX/pid"
@@ -82,8 +83,11 @@ W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBE
 board() {
   local fx="$w/$1"; shift
   rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/installer-exit"
-  mkdir -p "$fx/state" "$fx/leds/ACT"
-  printf 'raspberrypi,5-model-b\0' > "$fx/compatible"
+  mkdir -p "$fx/state" "$fx/leds/ACT" "$fx/net/eth0" "$fx/dev" "$fx/etc"
+  printf 'raspberrypi,5-model-b\0brcm,bcm2712\0' > "$fx/compatible"
+  ln -s "$fx/dev" "$fx/net/eth0/device"; printf '1\n' > "$fx/net/eth0/type"
+  printf 'd8:3a:dd:41:3f:a2\n' > "$fx/net/eth0/address"
+  printf 'DietPi\n' > "$fx/etc/hostname"; printf '127.0.0.1 localhost\n127.0.1.1 DietPi\n' > "$fx/etc/hosts"
   printf 'none\n' > "$fx/leds/ACT/trigger"; printf '0\n' > "$fx/leds/ACT/brightness"
   printf '255\n' > "$fx/leds/ACT/max_brightness"
   printf 'MemTotal:        8156396 kB\nMemFree:  100 kB\n' > "$fx/meminfo"
@@ -106,11 +110,15 @@ raw="https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/v9.9.9/scr
 sums="https://github.com/MorganKryze/Monero-miner-setup/releases/download/v9.9.9/SHA256SUMS"
 fetch="curl -fsSL --proto =https --proto-redir =https -o $w/%s/state/install.sh $raw"
 head="curl -fsSL --proto =https --proto-redir =https -I -o /dev/null $sums"
+ssh_off="systemctl is-enabled --quiet dropbear.service
+systemctl is-enabled --quiet ssh.service
+hostname rpi5-3fa2"
 ok_calls() { # fixture: the calls of a clean run, installer arguments included
-  printf '%s\n' "$head" "$(printf "$fetch" "$1")" "hostname " \
+  printf '%s\n' "$head" "$(printf "$fetch" "$1")" \
     "installer -w $W --mode eco --prebuilt --autostart -y --name ${2:-rpi5-3fa2}${3:+ $3}" \
     "systemctl is-enabled --quiet xmrig.service" "systemctl is-active --quiet xmrig.service"
 }
+ssh_line="[  INFO   ] No ssh_key in the settings: SSH is turned off."
 done_line="[ SUCCESS ] First-boot setup done: rpi5-3fa2 mines as worker"
 
 # ---- the release ----
@@ -123,7 +131,8 @@ no_done unbundled
 
 board mismatch
 bad=0000000000000000000000000000000000000000000000000000000000000000
-same "fingerprint mismatch" "[  ERROR  ] The installer of v9.9.9 has sha256 $sum where this script expects $bad, so nothing is installed. Download dietpi-first-boot.zip of v9.9.9 again from the release page and check it against SHA256SUMS.
+same "fingerprint mismatch" "$ssh_line
+[  ERROR  ] The installer of v9.9.9 has sha256 $sum where this script expects $bad, so nothing is installed. Download dietpi-first-boot.zip of v9.9.9 again from the release page and check it against SHA256SUMS.
 exit 1" "$(run mismatch v9.9.9 "$bad")"
 grep -q '^installer' "$w/calls.log" && fail "mismatch: the installer ran"
 [ -e "$w/mismatch/state/install.sh" ] && fail "mismatch: the refused installer is kept"
@@ -132,10 +141,12 @@ no_done mismatch
 
 # ---- waits ----
 board net; echo 3 > "$w/curl-fails"
-same "network down three tries" "[  INFO   ] Waiting for the network to fetch the installer of v9.9.9...
+same "network down three tries" "$ssh_line
+[  INFO   ] Waiting for the network to fetch the installer of v9.9.9...
 $done_line rpi5-3fa2.
 exit 0" "$(run net)"
-same "network waits" "$head
+same "network waits" "$ssh_off
+$head
 sleep 10
 $head
 sleep 10
@@ -143,9 +154,11 @@ $head
 sleep 10
 $(ok_calls net)" "$(calls)"
 board apt; echo 2 > "$w/apt-busy"
-same "apt busy then idle" "$done_line rpi5-3fa2.
+same "apt busy then idle" "$ssh_line
+$done_line rpi5-3fa2.
 exit 0" "$(run apt)"
-same "apt waits" "sleep 10
+same "apt waits" "$ssh_off
+sleep 10
 sleep 10
 $(ok_calls apt)" "$(calls)"
 for p in apt apt-get dpkg dietpi-software dietpi-update; do
@@ -162,27 +175,41 @@ same "small: error LED" "none 255" "$(led small)"
 no_done small
 board light "light = yes"
 printf 'MemTotal:        2014000 kB\n' > "$w/light/meminfo"
-same "memory under the floor, light" "$done_line rpi5-3fa2.
+same "memory under the floor, light" "$ssh_line
+$done_line rpi5-3fa2.
 exit 0" "$(run light)"
+
+# ---- the board ----
+board pi4; printf 'raspberrypi,4-model-b\0brcm,bcm2711\0' > "$w/pi4/compatible"
+same "board outside the profiles" "[ WARNING ] No status LED is known for this board: the setup goes on without LEDs.
+[  ERROR  ] This board has no profile: the first boot covers the Raspberry Pi 5 and RK3588 boards. Install with the script instead, as the README says.
+exit 1" "$(run pi4)"
+same "pi4: no call" "" "$(calls)"
+same "pi4: host name kept" "DietPi" "$(cat "$w/pi4/etc/hostname")"
+no_done pi4
 
 # ---- the installer ----
 board refused; echo 1 > "$w/installer-exit"
-same "installer refusal" "[  ERROR  ] Invalid wallet address format.
+same "installer refusal" "$ssh_line
+[  ERROR  ] Invalid wallet address format.
 exit 1" "$(run refused)"
 same "refusal: error LED" "none 255" "$(led refused)"
-grep -q '^systemctl' "$w/calls.log" && fail "refusal: the service was checked"
+grep -q 'xmrig[.]service' "$w/calls.log" && fail "refusal: the service was checked"
 no_done refused
 board noservice; : > "$w/no-service"
-same "installer exit 0 without a service" "[  ERROR  ] The installer finished, but xmrig.service is not running, so the setup is not marked done. It runs again at the next boot; see journalctl -u xmrig.service.
+same "installer exit 0 without a service" "$ssh_line
+[  ERROR  ] The installer finished, but xmrig.service is not running, so the setup is not marked done. It runs again at the next boot; see journalctl -u xmrig.service.
 exit 1" "$(run noservice)"
 same "no service: error LED" "none 255" "$(led noservice)"
 no_done noservice
 
 board ok "pool = pool.example.org:10128" "donate = 1" "name = shelf-2"
 out=$(run ok)
-same "success" "[ SUCCESS ] First-boot setup done: rpi5-3fa2 mines as worker shelf-2.
+same "success" "$ssh_line
+[ SUCCESS ] First-boot setup done: rpi5-3fa2 mines as worker shelf-2.
 exit 0" "$out"
-same "success calls" "$(ok_calls ok shelf-2 "-p pool.example.org:10128 --donate 1")" "$(calls)"
+same "success calls" "$ssh_off
+$(ok_calls ok shelf-2 "-p pool.example.org:10128 --donate 1")" "$(calls)"
 [ -e "$w/ok/state/done" ] || fail "success: no done"
 [ -e "$w/ok/state/installing" ] && fail "success: installing left"
 same "success: heartbeat" "heartbeat" "$(cat "$w/ok/leds/ACT/trigger")"
@@ -199,12 +226,14 @@ same "done boot: heartbeat" "heartbeat" "$(cat "$w/ok/leds/ACT/trigger")"
 
 # ---- a power cut during the clone ----
 board cut; : > "$w/cut/state/installing"; mkdir -p "$w/cut/clone/.git"
-same "cut clone off the tag" "$done_line rpi5-3fa2.
+same "cut clone off the tag" "$ssh_line
+$done_line rpi5-3fa2.
 exit 0" "$(run cut)"
 [ -e "$w/cut/clone" ] && fail "cut: a clone off the tag is kept"
 grep -qx "git -C $w/cut/clone describe --exact-match --tags" "$w/calls.log" || fail "cut: no git describe"
 board kept; : > "$w/kept/state/installing"; mkdir -p "$w/kept/clone/.git"; echo v9.9.9 > "$w/clone-tag"
-same "cut clone at the tag" "$done_line rpi5-3fa2.
+same "cut clone at the tag" "$ssh_line
+$done_line rpi5-3fa2.
 exit 0" "$(run kept)"
 [ -d "$w/kept/clone/.git" ] || fail "cut: the clone at the tag is removed"
 board fresh; mkdir -p "$w/fresh/clone/.git"

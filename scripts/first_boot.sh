@@ -58,6 +58,11 @@ SETTINGS_REMEDY="Fix it in the settings at the top of Automation_Custom_Script.s
 BOARDS="bcm2712 raspberrypi,5-model-b rpi5 ACT
 rk3588 xunlong,orangepi-5-plus opi5plus green:indicator-2
 rk3588 xunlong,orangepi-5-max opi5max -"
+# The SoCs the board profiles cover, as scripts/board_profiles.conf's compatible lines: the setup
+# needs them before the clone exists, and a check keeps the two equal.
+SOCS="bcm2712.compatible=brcm,bcm2712
+rk3588.compatible=rockchip,rk3588 rockchip,rk3588s"
+SSH_UNITS="dropbear.service ssh.service"
 STATUS_LED=""
 BLINK_PID=""
 
@@ -275,6 +280,154 @@ function put_file() {
     return 1
 }
 
+# Prints the board's SoC profile from SOCS; exit 1 when no device-tree compatible string is one.
+function board_soc() {
+    local compat line soc list
+    [ -r "$DT_COMPATIBLE" ] || return 1
+    while IFS= read -r -d '' compat || [ -n "$compat" ]; do
+        while IFS= read -r line; do
+            soc=${line%%.compatible=*}
+            list=" ${line#*.compatible=} "
+            [[ $list == *" $compat "* ]] || continue
+            printf '%s\n' "$soc"
+            return 0
+        done <<<"$SOCS"
+    done <"$DT_COMPATIBLE"
+    return 1
+}
+
+# Prints the board's short model name from BOARDS, or <soc> for a model it does not list.
+function board_short() {
+    local compat soc board short led
+    if [ -r "$DT_COMPATIBLE" ]; then
+        while IFS= read -r -d '' compat || [ -n "$compat" ]; do
+            while read -r soc board short led; do
+                [ "$board" != "$compat" ] || { printf '%s\n' "$short"; return 0; }
+            done <<<"$BOARDS"
+        done <"$DT_COMPATIBLE"
+    fi
+    printf '%s\n' "$1"
+}
+
+# Prints the MAC of the first wired interface by name: a device behind it, type 1 (Ethernet), no
+# wireless entry. Exit 1 when there is none.
+function first_wired_mac() {
+    local dir type mac
+    for dir in "$NET_DIR"/*; do
+        [ -e "$dir/device" ] && [ ! -e "$dir/wireless" ] && [ ! -e "$dir/phy80211" ] || continue
+        type="" mac=""
+        { read -r type <"$dir/type" && read -r mac <"$dir/address"; } 2>/dev/null || continue
+        [ "$type" = 1 ] && [[ $mac =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] || continue
+        printf '%s\n' "$mac"
+        return 0
+    done
+    return 1
+}
+
+# Prints <short name>-<last 4 hex digits of the first wired MAC>, lower case; one error line and
+# exit 1 on a board outside the profiles or without a wired interface.
+function board_name() {
+    local soc short mac
+    if ! soc=$(board_soc); then
+        error "This board has no profile: the first boot covers the Raspberry Pi 5 and RK3588 boards. Install with the script instead, as the README says."
+        return 1
+    fi
+    short=$(board_short "$soc")
+    if ! mac=$(first_wired_mac); then
+        error "This board has no wired network interface to name it after: the first boot needs Ethernet. Install with the script instead, as the README says."
+        return 1
+    fi
+    mac=${mac//:/}
+    mac=${mac: -4}
+    printf '%s-%s\n' "$short" "${mac,,}"
+}
+
+# Writes stdin over <file> through a temp file in its folder, keeping the file's mode (0644 for a
+# new file).
+function replace_file() {
+    local file="$1" tmp
+    [ ! -d "$file" ] || return 1
+    tmp=$(mktemp "${file%/*}/.${file##*/}.XXXXXX") || return 1
+    if { if [ -f "$file" ]; then cp -p -- "$file" "$tmp"; else chmod 0644 "$tmp"; fi; } &&
+        cat >"$tmp" && mv -f -- "$tmp" "$file"; then
+        return 0
+    fi
+    rm -f -- "$tmp"
+    return 1
+}
+
+# Prints the hosts file with one `127.0.1.1 <name>` line in place of every 127.0.1.1 line.
+function hosts_text() {
+    local line done=0
+    if [ -f "$HOSTS_FILE" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            if [[ $line =~ ^127\.0\.1\.1([[:space:]]|$) ]]; then
+                [ "$done" -eq 1 ] || printf '127.0.1.1 %s\n' "$1"
+                done=1
+            else
+                printf '%s\n' "$line"
+            fi
+        done <"$HOSTS_FILE"
+    fi
+    [ "$done" -eq 1 ] || printf '127.0.1.1 %s\n' "$1"
+}
+
+# Sets the host name in /etc/hostname, /etc/hosts and the kernel. No hostnamectl: it needs D-Bus.
+function set_hostname() {
+    local name="$1" hosts
+    hosts=$(hosts_text "$name") || return 1
+    if ! printf '%s\n' "$name" | replace_file "$HOSTNAME_FILE" || ! printf '%s\n' "$hosts" | replace_file "$HOSTS_FILE" ||
+        ! hostname "$name"; then
+        error "Failed to set the host name to $name. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+        return 1
+    fi
+}
+
+# Without ssh_key, stops and disables the SSH server DietPi enabled; with one, adds it once to
+# root's authorized_keys and leaves the server running (DietPi already turned password logins off).
+function ssh_policy() {
+    local unit line file="$ROOT_SSH_DIR/authorized_keys"
+    if [ -z "$S_SSH_KEY" ]; then
+        for unit in $SSH_UNITS; do
+            systemctl is-enabled --quiet "$unit" || continue
+            if ! systemctl disable --now "$unit"; then
+                error "Failed to turn off $unit. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+                return 1
+            fi
+        done
+        info "No ssh_key in the settings: SSH is turned off."
+        return 0
+    fi
+    if ! mkdir -p "$ROOT_SSH_DIR" || ! chmod 0700 "$ROOT_SSH_DIR" || { [ -e "$file" ] && ! chmod 0600 "$file"; }; then
+        error "Failed to add the ssh_key to $file. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+        return 1
+    fi
+    if [ -f "$file" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            [ "$line" != "$S_SSH_KEY" ] || { info "SSH takes the key from the settings only."; return 0; }
+        done <"$file"
+    fi
+    if ! (umask 077 && printf '%s\n' "$S_SSH_KEY" >>"$file") || ! chmod 0600 "$file"; then
+        error "Failed to add the ssh_key to $file. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+        return 1
+    fi
+    info "SSH takes the key from the settings only."
+}
+
+# With mdns on, installs avahi-daemon when it is missing. The record is written first, so a removal
+# knows the setup installed it even when the install was cut.
+function mdns_setup() {
+    local status
+    [ "$S_MDNS" = on ] || return 0
+    status=$(dpkg-query -W -f='${db:Status-Status}' avahi-daemon 2>/dev/null) || status=""
+    [ "$status" != installed ] || return 0
+    info "Installing avahi-daemon to announce this board as its host name .local."
+    if ! : >"$STATE_DIR/mdns-installed" || ! apt-get install -y --no-install-recommends avahi-daemon; then
+        error "Failed to install avahi-daemon for mdns = on. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+        return 1
+    fi
+}
+
 function unit_text() {
     printf '%s\n' "[Unit]" "Description=Monero miner first-boot setup" "After=network.target" "" \
         "[Service]" "Type=exec" "ExecStart=$SETUP_BIN setup" "" "[Install]" "WantedBy=multi-user.target"
@@ -425,10 +578,13 @@ function setup() {
         return 1
     fi
     memory_floor_ok || { setup_failed; return 1; }
+    host=$(board_name) || { setup_failed; return 1; }
+    ssh_policy || { setup_failed; return 1; }
+    set_hostname "$host" || { setup_failed; return 1; }
     clean_cut_clone || { setup_failed; return 1; }
     wait_for_apt
     fetch_with_retry || { setup_failed; return 1; }
-    host=$(hostname)
+    mdns_setup || { setup_failed; return 1; }
     run_installer "${S_NAME:-$host}" || { setup_failed; return 1; }
     if ! systemctl is-enabled --quiet xmrig.service || ! systemctl is-active --quiet xmrig.service; then
         error "The installer finished, but xmrig.service is not running, so the setup is not marked done. It runs again at the next boot; see journalctl -u xmrig.service."
