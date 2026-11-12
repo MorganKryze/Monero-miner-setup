@@ -113,6 +113,38 @@ policy4=performance max
 policy6=performance max
 exit 0' "$(fn three tuning_values max "$w/three/seed.json")"
 same "3 GB board lines" "" "$(fn three eval 'tuning_values max $d/seed.json | tuning_lines' | grep 'Huge pages')"
+# On the boundary: 3584 MiB leaves exactly 1024 MiB outside 1280 pages, so the setup promises them
+# and the boot script reserves them on the same meminfo; one MiB less, neither does.
+board edge 3670016 2048 rockchip,rk3588
+pol edge policy0 "0 1 2 3"; pol edge policy4 "4 5"; pol edge policy6 "6 7"
+board under 3668992 2048 rockchip,rk3588
+pol under policy0 "0 1 2 3"; pol under policy4 "4 5"; pol under policy6 "6 7"
+reserve() { # <board>: the boot script's huge pages for 1280 on the board's meminfo, then the reservation
+  printf '0\n' > "$w/$1/nr_hugepages"
+  env -i PATH="$w/tools" "$BASH" --norc --noprofile -c '
+    source "$1" || exit 9
+    MEMINFO=$2/meminfo NR_HUGEPAGES=$2/nr_hugepages
+    apply_hugepages 1280' host-tuning "$root/scripts/host_tuning.sh" "$w/$1" 2>&1
+  echo "exit $?"
+  cat "$w/$1/nr_hugepages"
+}
+same "3584 MiB board" 'mode=max
+policy0=performance max
+policy4=performance max
+policy6=performance max
+hugepages=1280
+exit 0' "$(fn edge tuning_values max "$w/edge/seed.json")"
+same "3584 MiB board, boot" 'xmrig-host-tuning: huge pages: 1280 of 2 MB reserved (wanted 1280).
+exit 0
+1280' "$(reserve edge)"
+same "3583 MiB board" 'mode=max
+policy0=performance max
+policy4=performance max
+policy6=performance max
+exit 0' "$(fn under tuning_values max "$w/under/seed.json")"
+same "3583 MiB board, boot" 'xmrig-host-tuning: huge pages: none reserved, 1280 would leave less than 1024 MiB free.
+exit 0
+0' "$(reserve under)"
 same "1 GB default page" 'mode=eco
 policy0=powersave
 policy4=performance 1800000
