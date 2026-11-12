@@ -288,13 +288,16 @@ function tuning_installed() {
     [ -n "$(systemctl show -p FragmentPath --value xmrig-host-tuning.service 2>/dev/null)" ]
 }
 
-# Stops the tuning, which gives the CPU settings back, then removes its unit, script and values.
-# The huge pages are not written back: they are freed at the next boot (a live write would also
-# drop a reservation the user made). A failed stop keeps everything, so a retry can finish.
+# Stops the tuning, which gives the CPU settings back, then removes its unit, script and values;
+# a partial install whose unit systemd does not know has nothing to stop. The huge pages are not
+# written back: they are freed at the next boot (a live write would also drop a reservation the
+# user made). A failed stop keeps everything, so a retry can finish.
 function remove_tuning() {
-    if ! sudo systemctl stop xmrig-host-tuning.service || ! sudo systemctl disable xmrig-host-tuning.service; then
-        echo "ERROR: Failed to stop xmrig-host-tuning.service, so the host tuning is kept. Fix the error, then run 'make service-disable' again."
-        return 1
+    if tuning_installed; then
+        if ! sudo systemctl stop xmrig-host-tuning.service || ! sudo systemctl disable xmrig-host-tuning.service; then
+            echo "ERROR: Failed to stop xmrig-host-tuning.service, so the host tuning is kept. Fix the error, then run 'make service-disable' again."
+            return 1
+        fi
     fi
     if ! sudo rm -f -- "$TUNING_UNIT" "$TUNING_BIN" "$TUNING_CONF" || ! sudo systemctl daemon-reload; then
         echo "ERROR: Failed to remove $TUNING_UNIT, $TUNING_BIN or $TUNING_CONF."
