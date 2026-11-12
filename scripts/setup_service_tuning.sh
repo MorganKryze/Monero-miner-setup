@@ -303,11 +303,16 @@ function tuning_installed() {
 # Stops the tuning, which gives the CPU settings back, then removes its unit, script and values;
 # a partial install whose unit systemd does not know has nothing to stop. The huge pages are not
 # written back: they are freed at the next boot (a live write would also drop a reservation the
-# user made). A failed stop keeps everything, so a retry can finish. The closing line says the CPU
-# settings were given back only when systemd reports the tuning's stop step succeeded.
+# user made). A failed stop keeps everything, so a retry can finish. So does a failed query: its
+# empty answer would read as an unknown unit and the restore script would go unrun. The closing
+# line says the CPU settings were given back only when systemd reports the stop step succeeded.
 function remove_tuning() {
-    local result=""
-    if tuning_installed; then
+    local result="" fragment
+    if ! fragment=$(systemctl show -p FragmentPath --value xmrig-host-tuning.service); then
+        echo "ERROR: systemctl show failed for xmrig-host-tuning.service, so the host tuning is kept. Fix the error, then run 'make service-disable' again."
+        return 1
+    fi
+    if [ -n "$fragment" ]; then
         if ! sudo systemctl stop xmrig-host-tuning.service || ! sudo systemctl disable xmrig-host-tuning.service; then
             echo "ERROR: Failed to stop xmrig-host-tuning.service, so the host tuning is kept. Fix the error, then run 'make service-disable' again."
             return 1

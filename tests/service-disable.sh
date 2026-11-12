@@ -149,6 +149,19 @@ for only in xmrig-host-tuning.conf xmrig-host-tuning; do
   printf '%s\n' "$calls" | grep -qxF 'sudo rm -f -- /etc/systemd/system/xmrig-host-tuning.service /usr/local/sbin/xmrig-host-tuning /etc/xmrig-host-tuning.conf' \
     || fail "only $only: the tuning was not removed"
 done
+# systemctl show fails (no system bus) on a tuning with no miner unit: an empty answer would read
+# as a unit systemd does not know, and the restore script would go with the CPU settings still
+# changed. The tuning and the logrotate file are kept, non-zero.
+setup etc/xmrig-host-tuning.service etc/xmrig-host-tuning etc/xmrig-host-tuning.conf etc/logrotate-xmrig run/keep
+mkdir -p "$w/run/scripts"; cp "$root/scripts/setup_service_tuning.sh" "$w/run/scripts/"
+: > "$w/no-bus"
+target service-disable
+rm -f "$w/no-bus"
+[ "$code" -ne 0 ] || fail "tuning show fails: exit 0"
+same "tuning show fails: calls" "pgrep -x xmrig
+systemctl show -p FragmentPath --value xmrig-host-tuning.service" "$calls"
+same "tuning show fails: line" "ERROR: systemctl show failed for xmrig-host-tuning.service, so the host tuning is kept. Fix the error, then run 'make service-disable' again." \
+  "$(printf '%s\n' "$out" | grep '^ERROR')"
 # systemd host where clean fails: the target stops there with an error and a non-zero exit,
 # before the unit is removed, so a second run can retry; the logrotate file is not touched.
 setup etc/xmrig.service etc/logrotate-xmrig run/keep
