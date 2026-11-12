@@ -157,6 +157,7 @@ sleep 10
 $(ok_calls net)" "$(calls)"
 board apt; echo 2 > "$w/apt-busy"
 same "apt busy then idle" "$ssh_line
+[  INFO   ] Waiting for apt to finish: the installer installs packages.
 $done_line rpi5-3fa2.
 exit 0" "$(run apt)"
 same "apt waits" "$ssh_off
@@ -164,7 +165,7 @@ sleep 10
 sleep 10
 $(ok_calls apt)" "$(calls)"
 for p in apt apt-get dpkg dietpi-software dietpi-update; do
-  grep -qx "pgrep -x $p" "$w/calls.log" || fail "apt wait: no pgrep -x $p"
+  grep -qx "pgrep -u 0 -x $p" "$w/calls.log" || fail "apt wait: no pgrep -u 0 -x $p"
 done
 
 # ---- memory ----

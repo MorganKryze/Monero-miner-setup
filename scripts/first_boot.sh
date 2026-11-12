@@ -451,12 +451,15 @@ function handoff() {
     info "The first-boot setup is installed and starts now: the status LED blinks while it runs."
 }
 
-# Waits until no process that holds apt's locks runs: the installer installs packages.
+# Waits until no root process that holds apt's locks runs: the installer installs packages. One
+# line names the process every RETRY_LOG_EVERY tries.
 function wait_for_apt() {
-    local p
+    local p tries=0
     while :; do
         for p in $APT_PROCESSES; do
-            if pgrep -x "$p" >/dev/null; then
+            if pgrep -u 0 -x "$p" >/dev/null; then
+                [ $((tries % RETRY_LOG_EVERY)) -ne 0 ] || info "Waiting for $p to finish: the installer installs packages."
+                tries=$((tries + 1))
                 sleep "$RETRY_SECONDS"
                 continue 2
             fi
