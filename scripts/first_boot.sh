@@ -523,13 +523,18 @@ function memory_floor_ok() {
     return 0
 }
 
-# A run cut by a power loss leaves `installing`: a clone not checked out at the release's tag is
-# then a partial one, removed so the installer clones it again. A complete clone is kept.
+# A run cut by a power loss leaves `installing`: a clone not checked out at the release's tag, or
+# one at the tag whose submodules are not all checked out at their pins (`-` or `+` in git's
+# submodule status, or no dependencies/xmrig checkout), is then a partial one, removed so the
+# installer clones it again. A complete clone is kept.
 function clean_cut_clone() {
-    local tag
+    local tag subs
     [ -e "$STATE_DIR/installing" ] && [ -d "$CLONE_DIR" ] || return 0
     tag=$(git -C "$CLONE_DIR" describe --exact-match --tags 2>/dev/null) || tag=""
-    [ "$tag" != "$RELEASE_TAG" ] || return 0
+    if [ "$tag" = "$RELEASE_TAG" ] && subs=$(git -C "$CLONE_DIR" submodule status 2>/dev/null) &&
+        ! [[ $subs =~ (^|$'\n')[-+] ]] && [ -e "$CLONE_DIR/dependencies/xmrig/.git" ]; then
+        return 0
+    fi
     rm -rf -- "$CLONE_DIR"
 }
 

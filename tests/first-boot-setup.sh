@@ -53,8 +53,16 @@ printf '#!/bin/bash\necho "pgrep $*" >> "%s/calls.log"\nbash "%s/count.sh" "%s/a
 # systemctl: xmrig.service is enabled and running unless no-service exists; no SSH server is enabled
 # unless ssh-on exists, and then its disable fails.
 printf '#!/bin/bash\necho "systemctl $*" >> "%s/calls.log"\ncase "$1 ${*: -1}" in "is-"*" xmrig.service") [ ! -e "%s/no-service" ] ;; "is-enabled ssh.service") [ -e "%s/ssh-on" ] ;; is-*) exit 1 ;; disable*) exit 1 ;; esac\n' "$w" "$w" "$w" > "$w/stubs/systemctl"
-# git describe answers the tag clone-tag holds, or fails as on an untagged commit.
-printf '#!/bin/bash\necho "git $*" >> "%s/calls.log"\n[ -f "%s/clone-tag" ] || exit 128\ncat "%s/clone-tag"\n' "$w" "$w" "$w" > "$w/stubs/git"
+# git describe answers the tag clone-tag holds, or fails as on an untagged commit; git submodule
+# status prints sub-status, else one submodule checked out at its pinned commit.
+cat > "$w/stubs/git" <<EOF
+#!/bin/bash
+echo "git \$*" >> "$w/calls.log"
+case "\$*" in
+  *" describe "*) [ -f "$w/clone-tag" ] || exit 128; cat "$w/clone-tag" ;;
+  *" submodule status") if [ -f "$w/sub-status" ]; then cat "$w/sub-status"; else echo " 3f2a1b0 dependencies/xmrig (v6.22.2)"; fi ;;
+esac
+EOF
 printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\n' "$w" > "$w/stubs/hostname"
 # sleep: the blink loop's half seconds pass fast and unlogged; the retry waits are logged, not slept.
 printf '#!/bin/bash\nif [ "$1" = 0.5 ]; then exec "%s" 0.05; fi\necho "sleep $*" >> "%s/calls.log"\n' "$real_sleep" "$w" > "$w/stubs/sleep"
@@ -86,7 +94,7 @@ W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBE
 # board <fixture> [settings lines...]: a Pi 5 with 8 GiB, its LED off, the settings given.
 board() {
   local fx="$w/$1"; shift
-  rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/fetch-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/installer-exit" "$w/ssh-on"
+  rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/fetch-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/sub-status" "$w/installer-exit" "$w/ssh-on"
   mkdir -p "$fx/state" "$fx/leds/ACT" "$fx/net/eth0" "$fx/dev" "$fx/etc"
   printf 'raspberrypi,5-model-b\0brcm,bcm2712\0' > "$fx/compatible"
   ln -s "$fx/dev" "$fx/net/eth0/device"; printf '1\n' > "$fx/net/eth0/type"
@@ -256,11 +264,26 @@ $done_line rpi5-3fa2.
 exit 0" "$(run cut)"
 [ -e "$w/cut/clone" ] && fail "cut: a clone off the tag is kept"
 grep -qx "git -C $w/cut/clone describe --exact-match --tags" "$w/calls.log" || fail "cut: no git describe"
-board kept; : > "$w/kept/state/installing"; mkdir -p "$w/kept/clone/.git"; echo v9.9.9 > "$w/clone-tag"
+# kept <fixture>: a cut run's clone at the tag, its submodule checked out.
+kept() {
+  board "$1"; : > "$w/$1/state/installing"; mkdir -p "$w/$1/clone/.git" "$w/$1/clone/dependencies/xmrig"
+  : > "$w/$1/clone/dependencies/xmrig/.git"; echo v9.9.9 > "$w/clone-tag"
+}
+kept kept
 same "cut clone at the tag" "$ssh_line
 $done_line rpi5-3fa2.
 exit 0" "$(run kept)"
 [ -d "$w/kept/clone/.git" ] || fail "cut: the clone at the tag is removed"
+grep -qx "git -C $w/kept/clone submodule status" "$w/calls.log" || fail "cut: no git submodule status"
+kept subnone; echo "-3f2a1b0 dependencies/xmrig" > "$w/sub-status"
+run subnone > /dev/null
+[ -e "$w/subnone/clone" ] && fail "cut: a clone at the tag without its submodule is kept"
+kept subplus; echo "+9c8d7e6 dependencies/xmrig (v6.21.0)" > "$w/sub-status"
+run subplus > /dev/null
+[ -e "$w/subplus/clone" ] && fail "cut: a clone at the tag with its submodule off the pin is kept"
+kept subempty; rm -f "$w/subempty/clone/dependencies/xmrig/.git"
+run subempty > /dev/null
+[ -e "$w/subempty/clone" ] && fail "cut: a clone at the tag without dependencies/xmrig checked out is kept"
 board fresh; mkdir -p "$w/fresh/clone/.git"
 run fresh > /dev/null
 [ -d "$w/fresh/clone/.git" ] || fail "a clone is removed without installing"
