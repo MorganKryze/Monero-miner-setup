@@ -84,16 +84,18 @@ function settings_region() {
     return 1
 }
 
-# Prints the file without the settings block's inner lines: the setup's code holds no wallet.
+# Prints the file without the settings block, its marker lines included: the setup's code holds no
+# wallet, and a handoff run from that code finds no block, so it stops before it writes anything.
 function without_settings() {
     local line inside=0
     while IFS= read -r line || [ -n "$line" ]; do
-        if [ "$inside" -eq 1 ] && [ "$line" != "$SETTINGS_END" ]; then
-            continue
+        if [ "$inside" -eq 1 ]; then
+            [ "$line" != "$SETTINGS_END" ] || inside=0
+        elif [ "$line" = "$SETTINGS_START" ]; then
+            inside=1
+        else
+            printf '%s\n' "$line"
         fi
-        inside=0
-        [ "$line" != "$SETTINGS_START" ] || inside=1
-        printf '%s\n' "$line"
     done <"$1"
 }
 

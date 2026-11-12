@@ -4,8 +4,9 @@
 # a trailing CR; an unknown, repeated or missing key and a value of the wrong form are refused with
 # one line naming the key, and no value is ever run (a value holding $(...), backticks or ; creates
 # no file). The handoff DietPi runs once copies the settings to a 0600 file in a 0700 folder, the
-# code without the settings to a 0755 copy, writes the setup's unit and enables and starts it. The
-# status LED blinks during the setup, stays on after a refusal and beats once set up.
+# code without the settings to a 0755 copy, writes the setup's unit and enables and starts it; run
+# bare from that copy, it finds no settings and changes nothing. The status LED blinks during the
+# setup, stays on after a refusal and beats once set up.
 # Every function runs under env -i on fixtures, with stub id, systemctl and sleep; PATH holds only
 # the stub and tool-link directories. Nothing is installed or started. Run from the repository
 # root. Prints FAIL lines, exits 1 on any miss.
@@ -197,7 +198,7 @@ same "settings copy" "wallet = $W
 mode = max
 # pool = x" "$(cat "$h/state/settings")"
 same "code copy mode" "755 $me" "$(mode_of "$h/sbin/xmrig-first-boot")"
-same "code copy without settings" "$(grep -v -x -e "wallet = $W" -e 'mode = max' -e '# pool = x' "$h/boot/Automation_Custom_Script.sh")" "$(cat "$h/sbin/xmrig-first-boot")"
+same "code copy without the settings block" "$(sed "/^: <<'END_OF_MINER_SETTINGS'$/,/^END_OF_MINER_SETTINGS$/d" "$h/boot/Automation_Custom_Script.sh")" "$(cat "$h/sbin/xmrig-first-boot")"
 grep -q "$W" "$h/sbin/xmrig-first-boot" && fail "the code copy holds the wallet"
 same "unit mode" "644 $me" "$(mode_of "$h/unit/xmrig-first-boot.service")"
 same "unit" "[Unit]
@@ -219,6 +220,13 @@ rm -f "$w/systemctl.log"
 same "handoff again" "$started
 exit 0" "$(run "$h/boot/Automation_Custom_Script.sh" "$h" handoff)"
 same "settings copy mode again" "600 $me" "$(mode_of "$h/state/settings")"
+# The code copy run bare, as root may run it on the board, finds no settings and writes nothing.
+rm -f "$w/systemctl.log"; cp "$h/state/settings" "$w/settings.before"; cp "$h/sbin/xmrig-first-boot" "$w/code.before"
+same "handoff from the code copy" "[  ERROR  ] Failed to install the first-boot setup: the settings copy.
+exit 1" "$(run "$h/sbin/xmrig-first-boot" "$h" main)"
+cmp -s "$w/settings.before" "$h/state/settings" || fail "the code copy's handoff changed the settings copy"
+cmp -s "$w/code.before" "$h/sbin/xmrig-first-boot" || fail "the code copy's handoff changed the code copy"
+[ -e "$w/systemctl.log" ] && fail "systemctl ran from the code copy's handoff"
 
 : > "$w/not-root"
 same "handoff not as root" "[  ERROR  ] The first-boot setup must run as root.
