@@ -43,6 +43,14 @@ ROOT_SSH_DIR="/root/.ssh"
 CLONE_DIR="/opt/Monero-miner-setup"
 # RandomX's fast mode needs this much memory; scripts/install.sh holds the same floor.
 RX_FLOOR_MIB=2560
+RAW_URL="https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup"
+RELEASE_URL="https://github.com/MorganKryze/Monero-miner-setup/releases/download"
+CURL_OPTS=(-fsSL --proto '=https' --proto-redir '=https')
+# The processes that hold apt's locks on DietPi; the setup waits until none runs.
+APT_PROCESSES="apt apt-get dpkg dietpi-software dietpi-update"
+# Network waits retry every RETRY_SECONDS within the boot, with one log line every RETRY_LOG_EVERY tries.
+RETRY_SECONDS=10
+RETRY_LOG_EVERY=30
 SETTINGS_START=": <<'END_OF_MINER_SETTINGS'"
 SETTINGS_END="END_OF_MINER_SETTINGS"
 SETTINGS_REMEDY="Fix it in the settings at the top of Automation_Custom_Script.sh and flash the card again, or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot."
@@ -55,6 +63,10 @@ BLINK_PID=""
 
 function info() {
     printf '[  INFO   ] %s\n' "$*"
+}
+
+function success() {
+    printf '[ SUCCESS ] %s\n' "$*"
 }
 
 function warning() {
@@ -298,15 +310,132 @@ function handoff() {
     info "The first-boot setup is installed and starts now: the status LED blinks while it runs."
 }
 
-# The setup xmrig-first-boot.service runs at each boot until it is done.
-function setup() {
-    STATUS_LED=$(led_find)
-    led_blink_start
-    if ! read_settings "$STATE_DIR/settings"; then
-        led_state error
+# Waits until no process that holds apt's locks runs: the installer installs packages.
+function wait_for_apt() {
+    local p
+    while :; do
+        for p in $APT_PROCESSES; do
+            if pgrep -x "$p" >/dev/null; then
+                sleep "$RETRY_SECONDS"
+                continue 2
+            fi
+        done
+        return 0
+    done
+}
+
+# Exit 0 when the release's SHA256SUMS answers: the tag is published and the network is up.
+function release_reachable() {
+    curl "${CURL_OPTS[@]}" -I -o /dev/null "$RELEASE_URL/$RELEASE_TAG/SHA256SUMS"
+}
+
+# Fetches the release's installer to $STATE_DIR/install.sh. Exit 1 when the download fails, 2
+# (one error line, nothing kept) when its sha256 is not the one this script carries.
+function fetch_installer() {
+    local file="$STATE_DIR/install.sh" got
+    rm -f -- "$file"
+    if ! curl "${CURL_OPTS[@]}" -o "$file" "$RAW_URL/$RELEASE_TAG/scripts/install.sh"; then
+        rm -f -- "$file"
         return 1
     fi
-    led_blink_stop
+    got=$(sha256sum "$file")
+    got=${got%% *}
+    if [ "$got" != "$INSTALLER_SHA256" ]; then
+        rm -f -- "$file"
+        error "The installer of $RELEASE_TAG has sha256 $got where this script expects $INSTALLER_SHA256, so nothing is installed. Download dietpi-first-boot.zip of $RELEASE_TAG again from the release page and check it against SHA256SUMS."
+        return 2
+    fi
+}
+
+# Retries the release check and the download within the boot until the installer is fetched;
+# returns fetch_installer's refusal as is.
+function fetch_with_retry() {
+    local tries=0 code
+    while :; do
+        if release_reachable; then
+            fetch_installer
+            code=$?
+            [ "$code" -eq 1 ] || return "$code"
+        fi
+        [ $((tries % RETRY_LOG_EVERY)) -ne 0 ] || info "Waiting for the network to fetch the installer of $RELEASE_TAG..."
+        tries=$((tries + 1))
+        sleep "$RETRY_SECONDS"
+    done
+}
+
+# Exit 1 with one error line when the board is under RandomX's fast-mode floor and the settings
+# did not choose light mode. A memory size it cannot read is left to the installer.
+function memory_floor_ok() {
+    local key kb rest
+    [ "$S_LIGHT" != yes ] && [ -r "$MEMINFO" ] || return 0
+    while read -r key kb rest; do
+        [ "$key" = MemTotal: ] || continue
+        [[ $kb =~ ^[0-9]{1,12}$ ]] || return 0
+        [ $((10#$kb / 1024)) -lt "$RX_FLOOR_MIB" ] || return 0
+        error "This board has $((10#$kb / 1024)) MiB of memory, under the $RX_FLOOR_MIB MiB RandomX's fast mode needs. Add light = yes to the settings to mine in the slower light mode, and flash the card again."
+        return 1
+    done <"$MEMINFO"
+    return 0
+}
+
+# A run cut by a power loss leaves `installing`: a clone not checked out at the release's tag is
+# then a partial one, removed so the installer clones it again. A complete clone is kept.
+function clean_cut_clone() {
+    local tag
+    [ -e "$STATE_DIR/installing" ] && [ -d "$CLONE_DIR" ] || return 0
+    tag=$(git -C "$CLONE_DIR" describe --exact-match --tags 2>/dev/null) || tag=""
+    [ "$tag" != "$RELEASE_TAG" ] || return 0
+    rm -rf -- "$CLONE_DIR"
+}
+
+# Runs the fetched installer with the settings and <worker name>. `installing` stays while it runs
+# and after a failure, so the next boot checks the clone it may have cut.
+function run_installer() {
+    local -a args=(-w "$S_WALLET" --mode "$S_MODE" --prebuilt --autostart -y --name "$1")
+    [ -z "$S_POOL" ] || args+=(-p "$S_POOL")
+    [ -z "$S_DONATE" ] || args+=(--donate "$S_DONATE")
+    : >"$STATE_DIR/installing" || return 1
+    bash "$STATE_DIR/install.sh" "${args[@]}" || return 1
+    rm -f -- "$STATE_DIR/installing"
+}
+
+# Ends a failed setup: the error LED stays on and the setup runs again at the next boot.
+function setup_failed() {
+    led_state error
+    return 1
+}
+
+# The setup xmrig-first-boot.service runs at each boot until it is done; a done board only sets
+# its LED, which a reboot resets.
+function setup() {
+    local host
+    umask 077
+    STATUS_LED=$(led_find)
+    if [ -e "$STATE_DIR/done" ]; then
+        led_state heartbeat
+        return 0
+    fi
+    led_blink_start
+    read_settings "$STATE_DIR/settings" || { setup_failed; return 1; }
+    if [ -z "$RELEASE_TAG" ] || [ -z "$INSTALLER_SHA256" ]; then
+        error "This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository."
+        setup_failed
+        return 1
+    fi
+    memory_floor_ok || { setup_failed; return 1; }
+    clean_cut_clone || { setup_failed; return 1; }
+    wait_for_apt
+    fetch_with_retry || { setup_failed; return 1; }
+    host=$(hostname)
+    run_installer "${S_NAME:-$host}" || { setup_failed; return 1; }
+    if ! systemctl is-enabled --quiet xmrig.service || ! systemctl is-active --quiet xmrig.service; then
+        error "The installer finished, but xmrig.service is not running, so the setup is not marked done. It runs again at the next boot; see journalctl -u xmrig.service."
+        setup_failed
+        return 1
+    fi
+    printf '%s\n' "$RELEASE_TAG" | put_file "$STATE_DIR/done" 0600 || { setup_failed; return 1; }
+    led_state heartbeat
+    success "First-boot setup done: $host mines as worker ${S_NAME:-$host}."
 }
 
 function main() {
