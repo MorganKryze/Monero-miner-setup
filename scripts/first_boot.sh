@@ -267,13 +267,14 @@ function led_state() {
     esac
 }
 
-# Writes stdin to <file> with <mode> through a temp file in its folder, so the file is either the
-# old one or the whole new one.
+# Writes stdin to <file> through a temp file in its folder, so the file is either the old one or the
+# whole new one. The file takes <mode> when given, else keeps its own (0644 for a new file).
 function put_file() {
-    local file="$1" mode="$2" tmp
+    local file="$1" mode="${2:-}" tmp
     [ ! -d "$file" ] || return 1
     tmp=$(mktemp "${file%/*}/.${file##*/}.XXXXXX") || return 1
-    if cat >"$tmp" && chmod "$mode" "$tmp" && mv -f "$tmp" "$file"; then
+    if { if [ -n "$mode" ]; then chmod "$mode" "$tmp"; elif [ -f "$file" ]; then cp -p -- "$file" "$tmp"; else chmod 0644 "$tmp"; fi; } &&
+        cat >"$tmp" && mv -f -- "$tmp" "$file"; then
         return 0
     fi
     rm -f -- "$tmp"
@@ -342,20 +343,6 @@ function board_name() {
     printf '%s-%s\n' "$short" "${mac,,}"
 }
 
-# Writes stdin over <file> through a temp file in its folder, keeping the file's mode (0644 for a
-# new file).
-function replace_file() {
-    local file="$1" tmp
-    [ ! -d "$file" ] || return 1
-    tmp=$(mktemp "${file%/*}/.${file##*/}.XXXXXX") || return 1
-    if { if [ -f "$file" ]; then cp -p -- "$file" "$tmp"; else chmod 0644 "$tmp"; fi; } &&
-        cat >"$tmp" && mv -f -- "$tmp" "$file"; then
-        return 0
-    fi
-    rm -f -- "$tmp"
-    return 1
-}
-
 # Prints the hosts file with one `127.0.1.1 <name>` line in place of every 127.0.1.1 line.
 function hosts_text() {
     local line done=0
@@ -376,7 +363,7 @@ function hosts_text() {
 function set_hostname() {
     local name="$1" hosts
     hosts=$(hosts_text "$name") || return 1
-    if ! printf '%s\n' "$name" | replace_file "$HOSTNAME_FILE" || ! printf '%s\n' "$hosts" | replace_file "$HOSTS_FILE" ||
+    if ! printf '%s\n' "$name" | put_file "$HOSTNAME_FILE" || ! printf '%s\n' "$hosts" | put_file "$HOSTS_FILE" ||
         ! hostname "$name"; then
         error "Failed to set the host name to $name. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
         return 1
