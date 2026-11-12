@@ -161,7 +161,7 @@ The miner's own unit changes too: no `Nice`, so it runs at normal priority, and 
 | `/etc/xmrig-host-tuning.conf` | The values: the mode, one line per policy, the huge pages |
 | `/run/xmrig-host-tuning/found` | The governor and maximum each policy had before the boot script changed it. Gone at shutdown |
 
-The installer writes the mode to `configs/board-mode` in the clone. `make service-setup` reads it and writes the values again, and `make update` keeps the mode since it runs `make service-setup`. The values file is written at each setup, so a hand edit of `/etc/xmrig-host-tuning.conf` is replaced at the next one. A setup with no `configs/board-mode` (the installer run again without `--mode`) removes the three files.
+When the installer writes a new service config, it writes the mode to `configs/board-mode` in the clone. A kept service config keeps the `configs/board-mode` it came with, so a re-run of the installer, with or without `--mode`, leaves the mode as it was. `make service-setup` reads it and writes the values again, and `make update` keeps the mode since it runs `make service-setup`. The values file is written at each setup, so a hand edit of `/etc/xmrig-host-tuning.conf` is replaced at the next one. A setup with no `configs/board-mode` removes the three files, giving the settings back. To keep the service and mine without the tuning, run `make clean-configs`, the installer again without `--mode`, then `make service-setup` and `make restart`, passing your wallet and flags again.
 
 To give the settings back, run `make service-disable` (or `make wipe`). It stops the tuning, which gives each policy the governor and maximum it had, then removes the three files. The huge pages stay reserved until the next boot frees them.
 
