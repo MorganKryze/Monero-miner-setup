@@ -295,9 +295,11 @@ function enable_tuning() {
     fi
 }
 
-# Exit 0 when systemd knows the tuning unit (an earlier setup with a mode installed it).
+# Exit 0 when any of the tuning's three files is there, as `make service-disable` tests: the values
+# file alone is what a setup that failed half way leaves, the boot script alone what a removed unit
+# leaves, and systemd knows neither.
 function tuning_installed() {
-    [ -n "$(systemctl show -p FragmentPath --value xmrig-host-tuning.service 2>/dev/null)" ]
+    [ -f "$TUNING_UNIT" ] || [ -f "$TUNING_BIN" ] || [ -f "$TUNING_CONF" ]
 }
 
 # Stops the tuning, which gives the CPU settings back, then removes its unit, script and values;

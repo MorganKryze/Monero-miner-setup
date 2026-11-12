@@ -55,7 +55,13 @@ for t in bash sh sed cat mktemp dirname readlink rm ls cut awk cp mv mkdir basen
   p=$(command -v "$t") && [ -x "$p" ] || { echo "FAIL no $t on PATH"; exit 1; }
   case $t in mktemp|sed|cat) ln -s "$p" "$b/$t.real" ;; *) ln -s "$p" "$b/$t" ;; esac
 done
-cp "$root/$script" "$root/scripts/setup_service_common.sh" "$root/scripts/setup_service_tuning.sh" "$c/scripts/"
+cp "$root/$script" "$root/scripts/setup_service_common.sh" "$c/scripts/"
+# A setup without a mode looks for the tuning's three installed files: they sit in a fixture
+# directory, absent unless a case creates them.
+old="$w/old"
+old_paths=(-e "s|^TUNING_UNIT=.*|TUNING_UNIT=\"$old/xmrig-host-tuning.service\"|"
+  -e "s|^TUNING_BIN=.*|TUNING_BIN=\"$old/xmrig-host-tuning\"|" -e "s|^TUNING_CONF=.*|TUNING_CONF=\"$old/xmrig-host-tuning.conf\"|")
+sed "${old_paths[@]}" "$root/scripts/setup_service_tuning.sh" > "$c/scripts/setup_service_tuning.sh"
 cp "$root/templates/xmrig.service.template" "$root/templates/logrotate.xmrig.template" "$c/templates/"
 # The binary sits in the build directory behind a link in the clone, as make build leaves it.
 mkdir "$c/build-xmrig"
@@ -599,6 +605,9 @@ setup
 same "no profile: error" "ERROR: The service config was written for --mode max, and this board has no valid profile in $c/scripts/board_profiles.conf. Run the installer again without --mode, or update the clone: git -C $c pull" "$(printf '%s\n' "$out" | grep '^ERROR')"
 nothing "no profile"
 printf '%s\0' xunlong,orangepi-5-plus rockchip,rk3588 > "$w/board/compatible"
+# From here on the setup runs without a mode, so it looks for the installed tuning: at the fixture
+# paths.
+sed -i.bak "${old_paths[@]}" "$c/scripts/setup_service_tuning.sh" && rm -f "$c/scripts/setup_service_tuning.sh.bak"
 # A board-mode that is not max or eco: the plain unit, as without one.
 for m in 'eco; rm -rf /' ECO; do
   printf '%s\n' "$m" > "$c/configs/board-mode"
@@ -609,17 +618,33 @@ done
 # No board-mode while an earlier setup's tuning is installed: the plain unit, then the tuning
 # stopped (its stop gives the CPU settings back) and removed, with one line.
 rm -f "$c/configs/board-mode"
+old_rm="sudo rm -f -- $old/xmrig-host-tuning.service $old/xmrig-host-tuning $old/xmrig-host-tuning.conf"
+mkdir -p "$old"
+: > "$old/xmrig-host-tuning.service"; : > "$old/xmrig-host-tuning"; : > "$old/xmrig-host-tuning.conf"
 accounts
 TUNING_FRAGMENT=/etc/systemd/system/xmrig-host-tuning.service setup
 [ "$code" -eq 0 ] || fail "untuned again: exit $code"
 same "untuned again: sudo calls" "$(calls_for alice alice)
 sudo systemctl stop xmrig-host-tuning.service
 sudo systemctl disable xmrig-host-tuning.service
-sudo rm -f -- /etc/systemd/system/xmrig-host-tuning.service /usr/local/sbin/xmrig-host-tuning /etc/xmrig-host-tuning.conf
+$old_rm
 sudo systemctl daemon-reload" "$calls"
 same "untuned again: output" "$(out_for alice | sed '/^XMRig service has been setup/i\
 Host tuning removed: CPU settings given back; the huge pages are freed at the next boot.')" "$out"
 same "untuned again: the unit root installed" "$(want_unit alice alice)" "$(cat "$SERVICE_ROOT/etc/systemd/system/xmrig.service" 2>/dev/null)"
+# A partial install (the values file or the boot script, no unit systemd knows), as a setup that
+# failed half way or a removed unit leaves: removed all the same, nothing to stop.
+for only in xmrig-host-tuning.conf xmrig-host-tuning; do
+  rm -f "$old/"*; : > "$old/$only"
+  accounts
+  setup
+  [ "$code" -eq 0 ] || fail "only $only left: exit $code"
+  same "only $only left: sudo calls" "$(calls_for alice alice)
+$old_rm
+sudo systemctl daemon-reload" "$calls"
+  same "only $only left: output" "$(out_for alice | sed '/^XMRig service has been setup/i\
+Host tuning removed: systemd did not know its unit, so nothing was stopped; the huge pages are freed at the next boot.')" "$out"
+done
 
 [ "$rc" -eq 0 ] && echo "PASS service-staging"
 exit "$rc"
