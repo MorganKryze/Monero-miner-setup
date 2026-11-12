@@ -68,7 +68,7 @@ split() {
   echo "exit $code"
 }
 calls() { cat "$w/calls.log" 2>/dev/null; }
-# iface <fixture> <name> <mac> [wireless|phy80211|nodevice|loopback]
+# iface <fixture> <name> <mac> [wireless|phy80211|nodevice|loopback|can]
 iface() {
   local d="$w/$1/net/$2"
   mkdir -p "$d" "$w/$1/devices/$2"
@@ -79,6 +79,7 @@ iface() {
     phy80211) ln -s "$w/$1/devices/$2" "$d/phy80211" ;;
     loopback) printf '772\n' > "$d/type"; return ;;
     nodevice) return ;;
+    can) printf '280\n' > "$d/type" ;;
   esac
   ln -s "$w/$1/devices/$2" "$d/device"
 }
@@ -121,6 +122,14 @@ iface wfirst eth1 d8:3a:dd:41:3f:a2
 iface wfirst end0 bb:bb:bb:bb:bb:bb nodevice
 same "wireless interface first by name" "rpi5-3fa2
 exit 0" "$(run wfirst board_name)"
+board ctype raspberrypi,5-model-b brcm,bcm2712
+iface ctype can0 aa:aa:aa:aa:aa:01 can
+same "another type first by name" "rpi5-3fa2
+exit 0" "$(run ctype board_name)"
+board badmac raspberrypi,5-model-b brcm,bcm2712
+iface badmac end0 aa:aa:aa:aa:aa
+same "malformed address first by name" "rpi5-3fa2
+exit 0" "$(run badmac board_name)"
 board nowired raspberrypi,5-model-b brcm,bcm2712
 rm -rf "$w/nowired/net/eth0"
 same "no wired interface" "[  ERROR  ] This board has no wired network interface to name it after: the first boot needs Ethernet. Install with the script instead, as the README says.
