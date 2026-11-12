@@ -150,7 +150,7 @@ With `--mode max|eco` on a board with a profile (see [Board profiles](#board-pro
 - a policy holding a CPU the mode mines on gets the `performance` governor: with `max`, at its hardware maximum; with `eco`, capped at the profile's `eco` cap.
 - every other policy gets the `powersave` governor.
 
-It also reserves 1280 huge pages of 2 MB, on RK3588 boards only: the kernel's default huge page must be 2 MB, which a Pi 5's is not, so a Pi 5 gets none. On an RK3588 board it reserves them only with at least 3584 MiB of memory and a service config in RandomX's fast mode. It raises the reservation and never lowers it.
+It also reserves 1280 huge pages of 2 MB when the kernel's default huge page is 2 MB, the board has at least 3584 MiB of memory and the service config runs RandomX's fast mode. RK3588 boards qualify; the Pi 5's stock kernel has no huge pages, so a Pi 5 gets none. It raises the reservation and never lowers it.
 
 The miner's own unit changes too: no `Nice`, so it runs at normal priority, and it restarts 15 s after any exit, not only after a failure.
 
@@ -414,7 +414,7 @@ macOS has no userspace equivalent for any of these. Expect 10–30% less hashrat
 | `bcm2712` | `brcm,bcm2712` | `0-3` | `0-3` | `policy0=1800000` | untested |
 | `rk3588` | `rockchip,rk3588`, `rockchip,rk3588s` | `0-7` | `4-7` | `policy4=1800000`, `policy6=1800000` | untested |
 
-With the systemd service, `--mode` also sets each policy's governor and maximum (the `eco` cap in `eco`) and, on RK3588, huge pages at each boot: see [Dedicated board](#dedicated-board---mode). `make doctor` shows the `eco` cap next to each policy's current maximum.
+With the systemd service, `--mode` also sets each policy's governor and maximum (the `eco` cap in `eco`) and, where the kernel has 2 MB huge pages (RK3588, not the Pi 5's stock kernel), huge pages at each boot: see [Dedicated board](#dedicated-board---mode). `make doctor` shows the `eco` cap next to each policy's current maximum.
 
 Under 2560 MiB of memory RandomX's fast mode does not fit: the installer warns and new configs use light mode, slower but within memory. `make doctor` warns about it too.
 
