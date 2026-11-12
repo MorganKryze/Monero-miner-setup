@@ -389,13 +389,15 @@ function clean_cut_clone() {
 }
 
 # Runs the fetched installer with the settings and <worker name>. `installing` stays while it runs
-# and after a failure, so the next boot checks the clone it may have cut.
+# and after a failure, so the next boot checks the clone it may have cut. The installer runs under
+# systemd's default umask 022, not the setup's 077: its clone and folders must stay readable by the
+# xmrig account the service runs as.
 function run_installer() {
     local -a args=(-w "$S_WALLET" --mode "$S_MODE" --prebuilt --autostart -y --name "$1")
     [ -z "$S_POOL" ] || args+=(-p "$S_POOL")
     [ -z "$S_DONATE" ] || args+=(--donate "$S_DONATE")
     : >"$STATE_DIR/installing" || return 1
-    bash "$STATE_DIR/install.sh" "${args[@]}" || return 1
+    (umask 022 && bash "$STATE_DIR/install.sh" "${args[@]}") || return 1
     rm -f -- "$STATE_DIR/installing"
 }
 

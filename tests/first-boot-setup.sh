@@ -54,9 +54,10 @@ printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\necho rpi5-3fa2\n' "$w
 # sleep: the blink loop's half seconds pass fast and unlogged; the retry waits are logged, not slept.
 printf '#!/bin/bash\nif [ "$1" = 0.5 ]; then exec "%s" 0.05; fi\necho "sleep $*" >> "%s/calls.log"\n' "$real_sleep" "$w" > "$w/stubs/sleep"
 chmod +x "$w/stubs/"*
-# The installer records its arguments and exits with the code in installer-exit.
+# The installer records its arguments and umask, and exits with the code in installer-exit.
 cat > "$w/srv/install.sh" <<EOF
 echo "installer \$*" >> "$w/calls.log"
+umask > "$w/installer-umask"
 code=0; [ -f "$w/installer-exit" ] && read -r code < "$w/installer-exit"
 [ "\$code" -eq 0 ] || echo "[  ERROR  ] Invalid wallet address format." >&2
 exit "\$code"
@@ -186,6 +187,9 @@ same "success calls" "$(ok_calls ok shelf-2 "-p pool.example.org:10128 --donate 
 [ -e "$w/ok/state/installing" ] && fail "success: installing left"
 same "success: heartbeat" "heartbeat" "$(cat "$w/ok/leds/ACT/trigger")"
 grep -q "$W" <<<"$out" && fail "success: the wallet is printed"
+# The setup writes under umask 077, but the installer's clone and folders must stay readable by
+# the xmrig account the service runs as.
+same "success: installer umask" "0022" "$(cat "$w/installer-umask" 2>/dev/null)"
 
 # A done board only beats, at each later boot.
 rm -f "$w/calls.log"; printf 'none\n' > "$w/ok/leds/ACT/trigger"
