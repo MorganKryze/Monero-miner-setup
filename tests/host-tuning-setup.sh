@@ -61,6 +61,8 @@ board pi 8255824 - raspberrypi,5-model-b brcm,bcm2712
 pol pi policy0 "0 1 2 3"
 board small 2097152 2048 rockchip,rk3588s
 pol small policy0 "0 1 2 3"; pol small policy4 "4 5"; pol small policy6 "6 7"
+board three 3145728 2048 rockchip,rk3588
+pol three policy0 "0 1 2 3"; pol three policy4 "4 5"; pol three policy6 "6 7"
 board gib 16184388 1048576 rockchip,rk3588
 pol gib policy0 "0 1 2 3"; pol gib policy4 "4 5"; pol gib policy6 "6 7"
 board pc 16184388 2048 acme,desktop
@@ -102,6 +104,14 @@ policy0=performance max
 policy4=performance max
 policy6=performance max
 exit 0' "$(fn small tuning_values max "$w/small/seed.json")"
+# 3 GB: above the floor, but 1280 pages would leave less than 1024 MiB, which the boot script
+# refuses: no huge pages, so no closing line promising them.
+same "3 GB board" 'mode=max
+policy0=performance max
+policy4=performance max
+policy6=performance max
+exit 0' "$(fn three tuning_values max "$w/three/seed.json")"
+same "3 GB board lines" "" "$(fn three eval 'tuning_values max $d/seed.json | tuning_lines' | grep 'Huge pages')"
 same "1 GB default page" 'mode=eco
 policy0=powersave
 policy4=performance 1800000

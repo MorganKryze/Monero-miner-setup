@@ -6,7 +6,8 @@
 # The values are worked out here, at setup, from the board profile and the kernel's cpufreq
 # policies: each policy holding a CPU the mode mines on gets the performance governor (in eco,
 # capped at the profile's eco-cap), each other one powersave; on a kernel whose default huge page is
-# 2 MB, with memory for RandomX's fast mode and a service config in fast mode, 1280 huge pages.
+# 2 MB, with memory for RandomX's fast mode and for 1280 huge pages leaving 1024 MiB free, and a
+# service config in fast mode, 1280 huge pages.
 
 # ===== Constants =====
 TUNING_BIN="/usr/local/sbin/xmrig-host-tuning"
@@ -194,8 +195,9 @@ function tuning_values() {
     done
     mem=$(total_mem_mib)
     size=$(awk '/^Hugepagesize:/ && $3 == "kB" { print $2; exit }' "$MEMINFO" 2>/dev/null)
+    # The boot script reserves the pages only when 1024 MiB stay outside them (host_tuning.sh).
     if [ "$size" = 2048 ] && [[ "$mem" =~ ^[0-9]{1,9}$ ]] && [ "$mem" -ge "$RX_FLOOR_MIB" ] &&
-        [ "$(config_rx_mode "$seed")" != light ]; then
+        [ $(((mem - 1024) / 2)) -ge "$TUNING_HUGEPAGES" ] && [ "$(config_rx_mode "$seed")" != light ]; then
         echo "hugepages=$TUNING_HUGEPAGES"
     fi
 }
