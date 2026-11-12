@@ -14,6 +14,8 @@ SYSTEMD_UNIT := /etc/systemd/system/xmrig.service
 LAUNCHD_PLIST := $(HOME)/Library/LaunchAgents/com.moneroocean.xmrig.plist
 LOGROTATE_CONF := /etc/logrotate.d/xmrig
 TUNING_UNIT := /etc/systemd/system/xmrig-host-tuning.service
+# The board readout make status prints on Linux; a check points it at a stub.
+BOARD_STATUS := ./scripts/board_status.sh
 TUNING_BIN := /usr/local/sbin/xmrig-host-tuning
 TUNING_CONF := /etc/xmrig-host-tuning.conf
 
@@ -188,6 +190,7 @@ status:
 			echo "[$(ORANGE) WARNING $(RESET)] $(ORANGE)No XMRig service or process found.$(RESET)"; \
 		fi \
 	'
+	@bash $(BOARD_STATUS)
 
 service-setup:
 	@$(call log-info,"Setting up XMRig service...")

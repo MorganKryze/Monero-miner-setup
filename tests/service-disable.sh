@@ -56,7 +56,9 @@ exit 0
 EOS
 chmod +x "$w/bin/"*
 paths=(SYSTEMD_UNIT="$w/etc/xmrig.service" LAUNCHD_PLIST="$w/agents/com.moneroocean.xmrig.plist" LOGROTATE_CONF="$w/etc/logrotate-xmrig"
-  TUNING_UNIT="$w/etc/xmrig-host-tuning.service" TUNING_BIN="$w/etc/xmrig-host-tuning" TUNING_CONF="$w/etc/xmrig-host-tuning.conf")
+  TUNING_UNIT="$w/etc/xmrig-host-tuning.service" TUNING_BIN="$w/etc/xmrig-host-tuning" TUNING_CONF="$w/etc/xmrig-host-tuning.conf"
+  BOARD_STATUS="$w/board-status")
+printf 'echo "BOARD READOUT"\n' > "$w/board-status"
 # The targets must reach the service only through these variables: with them set, no recipe
 # may name another path under /etc, /usr/local/etc or a LaunchAgents directory. Otherwise not run.
 for t in start stop status service-disable; do
@@ -265,6 +267,7 @@ same "start with no service: calls" "" "$calls"
 target stop
 same "stop with no service: calls" "pgrep -x xmrig" "$calls"
 target status
+same "status: the board readout comes last" "BOARD READOUT" "$(printf '%s\n' "$out" | tail -n 1)"
 same "status with no service: calls" "pgrep -x xmrig" "$calls"
 # status on systemd: the unit's status, then the service's own log, read as the service account
 # (never as root inside the account's log directory), control characters shown with cat -v.
