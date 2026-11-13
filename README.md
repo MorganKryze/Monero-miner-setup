@@ -182,7 +182,7 @@ make status WALL_WATTS=9.5 KWH_PRICE=0.25
 
 Use this for a Raspberry Pi 5 or an RK3588 board with no screen and no keyboard: you flash DietPi, drop two files on the card, plug in Ethernet and power, and the board sets itself up and mines under its own name.
 
-Each release ships `dietpi-first-boot.zip` with two files: `dietpi.txt` and `Automation_Custom_Script.sh`.
+Each release ships `dietpi-first-boot.zip` with two files to copy, `dietpi.txt` and `Automation_Custom_Script.sh`, and `LICENSE-dietpi.txt`, the GPL-2.0 text that comes with DietPi's `dietpi.txt`.
 
 1. Flash the official DietPi Trixie image for your board on an SD card.
 2. Copy both files from the zip onto the card, replacing DietPi's `dietpi.txt`:

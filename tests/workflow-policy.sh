@@ -327,7 +327,7 @@ want=$(cat <<'YML'
             echo "Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup"
             echo "Check it on the board: sha256sum -c --ignore-missing SHA256SUMS"
             echo
-            echo "dietpi-first-boot.zip holds dietpi.txt and Automation_Custom_Script.sh for a DietPi card: the script installs this release only. Check it from a PC: gh attestation verify dietpi-first-boot.zip --repo MorganKryze/Monero-miner-setup"
+            echo "dietpi-first-boot.zip holds dietpi.txt and Automation_Custom_Script.sh for a DietPi card, and DietPi's licence: the script installs this release only. Check it from a PC: gh attestation verify dietpi-first-boot.zip --repo MorganKryze/Monero-miner-setup"
             echo "Its dietpi.txt is DietPi v10.8's (GPL-2.0, https://github.com/MichaIng/DietPi) with the settings this project needs changed."
           } > notes.md
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md "${pre[@]}" xmrig-linux-arm64 dietpi-first-boot.zip SHA256SUMS

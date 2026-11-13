@@ -46,13 +46,16 @@ tag=v$(sed -n 's/^VERSION="\(.*\)"$/\1/p' scripts/install.sh)
 mkdir -p "$w/out" "$w/x"
 bundle "$tag" "$w/out" || fail "bundle: exit non-zero for $tag"
 z=$w/out/dietpi-first-boot.zip
-[ "$(unzip -Z1 "$z" 2>/dev/null | LC_ALL=C sort)" = "$(printf '%s\n' Automation_Custom_Script.sh dietpi.txt)" ] \
-  || fail "zip: not exactly Automation_Custom_Script.sh and dietpi.txt"
+[ "$(unzip -Z1 "$z" 2>/dev/null | LC_ALL=C sort)" = "$(printf '%s\n' Automation_Custom_Script.sh LICENSE-dietpi.txt dietpi.txt)" ] \
+  || fail "zip: not exactly Automation_Custom_Script.sh, LICENSE-dietpi.txt and dietpi.txt"
 while read -r t; do
   [[ $t =~ ^[0-9]{8}\.[0-9]{6}$ ]] && [ "${t/./}" -gt 20210101000200 ] || fail "zip: a file dated $t, not after 2021-01-01 00:02"
 done < <(zipinfo -T "$z" 2>/dev/null | awk '/^-/ { print $(NF - 1) }')
 (cd "$w/x" && unzip -q "$z") || fail "zip: does not extract"
 cmp -s "$w/x/dietpi.txt" "$d" || fail "zip: dietpi.txt is not templates/dietpi.txt"
+# DietPi's licence ships with its file: the GPL-2.0 text of DietPi v10.8, unchanged.
+cmp -s "$w/x/LICENSE-dietpi.txt" templates/dietpi-LICENSE.txt || fail "zip: LICENSE-dietpi.txt is not templates/dietpi-LICENSE.txt"
+[ "$(sha256sum templates/dietpi-LICENSE.txt | awk '{ print $1 }')" = "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643" ] || fail "templates/dietpi-LICENSE.txt is not DietPi v10.8's LICENSE"
 sum=$(sha256sum scripts/install.sh | awk '{ print $1 }')
 want=$(sed -e 's/^RELEASE_TAG=""$/RELEASE_TAG="'"$tag"'"/' -e "s/^INSTALLER_SHA256=\"\"\$/INSTALLER_SHA256=\"$sum\"/" scripts/first_boot.sh)
 [ "$(cat "$w/x/Automation_Custom_Script.sh")" = "$want" ] || fail "zip: the script is not scripts/first_boot.sh with the tag and the installer's sum"

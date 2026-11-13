@@ -10,6 +10,8 @@ set -euo pipefail
 ZIP_NAME="dietpi-first-boot.zip"
 SOURCE_SCRIPT="scripts/first_boot.sh"
 SOURCE_DIETPI="templates/dietpi.txt"
+# DietPi's licence (GPL-2.0), shipped beside its dietpi.txt.
+SOURCE_LICENSE="templates/dietpi-LICENSE.txt"
 INSTALLER="scripts/install.sh"
 
 function die() {
@@ -22,7 +24,7 @@ out=${2-}
 # The tag ends up in a download URL on every board: the same form the installer accepts.
 [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || die "Give a release tag such as v0.2.0, not '$tag'."
 [ -n "$out" ] && [ -d "$out" ] || die "Give a folder for the zip that exists, not '$out'."
-for f in "$SOURCE_SCRIPT" "$SOURCE_DIETPI" "$INSTALLER"; do
+for f in "$SOURCE_SCRIPT" "$SOURCE_DIETPI" "$SOURCE_LICENSE" "$INSTALLER"; do
     [ -f "$f" ] && [ ! -L "$f" ] || die "$f is missing or a link: run this from the repository root."
 done
 # The script fetches that tag's installer: a zip naming another release would install a version
@@ -40,11 +42,12 @@ trap 'rm -rf -- "$stage"' EXIT
 sed -e "s/^RELEASE_TAG=\"\"\$/RELEASE_TAG=\"$tag\"/" -e "s/^INSTALLER_SHA256=\"\"\$/INSTALLER_SHA256=\"$sum\"/" \
     "$SOURCE_SCRIPT" > "$stage/Automation_Custom_Script.sh"
 cp -- "$SOURCE_DIETPI" "$stage/dietpi.txt"
+cp -- "$SOURCE_LICENSE" "$stage/LICENSE-dietpi.txt"
 chmod 0755 "$stage/Automation_Custom_Script.sh"
-chmod 0644 "$stage/dietpi.txt"
+chmod 0644 "$stage/dietpi.txt" "$stage/LICENSE-dietpi.txt"
 stamp=$(TZ=UTC date -u -r "$when" +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -u -d "@$when" +%Y%m%d%H%M.%S)
-TZ=UTC touch -t "$stamp" "$stage/Automation_Custom_Script.sh" "$stage/dietpi.txt"
+TZ=UTC touch -t "$stamp" "$stage/Automation_Custom_Script.sh" "$stage/dietpi.txt" "$stage/LICENSE-dietpi.txt"
 rm -f -- "$out/$ZIP_NAME"
-(cd "$stage" && TZ=UTC zip -q -X "$ZIP_NAME" Automation_Custom_Script.sh dietpi.txt)
+(cd "$stage" && TZ=UTC zip -q -X "$ZIP_NAME" Automation_Custom_Script.sh dietpi.txt LICENSE-dietpi.txt)
 mv -- "$stage/$ZIP_NAME" "$out/$ZIP_NAME"
 echo "[ SUCCESS ] $out/$ZIP_NAME for $tag (installer sha256 $sum)."
