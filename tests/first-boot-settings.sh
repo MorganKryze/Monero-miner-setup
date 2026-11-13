@@ -181,6 +181,11 @@ grep -qx 'RELEASE_TAG=""' "$script" || fail 'no RELEASE_TAG="" line'
 grep -qx 'INSTALLER_SHA256=""' "$script" || fail 'no INSTALLER_SHA256="" line'
 grep -qx 'RX_FLOOR_MIB=2560' "$script" || fail 'no RX_FLOOR_MIB=2560 line'
 same "floor equal to the installer's" "$(grep -x 'RX_FLOOR_MIB=[0-9]*' "$root/scripts/install.sh")" "$(grep -x 'RX_FLOOR_MIB=[0-9]*' "$script")"
+# The setup looks for the clone where the installer puts it as root: ROOT_BASE_DIR/REPO_NAME.
+base=$(sed -n 's/^ROOT_BASE_DIR="\(\/[^"]*\)"$/\1/p' "$root/scripts/install.sh")
+name=$(sed -n 's/^REPO_NAME="\([^"/]*\)"$/\1/p' "$root/scripts/install.sh")
+[ -n "$base" ] && [ -n "$name" ] || fail "install.sh: no ROOT_BASE_DIR or REPO_NAME line"
+same "clone folder equal to the installer's" "CLONE_DIR=\"$base/$name\"" "$(grep -x 'CLONE_DIR=.*' "$script")"
 
 # ---- the handoff ----
 # A copy of the script with filled settings, run from its own folder as DietPi would.
