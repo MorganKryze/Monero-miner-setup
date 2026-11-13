@@ -118,7 +118,8 @@ function without_settings() {
         elif [ "$line" = "$SETTINGS_START" ]; then
             inside=1
         else
-            printf '%s\n' "$line"
+            # systemd ignores SIGPIPE: stop at the first failed write instead of one error per line.
+            printf '%s\n' "$line" 2>/dev/null || return 1
         fi
     done <"$1"
 }
