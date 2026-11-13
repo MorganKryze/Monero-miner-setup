@@ -64,13 +64,26 @@ case "\$*" in
 esac
 EOF
 printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\n' "$w" > "$w/stubs/hostname"
-# sleep: the blink loop's half seconds pass fast and unlogged; the retry waits are logged, not slept.
-printf '#!/bin/bash\nif [ "$1" = 0.5 ]; then exec "%s" 0.05; fi\necho "sleep $*" >> "%s/calls.log"\n' "$real_sleep" "$w" > "$w/stubs/sleep"
+# sleep: the blink loop's half seconds pass fast and unlogged; the retry waits are logged, not slept,
+# and each records the LED's brightness sampled over a few blink periods. Past 20 waits a loop runs
+# away: sleep-cap is written and the setup gets SIGTERM, so the case FAILs instead of hanging.
+cat > "$w/stubs/sleep" <<EOF
+#!/bin/bash
+if [ "\$1" = 0.5 ]; then exec "$real_sleep" 0.05; fi
+echo "sleep \$*" >> "$w/calls.log"
+n=0; [ -f "$w/sleeps" ] && read -r n < "$w/sleeps"
+echo \$((n + 1)) > "$w/sleeps"
+[ "\$n" -lt 20 ] || { : > "$w/sleep-cap"; kill "\$PPID"; exit 1; }
+s=; for i in 1 2 3 4 5 6 7 8 9 10; do b=; read -r b < "\$FX/leds/ACT/brightness"; s="\$s \$b"; "$real_sleep" 0.03; done
+echo "\$s" >> "$w/led-samples"
+EOF
 chmod +x "$w/stubs/"*
-# The installer records its arguments and umask, and exits with the code in installer-exit.
+# The installer records its arguments, its umask and whether the installing marker is there while it
+# runs, and exits with the code in installer-exit.
 cat > "$w/srv/install.sh" <<EOF
 echo "installer \$*" >> "$w/calls.log"
 umask > "$w/installer-umask"
+[ -e "\$FX/state/installing" ] && : > "$w/installing-seen"
 code=0; [ -f "$w/installer-exit" ] && read -r code < "$w/installer-exit"
 [ "\$code" -eq 0 ] || echo "[  ERROR  ] Invalid wallet address format." >&2
 exit "\$code"
@@ -80,6 +93,8 @@ sum=$(sha256sum "$w/srv/install.sh") && sum=${sum%% *}
 cat > "$w/drive.sh" <<'EOF'
 # shellcheck source=/dev/null
 source "$SCRIPT"
+# A runaway loop ended by the sleep stub stops its blink loop too.
+trap 'led_blink_stop; exit 143' TERM
 RELEASE_TAG="$TAG" INSTALLER_SHA256="$SUM"
 STATE_DIR="$FX/state" SETUP_BIN="$FX/sbin/xmrig-first-boot" SETUP_UNIT="$FX/unit/xmrig-first-boot.service"
 LEDS_DIR="$FX/leds" DT_COMPATIBLE="$FX/compatible" NET_DIR="$FX/net" MEMINFO="$FX/meminfo"
@@ -94,7 +109,8 @@ W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBE
 # board <fixture> [settings lines...]: a Pi 5 with 8 GiB, its LED off, the settings given.
 board() {
   local fx="$w/$1"; shift
-  rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/fetch-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/sub-status" "$w/installer-exit" "$w/ssh-on"
+  rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/fetch-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/sub-status" "$w/installer-exit" "$w/ssh-on" \
+    "$w/sleeps" "$w/sleep-cap" "$w/led-samples" "$w/installing-seen"
   mkdir -p "$fx/state" "$fx/leds/ACT" "$fx/net/eth0" "$fx/dev" "$fx/etc"
   printf 'raspberrypi,5-model-b\0brcm,bcm2712\0' > "$fx/compatible"
   ln -s "$fx/dev" "$fx/net/eth0/device"; printf '1\n' > "$fx/net/eth0/type"
@@ -105,15 +121,31 @@ board() {
   printf 'MemTotal:        8156396 kB\nMemFree:  100 kB\n' > "$fx/meminfo"
   printf '%s\n' "wallet = $W" "mode = eco" "$@" > "$fx/state/settings"
 }
+# after <fixture>: FAILs a blink loop left running or a loop the sleep cap ended.
+after() {
+  local pid; pid=$(cut -d" " -f2 "$w/$1/pid" 2>/dev/null)
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && { fail "$1: the blink loop still runs"; kill "$pid"; }
+  [ -e "$w/sleep-cap" ] && fail "$1: a loop ran away, ended after 20 waits"
+}
 # run <fixture> [tag] [sum]: the setup's output and exit code.
 run() {
-  local fx="$w/$1" code
-  env -i PATH="$w/stubs:$w/tools" SCRIPT="$script" FX="$fx" TAG="${2-v9.9.9}" SUM="${3-$sum}" \
+  local code
+  env -i PATH="$w/stubs:$w/tools" SCRIPT="$script" FX="$w/$1" TAG="${2-v9.9.9}" SUM="${3-$sum}" \
     "$BASH" --norc --noprofile "$w/drive.sh" > "$w/run.out" 2>&1
   code=$?
   cat "$w/run.out"; echo "exit $code"
-  local pid; pid=$(cut -d" " -f2 "$fx/pid" 2>/dev/null)
-  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && { fail "$1: the blink loop still runs"; kill "$pid"; }
+  after "$1"
+}
+# split <fixture> [tag] [sum]: like run, stdout lines as "out", stderr lines as "err".
+split() {
+  local code l
+  env -i PATH="$w/stubs:$w/tools" SCRIPT="$script" FX="$w/$1" TAG="${2-v9.9.9}" SUM="${3-$sum}" \
+    "$BASH" --norc --noprofile "$w/drive.sh" > "$w/run.out" 2> "$w/run.err"
+  code=$?
+  while IFS= read -r l; do echo "out $l"; done < "$w/run.out"
+  while IFS= read -r l; do echo "err $l"; done < "$w/run.err"
+  echo "exit $code"
+  after "$1"
 }
 led() { printf '%s %s\n' "$(cat "$w/$1/leds/ACT/trigger")" "$(cat "$w/$1/leds/ACT/brightness")"; }
 calls() { grep -v '^pgrep ' "$w/calls.log" 2>/dev/null; }
@@ -143,9 +175,9 @@ no_done unbundled
 
 board mismatch
 bad=0000000000000000000000000000000000000000000000000000000000000000
-same "fingerprint mismatch" "$ssh_line
-[  ERROR  ] The installer of v9.9.9 has sha256 $sum where this script expects $bad, so nothing is installed. Download dietpi-first-boot.zip of v9.9.9 again from the release page and check it against SHA256SUMS.
-exit 1" "$(run mismatch v9.9.9 "$bad")"
+same "fingerprint mismatch" "out $ssh_line
+err [  ERROR  ] The installer of v9.9.9 has sha256 $sum where this script expects $bad, so nothing is installed. Download dietpi-first-boot.zip of v9.9.9 again from the release page and check it against SHA256SUMS.
+exit 1" "$(split mismatch v9.9.9 "$bad")"
 grep -q '^installer' "$w/calls.log" && fail "mismatch: the installer ran"
 [ -e "$w/mismatch/state/install.sh" ] && fail "mismatch: the refused installer is kept"
 same "mismatch: error LED" "none 255" "$(led mismatch)"
@@ -165,6 +197,7 @@ sleep 10
 $head
 sleep 10
 $(ok_calls net)" "$(calls)"
+grep -q ' 0 .*255\| 255 .* 0' "$w/led-samples" 2>/dev/null || fail "network wait: the LED does not blink"
 board dl; echo 1 > "$w/fetch-fails"
 same "download cut once" "$ssh_line
 [  INFO   ] Waiting for the network to fetch the installer of v9.9.9...
@@ -227,6 +260,7 @@ same "installer refusal" "$ssh_line
 [  ERROR  ] Invalid wallet address format.
 exit 1" "$(run refused)"
 same "refusal: error LED" "none 255" "$(led refused)"
+[ -e "$w/refused/state/installing" ] || fail "refusal: installing removed"
 grep -q 'xmrig[.]service' "$w/calls.log" && fail "refusal: the service was checked"
 no_done refused
 board noservice; : > "$w/no-service"
@@ -245,6 +279,7 @@ same "success calls" "$ssh_off
 $(ok_calls ok shelf-2 "-p pool.example.org:10128 --donate 1")" "$(calls)"
 [ -e "$w/ok/state/done" ] || fail "success: no done"
 [ -e "$w/ok/state/installing" ] && fail "success: installing left"
+[ -e "$w/installing-seen" ] || fail "success: no installing while the installer runs"
 same "success: heartbeat" "heartbeat" "$(cat "$w/ok/leds/ACT/trigger")"
 grep -q "$W" <<<"$out" && fail "success: the wallet is printed"
 # The setup writes under umask 077, but the installer's clone and folders must stay readable by
