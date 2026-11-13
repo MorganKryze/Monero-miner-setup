@@ -236,9 +236,42 @@ want=$(cat <<'YML'
           if-no-files-found: error
           retention-days: 1
 
+  release-bundle:
+    name: Build DietPi first-boot zip
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      zip-sha256: ${{ steps.zip.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@vN
+        with:
+          persist-credentials: false
+
+      - name: Build the zip
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir dist
+          bash scripts/dietpi_bundle.sh "$TAG" dist
+
+      # The publish job checks the zip it downloads against this sum, made where the zip was built.
+      - name: Sum the zip
+        id: zip
+        run: |
+          echo "sha256=$(sha256sum dist/dietpi-first-boot.zip | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@vN
+        with:
+          name: release-bundle
+          path: dist/dietpi-first-boot.zip
+          if-no-files-found: error
+          retention-days: 1
+
   release-publish:
     name: Publish release binary
-    needs: release-build
+    needs: [release-build, release-bundle]
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-24.04
     permissions:
@@ -251,13 +284,30 @@ want=$(cat <<'YML'
           name: release-binary
           path: dist
 
-      - name: Sum the binary
+      - uses: actions/download-artifact@vN
+        with:
+          name: release-bundle
+          path: dist
+
+      # The XMRig build job's token can replace a run's artifact, so the zip must match the sum the
+      # bundle job made before it is summed, attested and published.
+      - name: Check the zip is the one the bundle job built
         working-directory: dist
-        run: sha256sum xmrig-linux-arm64 > SHA256SUMS
+        env:
+          BUNDLE_SHA256: ${{ needs.release-bundle.outputs.zip-sha256 }}
+        run: |
+          [[ $BUNDLE_SHA256 =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  dietpi-first-boot.zip\n' "$BUNDLE_SHA256" | sha256sum -c -
+
+      - name: Sum the binary and the zip
+        working-directory: dist
+        run: sha256sum xmrig-linux-arm64 dietpi-first-boot.zip > SHA256SUMS
 
       - uses: actions/attest@vN
         with:
-          subject-path: dist/xmrig-linux-arm64
+          subject-path: |
+            dist/xmrig-linux-arm64
+            dist/dietpi-first-boot.zip
 
       # gh release create fails when the release exists, so a published asset is never replaced. A
       # tag with a pre-release part (v0.2.0-rc.1) makes a pre-release.
@@ -275,12 +325,15 @@ want=$(cat <<'YML'
             echo "xmrig-linux-arm64 is XMRig for Linux arm64, built unmodified by this repository's CI on Debian 13 from https://github.com/MoneroOcean/xmrig at commit $XMRIG_COMMIT, the commit this tag pins. XMRig is licensed under GPL-3.0; that commit is its source."
             echo
             echo "Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup"
-            echo "Check it on the board: sha256sum -c SHA256SUMS"
+            echo "Check it on the board: sha256sum -c --ignore-missing SHA256SUMS"
+            echo
+            echo "dietpi-first-boot.zip holds dietpi.txt and Automation_Custom_Script.sh for a DietPi card, and DietPi's licence: the script installs this release only. Check it from a PC: gh attestation verify dietpi-first-boot.zip --repo MorganKryze/Monero-miner-setup"
+            echo "Its dietpi.txt is DietPi v10.8's (GPL-2.0, https://github.com/MichaIng/DietPi) with the settings this project needs changed."
           } > notes.md
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md "${pre[@]}" xmrig-linux-arm64 SHA256SUMS
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md "${pre[@]}" xmrig-linux-arm64 dietpi-first-boot.zip SHA256SUMS
 YML
 )
-got=$({ block "$p" '  release-build:'; block "$p" '  release-publish:'; } | major)
+got=$({ block "$p" '  release-build:'; block "$p" '  release-bundle:'; block "$p" '  release-publish:'; } | major)
 [ "$got" = "$want" ] || { echo "FAIL release jobs"; diff <(echo "$want") <(echo "$got"); rc=1; }
 # Every write scope in the file must be exactly these five. A `#` mid-line may sit inside a quoted
 # value, so only full-line comments are dropped, and every bare `write` counts: a quoted, folded,
@@ -342,7 +395,9 @@ step() { block "$p" "      - name: $1" | sed -n '/^        run: |$/,$p' | sed '1
 mkdir -p "$d/rel/bin" "$d/rel/dist" "$d/rel/scripts"
 step "Check the binary's glibc, libuv and version" > "$d/glibc.sh"
 step 'Publish the release' > "$d/publish.sh"
-for t in grep sed sort tail printf cat; do ln -s "$(type -P $t)" "$d/rel/bin/$t"; done
+step 'Sum the zip' > "$d/zipsum.sh"
+step 'Check the zip is the one the bundle job built' > "$d/zipcheck.sh"
+for t in grep sed sort tail printf cat cut sha256sum; do ln -s "$(type -P $t)" "$d/rel/bin/$t"; done
 cat > "$d/rel/bin/objdump" <<'STUB'
 #!/bin/bash
 echo "0000 DF *UND* 0 GLIBC_2.17 memcpy"
@@ -375,14 +430,30 @@ publish() { # tag, commit
 }
 commit=0123456789abcdef0123456789abcdef01234567
 base='release create TAG --repo MorganKryze/Monero-miner-setup --verify-tag --title TAG --notes-file notes.md'
-publish v0.2.0-rc.1 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0-rc.1} --prerelease xmrig-linux-arm64 SHA256SUMS" ] \
+publish v0.2.0-rc.1 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0-rc.1} --prerelease xmrig-linux-arm64 dietpi-first-boot.zip SHA256SUMS" ] \
   || { echo "FAIL release call for a pre-release tag"; rc=1; }
-publish v0.2.0 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0} xmrig-linux-arm64 SHA256SUMS" ] \
+publish v0.2.0 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0} xmrig-linux-arm64 dietpi-first-boot.zip SHA256SUMS" ] \
   || { echo "FAIL release call for a final tag"; rc=1; }
 grep -qF "built unmodified by this repository's CI on Debian 13 from https://github.com/MoneroOcean/xmrig at commit $commit, the commit this tag pins. XMRig is licensed under GPL-3.0; that commit is its source." "$d/rel/dist/notes.md" \
   && grep -qF 'Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup' "$d/rel/dist/notes.md" \
+  && grep -qxF 'Check it on the board: sha256sum -c --ignore-missing SHA256SUMS' "$d/rel/dist/notes.md" \
   || { echo "FAIL release notes"; rc=1; }
 publish v0.2.0 'abc; rm -rf /' && { echo "FAIL release step accepted a commit that is not 40 hex digits"; rc=1; }
 [ ! -e "$d/gh.log" ] || { echo "FAIL release step called gh with a bad commit"; rc=1; }
+# The zip's sum crosses jobs as an output: the publish job takes only the bytes the bundle job summed.
+zipcheck() { # sum the publish job is given
+  (cd "$d/rel/dist" && env -i PATH="$d/rel/bin" BUNDLE_SHA256="$1" "$BASH" --norc --noprofile -eo pipefail "$d/zipcheck.sh") >/dev/null 2>&1
+}
+printf 'zip as built\n' > "$d/rel/dist/dietpi-first-boot.zip"
+: > "$d/out"
+(cd "$d/rel" && env -i PATH="$d/rel/bin" GITHUB_OUTPUT="$d/out" "$BASH" --norc --noprofile -eo pipefail "$d/zipsum.sh") >/dev/null 2>&1 \
+  || { echo "FAIL zip sum step"; rc=1; }
+built=$(sed -n 's/^sha256=//p' "$d/out")
+[[ $built =~ ^[0-9a-f]{64}$ ]] && [ "$(wc -l < "$d/out")" -eq 1 ] || { echo "FAIL zip sum output: $(cat "$d/out")"; rc=1; }
+zipcheck "$built" || { echo "FAIL zip check refused the zip the bundle job built"; rc=1; }
+zipcheck '' && { echo "FAIL zip check passed with no sum"; rc=1; }
+zipcheck "${built:0:63}" && { echo "FAIL zip check passed with a short sum"; rc=1; }
+printf 'zip swapped\n' > "$d/rel/dist/dietpi-first-boot.zip"
+zipcheck "$built" && { echo "FAIL zip check passed a swapped zip"; rc=1; }
 [ "$rc" -eq 0 ] && echo "PASS workflow-policy"
 exit "$rc"

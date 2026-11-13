@@ -18,6 +18,11 @@ TUNING_UNIT := /etc/systemd/system/xmrig-host-tuning.service
 BOARD_STATUS := ./scripts/board_status.sh
 TUNING_BIN := /usr/local/sbin/xmrig-host-tuning
 TUNING_CONF := /etc/xmrig-host-tuning.conf
+# What the first-boot setup of the DietPi files installs (scripts/first_boot.sh), removed by
+# service-disable. Set on the command line only by the regression checks.
+FIRSTBOOT_UNIT := /etc/systemd/system/xmrig-first-boot.service
+FIRSTBOOT_BIN := /usr/local/sbin/xmrig-first-boot
+FIRSTBOOT_STATE := /var/lib/xmrig-first-boot
 
 # One compile job per CPU, but no more than one per whole GiB of memory available now, not
 # installed: `make update` often runs while the miner holds ~2.3 GB for RandomX. macOS has no
@@ -251,6 +256,28 @@ service-disable:
 	fi
 	@if [ -f "$(TUNING_UNIT)" ] || [ -f "$(TUNING_BIN)" ] || [ -f "$(TUNING_CONF)" ]; then \
 		bash ./scripts/setup_service_tuning.sh remove || exit 1; \
+	fi
+	@# The first-boot setup: a unit that is absent or already stopped is fine to disable, the files go
+	@# either way. avahi-daemon goes only when the setup's record says it installed it; a check
+	@# that answers neither way (no password, no terminal) stops it before anything is removed.
+	@if [ -f "$(FIRSTBOOT_UNIT)" ] || [ -f "$(FIRSTBOOT_BIN)" ] || [ -d "$(FIRSTBOOT_STATE)" ]; then \
+		mdns=; \
+		if sudo test -f "$(FIRSTBOOT_STATE)/mdns-installed"; then mdns=yes; \
+		elif ! sudo test ! -f "$(FIRSTBOOT_STATE)/mdns-installed"; then \
+			$(call log-error,"Failed to look for the first-boot record of avahi-daemon with sudo. Nothing is removed so make service-disable can retry"); \
+			exit 1; \
+		fi; \
+		sudo systemctl disable --now xmrig-first-boot.service 2>/dev/null || true; \
+		if [ -n "$$mdns" ]; then \
+			sudo apt-get remove --purge -y avahi-daemon || { \
+				$(call log-error,"Failed to remove avahi-daemon. The first-boot files are kept so make service-disable can retry once apt is fixed"); \
+				exit 1; \
+			}; \
+		fi; \
+		sudo rm -f -- "$(FIRSTBOOT_UNIT)" "$(FIRSTBOOT_BIN)"; \
+		sudo rm -rf -- "$(FIRSTBOOT_STATE)"; \
+		sudo systemctl daemon-reload; \
+		$(call log-success,"First-boot setup removed: its unit and script and settings and records. The hostname stays as set."); \
 	fi
 	@if [ -f "$(LOGROTATE_CONF)" ]; then \
 		sudo rm -f "$(LOGROTATE_CONF)"; \

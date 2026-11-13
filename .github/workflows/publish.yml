@@ -270,11 +270,47 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # The DietPi first-boot zip: our dietpi.txt and the custom script, which installs only this tag's
+  # installer, checked by its sha256. A job of its own, apart from the XMRig build, so no upstream
+  # code runs where the boards' root script is made.
+  release-bundle:
+    name: Build DietPi first-boot zip
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      zip-sha256: ${{ steps.zip.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build the zip
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir dist
+          bash scripts/dietpi_bundle.sh "$TAG" dist
+
+      # The publish job checks the zip it downloads against this sum, made where the zip was built.
+      - name: Sum the zip
+        id: zip
+        run: |
+          echo "sha256=$(sha256sum dist/dietpi-first-boot.zip | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-bundle
+          path: dist/dietpi-first-boot.zip
+          if-no-files-found: error
+          retention-days: 1
+
   # Checks out nothing and runs nothing the repository holds: it sums, attests and publishes the
   # bytes the build job made, so the write and signing tokens never meet upstream code.
   release-publish:
     name: Publish release binary
-    needs: release-build
+    needs: [release-build, release-bundle]
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-24.04
     permissions:
@@ -287,13 +323,30 @@ jobs:
           name: release-binary
           path: dist
 
-      - name: Sum the binary
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-bundle
+          path: dist
+
+      # The XMRig build job's token can replace a run's artifact, so the zip must match the sum the
+      # bundle job made before it is summed, attested and published.
+      - name: Check the zip is the one the bundle job built
         working-directory: dist
-        run: sha256sum xmrig-linux-arm64 > SHA256SUMS
+        env:
+          BUNDLE_SHA256: ${{ needs.release-bundle.outputs.zip-sha256 }}
+        run: |
+          [[ $BUNDLE_SHA256 =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  dietpi-first-boot.zip\n' "$BUNDLE_SHA256" | sha256sum -c -
+
+      - name: Sum the binary and the zip
+        working-directory: dist
+        run: sha256sum xmrig-linux-arm64 dietpi-first-boot.zip > SHA256SUMS
 
       - uses: actions/attest@v4
         with:
-          subject-path: dist/xmrig-linux-arm64
+          subject-path: |
+            dist/xmrig-linux-arm64
+            dist/dietpi-first-boot.zip
 
       # gh release create fails when the release exists, so a published asset is never replaced. A
       # tag with a pre-release part (v0.2.0-rc.1) makes a pre-release.
@@ -311,6 +364,9 @@ jobs:
             echo "xmrig-linux-arm64 is XMRig for Linux arm64, built unmodified by this repository's CI on Debian 13 from https://github.com/MoneroOcean/xmrig at commit $XMRIG_COMMIT, the commit this tag pins. XMRig is licensed under GPL-3.0; that commit is its source."
             echo
             echo "Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup"
-            echo "Check it on the board: sha256sum -c SHA256SUMS"
+            echo "Check it on the board: sha256sum -c --ignore-missing SHA256SUMS"
+            echo
+            echo "dietpi-first-boot.zip holds dietpi.txt and Automation_Custom_Script.sh for a DietPi card, and DietPi's licence: the script installs this release only. Check it from a PC: gh attestation verify dietpi-first-boot.zip --repo MorganKryze/Monero-miner-setup"
+            echo "Its dietpi.txt is DietPi v10.8's (GPL-2.0, https://github.com/MichaIng/DietPi) with the settings this project needs changed."
           } > notes.md
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md "${pre[@]}" xmrig-linux-arm64 SHA256SUMS
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md "${pre[@]}" xmrig-linux-arm64 dietpi-first-boot.zip SHA256SUMS

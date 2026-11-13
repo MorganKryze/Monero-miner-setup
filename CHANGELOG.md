@@ -6,6 +6,8 @@ Every release of Monero-miner-setup, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.2.0-rc.1] - 2026-11-13
+
 ### Added
 
 - `--mode max|eco` for the native installer: new configs mine on the CPUs of the board's profile. Not with `--threads`.
@@ -15,6 +17,8 @@ Every release of Monero-miner-setup, newest first. The format follows
 - `make bench-layouts [MODE=eco] [BENCH=1M]`: benches each CPU layout of the profile offline.
 - A Board section in `make doctor`: the board, its profile, memory against the floor, each cpufreq policy's maximum and the list each config uses.
 - Each `v*` tag also publishes XMRig for Linux arm64 boards (`xmrig-linux-arm64`), built unmodified by CI on Debian 13 from the commit the tag pins, with `SHA256SUMS` and a GitHub build attestation (`gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup`). `install.sh --prebuilt`, as root on Linux arm64 with glibc 2.38 or newer (Debian 13, not 12), installs it instead of compiling: the release the clone is checked out at, checked against `SHA256SUMS`, as a binary only root can change. The service's journal and the installer's last lines say where the binary comes from and the donate level.
+- Each `v*` tag also publishes `dietpi-first-boot.zip`, in `SHA256SUMS` and the build attestation: DietPi v10.8's `dietpi.txt` (GPL-2.0) with three keys changed and `Automation_Custom_Script.sh`, whose settings block takes the wallet, mode and options as data. On a Raspberry Pi 5 or an RK3588 board flashed with DietPi Trixie, the first boot installs `xmrig-first-boot.service`, which sets the host name to the model and MAC tail, turns SSH off unless `ssh_key` is given (then key logins only), installs `avahi-daemon` with `mdns = on`, and runs that release's installer, checked by sha256, with `--prebuilt`. It retries at each boot until done; the status LED blinks while it sets up, beats once set up and stays on after a refusal.
+- `make service-disable` also removes the first-boot setup: its unit, its script, `/var/lib/xmrig-first-boot`, and `avahi-daemon` when the setup installed it. The host name stays.
 
 ### Changed
 
@@ -94,5 +98,6 @@ some steps are yours to run.
 - Dependabot auto-merges only GitHub Actions patch and minor bumps, once CI is green. XMRig, bash-toolbox, base image and Gluetun bumps wait for review.
 - The README's install commands use `curl -fsSL` and stop with an error when the download fails or comes back empty.
 
+[0.2.0-rc.1]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.2.0-rc.1
 [0.1.1]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.0

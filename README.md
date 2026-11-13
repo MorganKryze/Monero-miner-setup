@@ -56,9 +56,9 @@ An image older than 0.1.0 under the new compose file writes its log file inside 
 To pin a release, clone it and run its own installer: the commands above fetch `docker_setup.sh` from `main`, so `--image` alone pins only the image, not the installer. A tag checkout has no branch, so `make update` doesn't apply to it: check out the next tag instead.
 
 ```bash
-git clone --branch v0.1.1 --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
+git clone --branch v0.2.0-rc.1 --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
 cd Monero-miner-setup
-./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:0.1.1 -w YOUR_MONERO_WALLET --autostart
+./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:0.2.0-rc.1 -w YOUR_MONERO_WALLET --autostart
 ```
 
 ### Docker (build from source)
@@ -177,6 +177,76 @@ For the cost per day, give your wall meter's watts and your price per kWh:
 ```bash
 make status WALL_WATTS=9.5 KWH_PRICE=0.25
 ```
+
+### DietPi first boot
+
+Use this for a Raspberry Pi 5 or an RK3588 board with no screen and no keyboard: you flash DietPi, drop two files on the card, plug in Ethernet and power, and the board sets itself up and mines under its own name.
+
+Each release ships `dietpi-first-boot.zip` with two files to copy, `dietpi.txt` and `Automation_Custom_Script.sh`, and `LICENSE-dietpi.txt`, the GPL-2.0 text that comes with DietPi's `dietpi.txt`.
+
+1. Flash the official DietPi Trixie image for your board on an SD card.
+2. Copy both files from the zip onto the card, replacing DietPi's `dietpi.txt`:
+   - Raspberry Pi 5: the boot partition, the FAT one your PC opens. The files stay there.
+   - Orange Pi 5 Plus and 5 Max: the small FAT partition named `DIETPISETUP`. DietPi imports the files at first boot, then deletes that partition.
+3. Open `Automation_Custom_Script.sh` and edit the settings at its top, between `: <<'END_OF_MINER_SETTINGS'` and `END_OF_MINER_SETTINGS`. Set `wallet` at least.
+4. Plug in Ethernet (Wi-Fi isn't set up), then power.
+
+Edit with an editor that keeps Unix (LF) line ends, such as VS Code or Notepad++. A value's trailing CR is dropped, but a script saved with CRLF line ends won't run.
+
+The settings are `key = value` lines, read as data: nothing in them is run or expanded. A line starting with `#` is a comment, so remove the `# ` to set a key. An empty value keeps the default. An unknown key, a key given twice or a value of the wrong form stops the setup, with one line naming the key, or the line number of a line that is not `key = value`.
+
+| Setting as shipped | Default | Form |
+| --- | --- | --- |
+| `wallet =` | none: required | your Monero address, 1 to 128 base58 characters |
+| `mode = eco` | none: required, shipped as `eco` | `max` mines on every CPU the board's profile allows; `eco` leaves headroom and runs cooler (see [Dedicated board](#dedicated-board---mode)) |
+| `pool = gulf.moneroocean.stream:10128` | the installer's, `gulf.moneroocean.stream:10128` | 1 to 255 letters, digits or `. + : / _ -` |
+| `name = rpi5-3fa2` | the board's host name | the worker name the pool shows, 1 to 64 letters, digits or `. _ - @ : +` |
+| `donate = 0` | the installer's, `0` | a whole number from 0 to 5, in percent |
+| `light = no` | `no` | `yes` lets a board under 2560 MiB of memory mine in RandomX's slower light mode; without it, such a board is refused |
+| `mdns = off` | `off` | `on` installs `avahi-daemon` to announce `<host name>.local` |
+| `ssh_key = ssh-ed25519 AAAA... you@laptop` | none: SSH off | one `ssh-ed25519`, `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521` or `ssh-rsa` public key, then an optional comment |
+
+**What happens at first boot.** DietPi runs its first run, then our script once, as root. The script copies your settings to a root-only file, installs `xmrig-first-boot.service` and starts it. That service runs the setup at each boot until it has finished once. A board that lost power during the setup picks it up at the next boot; network waits retry every 10 seconds within the boot. A power cut in the first seconds, before the service is installed, needs a reflash: DietPi never runs the script again.
+
+**The status LED.** The setup drives the board's status LED (Pi 5: `ACT`; 5 Plus: `green:indicator-2`; the 5 Max has none known, so it goes without):
+
+| LED | Meaning |
+| --- | --- |
+| blinks, half a second on, half off | setting up, or waiting for the network |
+| heartbeat | set up. It doesn't say the miner is mining now: `make status` or the pool's panel do |
+| steady on | the setup stopped. `journalctl -u xmrig-first-boot.service` has the line that says why. Follow that line's remedy: for a setting, fix it and flash again, or fix `/var/lib/xmrig-first-boot/settings` over SSH and reboot |
+
+A reboot gives the LED back to the board's own trigger until the setup unit sets it again, early in the boot.
+
+**What the setup changes on the host:**
+
+- `/usr/local/sbin/xmrig-first-boot` (0755, the script without your settings), `/etc/systemd/system/xmrig-first-boot.service` (0644) and the folder `/var/lib/xmrig-first-boot` (0700: your `settings` at 0600, the fetched `install.sh`, and the records `installing`, `done` and `mdns-installed`).
+- The host name: `<model>-<last 4 hex digits of the first wired MAC>`, such as `rpi5-3fa2`, `opi5plus-3fa2` or `opi5max-3fa2`, in `/etc/hostname`, with one `127.0.1.1 <name>` line in `/etc/hosts` in place of any other `127.0.1.1` line. It's also the worker name unless you set `name`.
+- SSH. With no `ssh_key`, every SSH unit (`dropbear` or `ssh`) is disabled, stopped and masked, so SSH is off. With one, it's added once to `/root/.ssh/authorized_keys` and password logins are turned off (a drop-in for OpenSSH, `-s -g` for Dropbear), so only key logins work, as `root`. A key the setup can't add turns SSH off. Until DietPi's first run and then the setup act, the image's own SSH server takes `root` with DietPi's default password: keep the board on a network you trust for its first minutes.
+- With `mdns = on`: `avahi-daemon`, when it isn't installed yet. It's Debian's (main, LGPL-2.1, about 0.3 MB installed for 0.8-16 on arm64, plus its libraries) and opens UDP port 5353.
+- The miner, as the native install sets it: the setup fetches the release's `scripts/install.sh` from `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/<tag>/scripts/install.sh`, checks it against the sha256 the zip's script carries, and runs it with `-w <wallet> --mode <mode> --prebuilt --autostart -y --name <name>`, plus `-p` and `--donate` when set. That installer clones `v<its version>` to `/opt/Monero-miner-setup`, a tag the repository owner controls, and sets up `xmrig.service` and the board tuning as [Dedicated board](#dedicated-board---mode) says. The sha256 covers the installer alone; what it then runs comes from that tag.
+
+Bluetooth stays as the image ships it.
+
+`make service-disable` (or `make wipe`) in `/opt/Monero-miner-setup` removes the unit, the script and `/var/lib/xmrig-first-boot`, and `avahi-daemon` when the setup installed it. The host name and the SSH settings (masked units, the sshd drop-in, Dropbear's `-s -g`, the key in `authorized_keys`) stay.
+
+**`dietpi.txt`** is DietPi's own file from DietPi v10.8, under GPL-2.0, with three keys changed:
+
+- `AUTO_SETUP_AUTOMATED=1`: the first run asks nothing.
+- `SOFTWARE_DISABLE_SSH_PASSWORD_LOGINS=1`: DietPi turns SSH password logins off.
+- `SURVEY_OPTED_IN=0`: no survey upload, no prompt.
+
+**Check the zip from your PC** before you copy it. Download `dietpi-first-boot.zip` and `SHA256SUMS` from the release page, then run:
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+gh attestation verify dietpi-first-boot.zip --repo MorganKryze/Monero-miner-setup
+```
+
+**An RK3588 board that won't boot from the SD card.** It boots something else first. Erase it from your PC with the board in MaskROM mode, then boot from SD again:
+
+- Orange Pi 5 Plus: a factory bootloader in SPI flash. Hold the MaskROM button and connect the USB-C port next to it to your PC.
+- Orange Pi 5 Max: Android on the soldered eMMC. Connect the upper USB-A port to your PC with an A-to-A cable.
 
 ### Manual install
 
@@ -456,6 +526,7 @@ The installers fetch from the sources below and nothing else. All of it comes ov
 | The Docker installer | your clone's copy, else `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh` | `--docker` |
 | The repository | `https://github.com/MorganKryze/Monero-miner-setup.git`, its submodules at the commits it pins: `https://github.com/MoneroOcean/xmrig.git`, `https://github.com/MorganKryze/bash-toolbox.git` | when there's no clone yet |
 | The release binary | `https://github.com/MorganKryze/Monero-miner-setup/releases/download/<tag>/xmrig-linux-arm64` and `SHA256SUMS` beside it, from the release your clone is checked out at | `--prebuilt` |
+| The first-boot setup's installer | `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/<tag>/scripts/install.sh` of the release the DietPi files come from, refused unless its sha256 matches the one they carry; a HEAD request on `https://github.com/MorganKryze/Monero-miner-setup/releases/download/<tag>/SHA256SUMS` to wait for the network; `avahi-daemon` through apt with `mdns = yes` | a DietPi card set up from the release's `dietpi-first-boot.zip` |
 | The image | `ghcr.io/morgankryze/monero-miner-setup`, built by this repository's CI | Docker, unless `--build` |
 | The base image and its packages | `ubuntu` from Docker Hub, at the tag `docker/Dockerfile` names, and Ubuntu's packages through apt in both build stages | `--build`, or when the image pull fails |
 | The Dockerfile frontend | `docker/dockerfile` from Docker Hub, at the version the `# syntax=` line of `docker/Dockerfile` names: BuildKit runs it to read the Dockerfile | `--build`, or when the image pull fails |
@@ -473,6 +544,8 @@ On Linux, these steps go through `sudo` (`make deps-debian`, `scripts/setup_serv
 - `install -d` of `/etc/xmrig`, then `install` of `/etc/xmrig/config.json`, `/etc/logrotate.d/xmrig` and `/etc/systemd/system/xmrig.service`, root-owned, from private temp files
 - `rm -f` of `/etc/systemd/system/xmrig.service` and `/etc/logrotate.d/xmrig`, on `make service-disable`
 - with `--mode` on a board with a profile: `install` of `/etc/xmrig-host-tuning.conf`, `/usr/local/sbin/xmrig-host-tuning` and `/etc/systemd/system/xmrig-host-tuning.service`, root-owned, from private temp files, and removed again by a setup without a mode or by `make service-disable`
+- on a board set up from the DietPi files, on `make service-disable`: `test` of the setup's record that it installed `avahi-daemon`, then `apt-get remove` of it when it did; removal of `/etc/systemd/system/xmrig-first-boot.service`, `/usr/local/sbin/xmrig-first-boot` and the folder `/var/lib/xmrig-first-boot`
+- on a DietPi card set up from the release's `dietpi-first-boot.zip`, the first-boot setup runs as root, from DietPi's own custom-script hook: the SSH settings, the host name and its `/etc/hosts` line, root's `authorized_keys`, the board LED, its unit and state folder, `avahi-daemon` with `mdns = yes`, then the installer above with `--prebuilt` (the full list is in the DietPi section)
 - `systemctl daemon-reload`, `enable`, `start`, `try-restart`, `stop`, `status`, `disable`, `reset-failed` and `clean`
 
 `--prebuilt` runs the installer itself as root: `apt-get update` and `apt-get install` of `libuv1t64 libssl3t64 libhwloc15`, the download into a root-only folder in the clone, and the rename onto `<clone>/xmrig` and `xmrig.release`.
@@ -556,7 +629,7 @@ The container runs as uid 999, `xmrig`. The compose file and the minimal run abo
 
 MIT. See [LICENSE](./LICENSE).
 
-Banner artwork, scripts, and templates © Yann M. Vidamment 2025. This project is not endorsed by Monero or MoneroOcean.
+Banner artwork, scripts, and templates © Yann M. Vidamment 2025, except `templates/dietpi.txt`: it is DietPi v10.8's `dietpi.txt` (© the DietPi authors, GPL-2.0, https://github.com/MichaIng/DietPi) with the settings this project needs changed. This project is not endorsed by Monero or MoneroOcean.
 
 ## Resources
 

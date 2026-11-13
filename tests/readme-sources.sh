@@ -35,6 +35,9 @@ sources=(
     "$(constant scripts/install.sh RELEASE_URL)"
     "$(constant scripts/install.sh REPO_URL)"
     "$(constant scripts/docker_setup.sh REPO_URL)"
+    # The first-boot setup's own URLs, as the row names them with the release tag.
+    "$(constant scripts/first_boot.sh RAW_URL)/<tag>/scripts/install.sh"
+    "$(constant scripts/first_boot.sh RELEASE_URL)/<tag>/SHA256SUMS"
     "https://ifconfig.io"
 )
 while IFS= read -r url; do sources+=("$url"); done < <(sed -n 's/^[[:space:]]*url = //p' .gitmodules)
@@ -74,7 +77,7 @@ done
 while IFS= read -r hit; do
     line=${hit#*:*:}
     case $line in
-        *'"$TOOLBOX_URL"'* | *'"$DOCKER_SCRIPT_URL"'* | *'"$REPO_URL"'* | *'"$RELEASE_URL/$tag/$file"'* | *'https://ifconfig.io'*) ;;
+        *'"$TOOLBOX_URL"'* | *'"$DOCKER_SCRIPT_URL"'* | *'"$REPO_URL"'* | *'"$RELEASE_URL/$tag/$file"'* | *'"$RELEASE_URL/$RELEASE_TAG/SHA256SUMS"'* | *'"$RAW_URL/$RELEASE_TAG/scripts/install.sh"'* | *'https://ifconfig.io'*) ;;
         *'command -v curl'*) ;;
         *) fail "a fetch the README may not name: $hit" ;;
     esac
