@@ -1,9 +1,9 @@
 # Color definitions for logging
-GREEN := $(shell tput setaf 2)
-BLUE := $(shell tput setaf 4)
-RED := $(shell tput setaf 1)
-ORANGE := $(shell tput setaf 3)
-RESET := $(shell tput sgr0)
+GREEN := $(shell tput setaf 2 2>/dev/null)
+BLUE := $(shell tput setaf 4 2>/dev/null)
+RED := $(shell tput setaf 1 2>/dev/null)
+ORANGE := $(shell tput setaf 3 2>/dev/null)
+RESET := $(shell tput sgr0 2>/dev/null)
 
 # Build directory outside the repo
 BUILD_DIR := build-xmrig

@@ -18,5 +18,8 @@ rm "$w/tests/a-fails.sh"
 out=$(cd "$w" && TERM=dumb make -s check 2>&1); code=$?
 [ "$code" -eq 0 ] || { echo "FAIL exit $code with every check passing"; rc=1; }
 printf '%s\n' "$out" | grep -qx 'RAN b-passes' || { echo "FAIL the passing check did not run"; rc=1; }
+# Without a terminal (over SSH, from systemd) the colour codes are empty and tput says nothing.
+out=$(env -i PATH="$PATH" HOME="$w" make -s help 2>&1)
+case $out in *"tput:"*) echo "FAIL make help without TERM prints tput errors"; rc=1 ;; esac
 [ "$rc" -eq 0 ] && echo "PASS make-check"
 exit "$rc"
