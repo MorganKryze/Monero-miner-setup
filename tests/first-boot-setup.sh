@@ -58,7 +58,7 @@ cat > "$w/stubs/systemctl" <<EOF
 echo "systemctl \$*" >> "$w/calls.log"
 case "\$1 \${*: -1}" in
   "is-"*" xmrig.service") [ ! -e "$w/no-service" ] ;;
-  "list-unit-files dropbear.service") echo "dropbear.service enabled enabled" ;;
+  "list-unit-files "*) echo "dropbear.service enabled enabled" ;;
   "is-active dropbear.service") [ -e "$w/ssh-on" ] ;;
   is-*) exit 1 ;;
 esac
@@ -166,11 +166,7 @@ sums="https://github.com/MorganKryze/Monero-miner-setup/releases/download/v9.9.9
 fetch="curl -fsSL --proto =https --proto-redir =https -o $w/%s/state/install.sh $raw"
 head="curl -fsSL --proto =https --proto-redir =https -I -o /dev/null $sums"
 # The SSH policy's calls without a key: every unit systemd knows is disabled, masked, then checked.
-ssh_run="systemctl list-unit-files --no-legend --no-pager dropbear.service
-systemctl list-unit-files --no-legend --no-pager dropbear.socket
-systemctl list-unit-files --no-legend --no-pager ssh.service
-systemctl list-unit-files --no-legend --no-pager ssh.socket
-systemctl list-unit-files --no-legend --no-pager sshd.service
+ssh_run="systemctl list-unit-files --no-legend --no-pager
 systemctl disable --now dropbear.service
 systemctl mask dropbear.service
 systemctl is-active --quiet dropbear.service"

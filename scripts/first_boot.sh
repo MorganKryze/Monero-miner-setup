@@ -63,7 +63,8 @@ rk3588 xunlong,orangepi-5-max opi5max -"
 SOCS="bcm2712.compatible=brcm,bcm2712
 rk3588.compatible=rockchip,rk3588 rockchip,rk3588s"
 # The SSH units Dropbear or OpenSSH may bring, and the servers among them; the setup skips the ones
-# systemd does not know. sshd.service is OpenSSH's alias on Debian, its own unit elsewhere.
+# systemd does not know. sshd.service is OpenSSH's alias on Debian, skipped there, and its own unit
+# elsewhere.
 SSH_UNITS="dropbear.service dropbear.socket ssh.service ssh.socket sshd.service"
 SSH_SERVERS="dropbear.service ssh.service sshd.service"
 # sshd keeps the first value it reads for a keyword, and reads sshd_config.d in name order: 00- first.
@@ -380,11 +381,15 @@ function ssh_error() {
     error "$* The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
 }
 
-# Prints the SSH units systemd knows, one per line.
+# Prints the SSH units systemd knows, one per line, its aliases left out: an alias such as Debian's
+# sshd.service is a link that disabling its unit removes, so it is never turned off on its own.
 function ssh_units_known() {
-    local unit
+    local unit state rest listed=" "
+    while read -r unit state rest; do
+        [ "$state" = alias ] || listed="$listed$unit "
+    done < <(systemctl list-unit-files --no-legend --no-pager 2>/dev/null)
     for unit in $SSH_UNITS; do
-        [ -z "$(systemctl list-unit-files --no-legend --no-pager "$unit" 2>/dev/null)" ] || printf '%s\n' "$unit"
+        [[ $listed != *" $unit "* ]] || printf '%s\n' "$unit"
     done
 }
 

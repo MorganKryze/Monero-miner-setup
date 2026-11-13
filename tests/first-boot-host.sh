@@ -24,26 +24,35 @@ for t in chmod cp mkdir mktemp mv rm cat; do
 done
 real_grep=$(command -v grep) || { echo "FAIL no grep on this host"; exit 1; }
 # systemctl keeps unit state in files of unit names: systemd knows the units in known; enabled,
-# masked and active hold their states. disable --now and mask fail while disable-fails or
-# mask-fails exists, restart while restart-fails does; a unit in sticky stays active.
+# masked and active hold their states. alias holds "<alias> <unit>" lines: as on Debian's OpenSSH,
+# the alias is a link that exists while its unit is enabled, is listed with the state alias, reads
+# its unit's activity, and cannot be disabled or masked on its own. disable --now and mask fail
+# while disable-fails or mask-fails exists, restart while restart-fails does; a unit in sticky
+# stays active.
 cat > "$w/stubs/systemctl" <<EOF
 #!/bin/bash
 echo "systemctl \$*" >> "$w/calls.log"
 has() { "$real_grep" -qx "\$1" "$w/\$2" 2>/dev/null; }
 add() { has "\$1" "\$2" || echo "\$1" >> "$w/\$2"; }
 del() { "$real_grep" -vx "\$1" "$w/\$2" > "$w/\$2.new"; mv "$w/\$2.new" "$w/\$2"; }
+target() { local a t; while read -r a t; do [ "\$a" != "\$1" ] || { echo "\$t"; return; }; done < "$w/alias"; }
 u=\${*: -1}
+t=\$(target "\$u")
 case "\$1" in
-  list-unit-files) if has "\$u" known; then echo "\$u enabled enabled"; fi ;;
+  list-unit-files)
+    [[ \$u == --* ]] && u=
+    while read -r k; do [ -n "\$u" ] && [ "\$k" != "\$u" ] || echo "\$k enabled enabled"; done < "$w/known"
+    while read -r a k; do has "\$k" enabled && { [ -z "\$u" ] || [ "\$a" = "\$u" ]; } && echo "\$a alias -"; done < "$w/alias"
+    exit 0 ;;
   is-enabled)
     if has "\$u" masked; then echo masked; exit 1; fi
     if has "\$u" enabled; then echo enabled; else echo disabled; exit 1; fi ;;
-  is-active) has "\$u" active ;;
-  disable) [ ! -e "$w/disable-fails" ] || exit 1; del "\$u" enabled; has "\$u" sticky || del "\$u" active ;;
-  mask) [ ! -e "$w/mask-fails" ] || exit 1; add "\$u" masked ;;
+  is-active) has "\${t:-\$u}" active ;;
+  disable) [ ! -e "$w/disable-fails" ] && [ -z "\$t" ] || exit 1; del "\$u" enabled; has "\$u" sticky || del "\$u" active ;;
+  mask) [ ! -e "$w/mask-fails" ] && [ -z "\$t" ] || exit 1; add "\$u" masked ;;
   unmask) del "\$u" masked ;;
   enable) add "\$u" enabled ;;
-  restart) [ ! -e "$w/restart-fails" ] || exit 1; add "\$u" active ;;
+  restart) [ ! -e "$w/restart-fails" ] || exit 1; add "\${t:-\$u}" active ;;
 esac
 EOF
 printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\n' "$w" > "$w/stubs/hostname"
@@ -102,7 +111,7 @@ board() {
   local fx="$w/$1" c; shift
   rm -rf -- "$fx" "$w/calls.log" "$w/avahi" "$w/mdns-installed-seen" "$w/disable-fails" "$w/apt-fails" \
     "$w/mask-fails" "$w/restart-fails"
-  for f in known enabled masked active sticky; do : > "$w/$f"; done
+  for f in known enabled masked active sticky alias; do : > "$w/$f"; done
   mkdir -p "$fx/state" "$fx/etc"
   : > "$fx/compatible"
   for c in "$@"; do printf '%s\0' "$c" >> "$fx/compatible"; done
@@ -197,11 +206,7 @@ same "no key: every known unit off" "known: dropbear.service dropbear.socket
 enabled:
 masked: dropbear.service dropbear.socket
 active:" "$(state)"
-same "no key: calls" "systemctl list-unit-files --no-legend --no-pager dropbear.service
-systemctl list-unit-files --no-legend --no-pager dropbear.socket
-systemctl list-unit-files --no-legend --no-pager ssh.service
-systemctl list-unit-files --no-legend --no-pager ssh.socket
-systemctl list-unit-files --no-legend --no-pager sshd.service
+same "no key: calls" "systemctl list-unit-files --no-legend --no-pager
 systemctl disable --now dropbear.service
 systemctl mask dropbear.service
 systemctl disable --now dropbear.socket
@@ -220,6 +225,16 @@ enabled:
 masked: ssh.service ssh.socket sshd.service
 active:" "$(state)"
 grep -v list-unit-files "$w/calls.log" | grep -q dropbear && fail "no key, OpenSSH: an unknown unit is touched"
+# Debian's OpenSSH: sshd.service is an alias of ssh.service, gone once ssh.service is disabled.
+debian() { units known ssh.service ssh.socket; units enabled ssh.service; units active ssh.service; units alias "sshd.service ssh.service"; }
+board debian raspberrypi,5-model-b; debian
+same "no key, Debian's OpenSSH" "$off_line
+exit 0" "$(run debian ssh_policy)"
+same "no key, Debian's OpenSSH: every unit off" "known: ssh.service ssh.socket
+enabled:
+masked: ssh.service ssh.socket
+active:" "$(state)"
+grep -q '^systemctl \(disable\|mask\).* sshd[.]service$' "$w/calls.log" && fail "no key, Debian's OpenSSH: the alias is turned off on its own"
 board offfails raspberrypi,5-model-b; dropbear; : > "$w/disable-fails"
 same "no key, the server not disabled" "err [  ERROR  ] Failed to turn off dropbear.service. $error_tail
 exit 1" "$(split offfails ssh_policy)"
@@ -290,6 +305,12 @@ same "key, OpenSSH: drop-in" "PasswordAuthentication no
 PermitRootLogin prohibit-password" "$(cat "$w/kssh/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf" 2>/dev/null)"
 grep -qx 'systemctl restart ssh.service' "$w/calls.log" || fail "key, OpenSSH: not restarted"
 [ -e "$w/kssh/etc/default/dropbear" ] && fail "key, OpenSSH: Dropbear defaults written"
+board kdebian raspberrypi,5-model-b; debian
+same "key, Debian's OpenSSH" "$key_line
+exit 0" "$(KEY=$key run kdebian ssh_policy)"
+same "key, Debian's OpenSSH: drop-in" "PasswordAuthentication no
+PermitRootLogin prohibit-password" "$(cat "$w/kdebian/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf" 2>/dev/null)"
+same "key, Debian's OpenSSH: restarted once" "systemctl restart ssh.service" "$(grep '^systemctl restart' "$w/calls.log")"
 # An earlier boot without a key masked the server: the key brings it back.
 board kback raspberrypi,5-model-b; units known dropbear.service dropbear.socket; units masked dropbear.service dropbear.socket
 same "key after SSH was turned off" "$key_line
