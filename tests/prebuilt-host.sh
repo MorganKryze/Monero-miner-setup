@@ -205,7 +205,9 @@ rmdir "$clone"
 url=https://github.com/MorganKryze/Monero-miner-setup.git
 fn PREBUILT=yes VERSION=0.1.1 -- clone_repository
 want clone-release exit 0 "$code"
-want clone-release git "clone --recurse-submodules --branch v0.1.1 $url $clone" "$(cat "$w/git.log" 2>/dev/null)"
+# The tag cloned is v + the installer's own VERSION, whatever release this tree is.
+version=$(sed -n 's/^VERSION="\(.*\)"$/\1/p' "$root/scripts/install.sh")
+want clone-release git "clone --recurse-submodules --branch v$version $url $clone" "$(cat "$w/git.log" 2>/dev/null)"
 rm -rf "$clone"
 echo "$w/opt alice 755" > "$w/stat.map"
 fn PREBUILT=yes -- clone_repository
