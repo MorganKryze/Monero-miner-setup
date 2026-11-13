@@ -30,7 +30,8 @@ real_grep=$(command -v grep) || { echo "FAIL no grep on this host"; exit 1; }
 # list-fails exists; is-active prints active or inactive, an active unit's state is the one in
 # active-says when it exists, and it prints nothing and fails while bus-fails does. disable --now
 # and mask fail while disable-fails or mask-fails exists, restart while restart-fails does; a unit
-# in sticky stays active.
+# in sticky stays active. vanish holds "<unit> <trigger>" lines: disabling the trigger removes the
+# unit from known, as a unit file that is a link to it; disable and mask then fail on that unit.
 cat > "$w/stubs/systemctl" <<EOF
 #!/bin/bash
 echo "systemctl \$*" >> "$w/calls.log"
@@ -55,8 +56,15 @@ case "\$1" in
     s=inactive; has "\${t:-\$u}" active && s=active && [ -e "$w/active-says" ] && s=\$(cat "$w/active-says")
     [ "\$2" = --quiet ] || echo "\$s"
     [ "\$s" = active ] || exit 3 ;;
-  disable) [ ! -e "$w/disable-fails" ] && [ -z "\$t" ] || exit 1; del "\$u" enabled; has "\$u" sticky || del "\$u" active ;;
-  mask) [ ! -e "$w/mask-fails" ] && [ -z "\$t" ] || exit 1; add "\$u" masked ;;
+  disable)
+    [ ! -e "$w/disable-fails" ] && [ -z "\$t" ] || exit 1
+    has "\$u" gone && { echo "Failed to disable unit: Unit file \$u does not exist." >&2; exit 1; }
+    del "\$u" enabled; has "\$u" sticky || del "\$u" active
+    while read -r a k; do [ "\$k" != "\$u" ] || { del "\$a" known; add "\$a" gone; }; done < "$w/vanish" ;;
+  mask)
+    [ ! -e "$w/mask-fails" ] && [ -z "\$t" ] || exit 1
+    has "\$u" gone && { echo "Failed to mask unit: Unit file \$u does not exist." >&2; exit 1; }
+    add "\$u" masked ;;
   unmask) del "\$u" masked ;;
   enable) add "\$u" enabled ;;
   restart) [ ! -e "$w/restart-fails" ] || exit 1; add "\${t:-\$u}" active ;;
@@ -118,7 +126,7 @@ board() {
   local fx="$w/$1" c; shift
   rm -rf -- "$fx" "$w/calls.log" "$w/avahi" "$w/mdns-installed-seen" "$w/disable-fails" "$w/apt-fails" \
     "$w/mask-fails" "$w/restart-fails" "$w/list-fails" "$w/bus-fails" "$w/active-says"
-  for f in known enabled masked active sticky alias; do : > "$w/$f"; done
+  for f in known enabled masked active sticky alias vanish gone; do : > "$w/$f"; done
   mkdir -p "$fx/state" "$fx/etc"
   : > "$fx/compatible"
   for c in "$@"; do printf '%s\0' "$c" >> "$fx/compatible"; done
@@ -245,6 +253,16 @@ enabled:
 masked: ssh.service ssh.socket
 active:" "$(state)"
 grep -q '^systemctl \(disable\|mask\).* sshd[.]service$' "$w/calls.log" && fail "no key, Debian's OpenSSH: the alias is turned off on its own"
+# A unit listed as a file of its own that disabling ssh.service removes: gone, so it counts as off.
+board gonessh raspberrypi,5-model-b; debian; units known ssh.service ssh.socket sshd.service; : > "$w/alias"
+units vanish "sshd.service ssh.service"
+out=$(split gonessh ssh_policy)
+same "no key, a unit gone during the loop: stdout" "out $off_line" "$(grep '^out ' <<<"$out")"
+same "no key, a unit gone during the loop: exit" "exit 0" "$(tail -n 1 <<<"$out")"
+same "no key, a unit gone during the loop: state" "known: ssh.service ssh.socket
+enabled:
+masked: ssh.service ssh.socket
+active:" "$(state)"
 board offfails raspberrypi,5-model-b; dropbear; : > "$w/disable-fails"
 same "no key, the server not disabled" "err [  ERROR  ] Failed to turn off dropbear.service. $error_tail
 exit 1" "$(split offfails ssh_policy)"

@@ -423,10 +423,13 @@ function dropbear_text() {
 # Without ssh_key: disables, stops and masks every SSH unit systemd knows, then fails unless each
 # SSH unit, listed or not, is reported inactive or failed: no answer counts as open.
 function ssh_off() {
-    local unit known state
+    local unit known now state
     known=$(ssh_units_known) || return 1
     for unit in $known; do
         if ! systemctl disable --now "$unit" || ! systemctl mask "$unit"; then
+            # A unit file that was a link to one disabled before it is gone with it: nothing to do.
+            now=$(ssh_units_known) || return 1
+            [[ $'\n'$now$'\n' == *$'\n'$unit$'\n'* ]] || continue
             ssh_error "Failed to turn off $unit."
             return 1
         fi
