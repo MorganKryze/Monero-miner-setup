@@ -29,12 +29,14 @@ printf '#!/bin/sh\nexit 0\n' > "$w/bin/sleep"
 # sudo fails `systemctl clean` while the file fail-clean exists in the fixture, as it does on a
 # systemd without the clean verb or on a unit still active; while the file failed exists, as
 # systemd refuses to clean a unit in the failed state, until `systemctl reset-failed` removes it;
-# and while old-unit exists, as on a unit that declares none of the directories.
+# while old-unit exists, as on a unit that declares none of the directories; and `test` while
+# fail-sudo-test exists, as sudo does without a password or a terminal.
 cat > "$w/bin/sudo" <<EOS
 #!/bin/sh
 echo "sudo \$*" >> "$w/calls"
 [ "\$1 \$2" = "systemctl reset-failed" ] && /bin/rm -f "$w/failed"
 [ "\$*" = "systemctl stop xmrig-host-tuning.service" ] && [ -f "$w/fail-tuning-stop" ] && exit 1
+[ "\$1" = test ] && [ -f "$w/fail-sudo-test" ] && { echo "sudo: a password is required" >&2; exit 1; }
 [ "\$1" = test ] && { shift; exec test "\$@"; }
 [ "\$1 \$2" = "apt-get remove" ] && [ -f "$w/fail-apt" ] && exit 100
 if [ "\$1 \$2" = "systemctl clean" ]; then
@@ -302,6 +304,7 @@ target service-disable
 [ "$code" -eq 0 ] || fail "first boot: exit $code"
 same "first boot: calls" "pgrep -x xmrig
 sudo test -f $w/etc/first-boot/mdns-installed
+sudo test ! -f $w/etc/first-boot/mdns-installed
 sudo systemctl disable --now xmrig-first-boot.service
 sudo rm -f -- $w/etc/xmrig-first-boot.service $w/etc/xmrig-first-boot
 sudo rm -rf -- $w/etc/first-boot
@@ -328,6 +331,15 @@ printf '%s\n' "$calls" | grep -qF -e "rm -rf -- $w/etc/first-boot" -e 'rm -f -- 
 printf '%s\n' "$calls" | grep -q 'logrotate-xmrig' && fail "mdns removal fails: the logrotate file was removed"
 printf '%s\n' "$out" | grep -qxF '[  ERROR  ] Failed to remove avahi-daemon. The first-boot files are kept so make service-disable can retry once apt is fixed' \
   || fail "mdns removal fails: no line saying the files are kept"
+# sudo cannot look for the record: nothing is removed, so avahi-daemon is not left behind unrecorded.
+firstboot etc/first-boot/mdns-installed
+: > "$w/fail-sudo-test"
+target service-disable
+rm -f "$w/fail-sudo-test"
+[ "$code" -ne 0 ] || fail "record unreadable: exit 0"
+printf '%s\n' "$calls" | grep -qE 'disable --now xmrig-first-boot|apt-get|rm -' && fail "record unreadable: the setup was touched"
+printf '%s\n' "$out" | grep -qxF '[  ERROR  ] Failed to look for the first-boot record of avahi-daemon with sudo. Nothing is removed so make service-disable can retry' \
+  || fail "record unreadable: no line saying nothing is removed"
 # Only the state folder left (a setup cut before its unit was written): still removed.
 setup etc/first-boot/settings
 target service-disable
