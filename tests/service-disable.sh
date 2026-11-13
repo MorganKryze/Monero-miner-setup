@@ -35,6 +35,8 @@ cat > "$w/bin/sudo" <<EOS
 echo "sudo \$*" >> "$w/calls"
 [ "\$1 \$2" = "systemctl reset-failed" ] && /bin/rm -f "$w/failed"
 [ "\$*" = "systemctl stop xmrig-host-tuning.service" ] && [ -f "$w/fail-tuning-stop" ] && exit 1
+[ "\$1" = test ] && { shift; exec test "\$@"; }
+[ "\$1 \$2" = "apt-get remove" ] && [ -f "$w/fail-apt" ] && exit 100
 if [ "\$1 \$2" = "systemctl clean" ]; then
   [ -f "$w/fail-clean" ] && exit 1
   [ -f "$w/failed" ] && { echo "Failed to clean unit xmrig.service: Unit is not inactive or has pending job." >&2; exit 2; }
@@ -59,6 +61,7 @@ EOS
 chmod +x "$w/bin/"*
 paths=(SYSTEMD_UNIT="$w/etc/xmrig.service" LAUNCHD_PLIST="$w/agents/com.moneroocean.xmrig.plist" LOGROTATE_CONF="$w/etc/logrotate-xmrig"
   TUNING_UNIT="$w/etc/xmrig-host-tuning.service" TUNING_BIN="$w/etc/xmrig-host-tuning" TUNING_CONF="$w/etc/xmrig-host-tuning.conf"
+  FIRSTBOOT_UNIT="$w/etc/xmrig-first-boot.service" FIRSTBOOT_BIN="$w/etc/xmrig-first-boot" FIRSTBOOT_STATE="$w/etc/first-boot"
   BOARD_STATUS="$w/board-status")
 printf 'echo "BOARD READOUT"\n' > "$w/board-status"
 # The targets must reach the service only through these variables: with them set, no recipe
@@ -289,5 +292,49 @@ same "systemd status: calls" "sudo systemctl status xmrig.service
 systemctl show -p User --value xmrig.service
 sudo -u fixture-miner test -f /var/log/xmrig/fixture-miner/xmrig.log
 sudo -u fixture-miner tail -n 5 -- /var/log/xmrig/fixture-miner/xmrig.log" "$calls"
+# A board set up by the DietPi first boot: its unit is disabled and stopped, its unit, script and
+# state folder (settings, records, the fetched installer) removed, one line; the hostname is left
+# as set. avahi-daemon is removed only when the setup's record says the setup installed it, and a
+# failed removal keeps every first-boot file, non-zero.
+firstboot() { setup etc/xmrig-first-boot.service etc/xmrig-first-boot etc/first-boot/settings etc/first-boot/done "$@"; }
+firstboot
+target service-disable
+[ "$code" -eq 0 ] || fail "first boot: exit $code"
+same "first boot: calls" "pgrep -x xmrig
+sudo test -f $w/etc/first-boot/mdns-installed
+sudo systemctl disable --now xmrig-first-boot.service
+sudo rm -f -- $w/etc/xmrig-first-boot.service $w/etc/xmrig-first-boot
+sudo rm -rf -- $w/etc/first-boot
+sudo systemctl daemon-reload" "$calls"
+printf '%s\n' "$out" | grep -qxF '[ SUCCESS ] First-boot setup removed: its unit and script and settings and records. The hostname stays as set.' \
+  || fail "first boot: no line saying the setup was removed"
+printf '%s\n' "$calls" | grep -qE 'hostname|/etc/hosts' && fail "first boot: the hostname was touched"
+firstboot etc/first-boot/mdns-installed
+target service-disable
+[ "$code" -eq 0 ] || fail "first boot with mdns: exit $code"
+same "first boot with mdns: calls" "pgrep -x xmrig
+sudo test -f $w/etc/first-boot/mdns-installed
+sudo systemctl disable --now xmrig-first-boot.service
+sudo apt-get remove --purge -y avahi-daemon
+sudo rm -f -- $w/etc/xmrig-first-boot.service $w/etc/xmrig-first-boot
+sudo rm -rf -- $w/etc/first-boot
+sudo systemctl daemon-reload" "$calls"
+firstboot etc/first-boot/mdns-installed etc/logrotate-xmrig
+: > "$w/fail-apt"
+target service-disable
+rm -f "$w/fail-apt"
+[ "$code" -ne 0 ] || fail "mdns removal fails: exit 0"
+printf '%s\n' "$calls" | grep -q -- '-- $w/etc/first-boot\|rm -f -- ' && fail "mdns removal fails: first-boot files removed"
+printf '%s\n' "$calls" | grep -q 'logrotate-xmrig' && fail "mdns removal fails: the logrotate file was removed"
+printf '%s\n' "$out" | grep -qxF '[  ERROR  ] Failed to remove avahi-daemon. The first-boot files are kept so make service-disable can retry once apt is fixed' \
+  || fail "mdns removal fails: no line saying the files are kept"
+# Only the state folder left (a setup cut before its unit was written): still removed.
+setup etc/first-boot/settings
+target service-disable
+printf '%s\n' "$calls" | grep -qxF "sudo rm -rf -- $w/etc/first-boot" || fail "state folder alone: not removed"
+# No first boot here: no first-boot call at all.
+setup etc/xmrig.service
+target service-disable
+printf '%s\n' "$calls" | grep -q 'first-boot\|avahi' && fail "no first boot: a first-boot call was made"
 [ "$rc" -eq 0 ] && echo "PASS service-disable"
 exit "$rc"
