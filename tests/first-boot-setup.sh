@@ -7,7 +7,9 @@
 # heartbeat. SSH is turned off first, before any check that can refuse but the one for a copy without
 # a release, and once more after the apt wait; SSH left on or the host name not set stops the setup before the installer. A clone a
 # power cut left at the wrong commit is removed before the next run.
-# Every run is under env -i with stub curl, git, pgrep, systemctl, hostname and sleep, and a stub
+# DietPi's minimal image has no git, make or bc: the setup installs the missing ones through apt
+# before the installer, and stops when that install fails.
+# Every run is under env -i with stub curl, git, make, bc, apt-get, pgrep, systemctl, hostname and sleep, and a stub
 # installer served by the stub curl; nothing reaches the network. Run from the repository root.
 # Prints FAIL lines, exits 1 on any miss.
 rc=0
@@ -91,6 +93,12 @@ s=; for ((i = 0; i < 40; i++)); do b=; read -r b < "\$FX/leds/ACT/brightness"; s
   [[ \$s =~ \ 0( |\$) && \$s =~ \ 255( |\$) ]] && break; "$real_sleep" 0.03; done
 echo "\$s" >> "$w/led-samples"
 EOF
+# apt-get records its arguments and DEBIAN_FRONTEND, and fails while apt-fails exists.
+cat > "$w/stubs/apt-get" <<EOF
+#!/bin/bash
+echo "apt-get \$* (\$DEBIAN_FRONTEND)" >> "$w/calls.log"
+[ ! -e "$w/apt-fails" ] || { echo "E: Unable to locate package bc" >&2; exit 100; }
+EOF
 chmod +x "$w/stubs/"*
 # The installer records its arguments, its umask and whether the installing marker is there while it
 # runs, and exits with the code in installer-exit.
@@ -125,7 +133,9 @@ W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBE
 board() {
   local fx="$w/$1"; shift
   rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/fetch-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/sub-status" "$w/installer-exit" "$w/ssh-on" \
-    "$w/sleeps" "$w/sleep-cap" "$w/led-samples" "$w/installing-seen"
+    "$w/sleeps" "$w/sleep-cap" "$w/led-samples" "$w/installing-seen" "$w/apt-fails"
+  # git (the stub above), make and bc are on the board unless a case removes them.
+  printf '#!/bin/bash\n' > "$w/stubs/make"; printf '#!/bin/bash\n' > "$w/stubs/bc"; chmod +x "$w/stubs/make" "$w/stubs/bc"
   mkdir -p "$fx/state" "$fx/leds/ACT" "$fx/net/eth0" "$fx/dev" "$fx/etc"
   printf 'raspberrypi,5-model-b\0brcm,bcm2712\0' > "$fx/compatible"
   ln -s "$fx/dev" "$fx/net/eth0/device"; printf '1\n' > "$fx/net/eth0/type"
@@ -327,6 +337,28 @@ rm -f "$w/calls.log"; printf 'none\n' > "$w/ok/leds/ACT/trigger"
 same "done boot" "exit 0" "$(run ok)"
 same "done boot: no call" "" "$(cat "$w/calls.log" 2>/dev/null)"
 same "done boot: heartbeat" "heartbeat" "$(cat "$w/ok/leds/ACT/trigger")"
+
+# ---- the installer's tools ----
+board need; rm -f "$w/stubs/make" "$w/stubs/bc"
+same "tools missing" "$ssh_line
+[  INFO   ] Installing make bc: the installer needs them.
+$done_line rpi5-3fa2.
+exit 0" "$(run need)"
+same "tools missing: calls" "$ssh_off
+$ssh_run
+$head
+$(printf "$fetch" need)
+apt-get install -y --no-install-recommends make bc (noninteractive)
+$(ok_calls need | tail -n +3)" "$(calls)"
+board needfail; rm -f "$w/stubs/bc"; : > "$w/apt-fails"
+same "tools install fails" "out $ssh_line
+out [  INFO   ] Installing bc: the installer needs them.
+err E: Unable to locate package bc
+err [  ERROR  ] Failed to install bc, which the installer needs. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
+exit 1" "$(split needfail)"
+grep -q '^installer' "$w/calls.log" && fail "tools install fails: the installer ran"
+same "tools install fails: error LED" "none 255" "$(led needfail)"
+no_done needfail
 
 # ---- a power cut during the clone ----
 board cut; : > "$w/cut/state/installing"; mkdir -p "$w/cut/clone/.git"

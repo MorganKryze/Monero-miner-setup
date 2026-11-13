@@ -547,6 +547,21 @@ function mdns_setup() {
     fi
 }
 
+# Installs the tools the installer needs that DietPi's minimal image lacks: git, make and bc.
+function tools_setup() {
+    local t
+    local -a missing=()
+    for t in git make bc; do
+        command -v "$t" >/dev/null || missing+=("$t")
+    done
+    [ "${#missing[@]}" -gt 0 ] || return 0
+    info "Installing ${missing[*]}: the installer needs them."
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"; then
+        error "Failed to install ${missing[*]}, which the installer needs. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+        return 1
+    fi
+}
+
 function unit_text() {
     printf '%s\n' "[Unit]" "Description=Monero miner first-boot setup" "After=network.target" "" \
         "[Service]" "Type=exec" "ExecStart=$SETUP_BIN setup" "" "[Install]" "WantedBy=multi-user.target"
@@ -725,6 +740,7 @@ function setup() {
     # DietPi's own first run may have started Dropbear again meanwhile.
     ssh_policy again || { setup_failed; return 1; }
     fetch_with_retry || { setup_failed; return 1; }
+    tools_setup || { setup_failed; return 1; }
     mdns_setup || { setup_failed; return 1; }
     run_installer "${S_NAME:-$host}" || { setup_failed; return 1; }
     if ! systemctl is-enabled --quiet xmrig.service || ! systemctl is-active --quiet xmrig.service; then
