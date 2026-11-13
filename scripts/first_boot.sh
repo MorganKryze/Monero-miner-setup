@@ -525,6 +525,15 @@ function unit_text() {
         "[Service]" "Type=exec" "ExecStart=$SETUP_BIN setup" "" "[Install]" "WantedBy=multi-user.target"
 }
 
+# Fails unless the release build filled RELEASE_TAG and INSTALLER_SHA256: the repository's copy,
+# run by hand on any host, installs nothing and leaves its SSH alone.
+function release_ok() {
+    if [ -z "$RELEASE_TAG" ] || [ -z "$INSTALLER_SHA256" ]; then
+        error "This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository."
+        return 1
+    fi
+}
+
 # The part DietPi runs: copies and installs the setup, then returns. Nothing here needs the network.
 function handoff() {
     local self="${BASH_SOURCE[0]}" step="" settings
@@ -532,6 +541,7 @@ function handoff() {
         error "The first-boot setup must run as root."
         return 1
     fi
+    release_ok || return 1
     umask 077
     if ! mkdir -p "$STATE_DIR" || ! chmod 0700 "$STATE_DIR"; then
         step="the state folder"
@@ -672,17 +682,14 @@ function setup() {
         return 0
     fi
     led_blink_start
-    # SSH is settled first, so a refusal below never leaves it open: off unless a valid ssh_key
+    # A copy without a release refuses before SSH is touched; a release build always passes.
+    release_ok || { setup_failed; return 1; }
+    # SSH is settled next, so a refusal below never leaves it open: off unless a valid ssh_key
     # was read, even from settings refused for another line.
     read_settings "$STATE_DIR/settings"
     settings=$?
     ssh_policy || { setup_failed; return 1; }
     [ "$settings" -eq 0 ] || { setup_failed; return 1; }
-    if [ -z "$RELEASE_TAG" ] || [ -z "$INSTALLER_SHA256" ]; then
-        error "This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository."
-        setup_failed
-        return 1
-    fi
     memory_floor_ok || { setup_failed; return 1; }
     host=$(board_name) || { setup_failed; return 1; }
     set_hostname "$host" || { setup_failed; return 1; }

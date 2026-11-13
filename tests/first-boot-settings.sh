@@ -188,9 +188,13 @@ mode_of() { stat -c '%a %u' "$1" 2>/dev/null || stat -f '%Lp %u' "$1"; }
 me=$(id -u)
 started="[  INFO   ] The first-boot setup is installed and starts now: the status LED blinks while it runs."
 h="$w/h"; mkdir -p "$h/sbin" "$h/unit" "$h/boot"
+# The release build fills its tag and the installer's sha256.
 { sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$script"
   printf '%s\n' "wallet = $W" 'mode = max' '# pool = x'
-  sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$script"; } > "$h/boot/Automation_Custom_Script.sh"
+  sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$script" |
+    sed 's/^RELEASE_TAG=""$/RELEASE_TAG="v9.9.9"/; s/^INSTALLER_SHA256=""$/INSTALLER_SHA256="'"$(printf '%064d' 0)"'"/'
+} > "$h/boot/Automation_Custom_Script.sh"
+grep -qx 'RELEASE_TAG="v9.9.9"' "$h/boot/Automation_Custom_Script.sh" || fail "the handoff fixture carries no release"
 same "handoff" "$started
 exit 0" "$(run "$h/boot/Automation_Custom_Script.sh" "$h" handoff)"
 same "state folder mode" "700 $me" "$(mode_of "$h/state")"
@@ -228,6 +232,13 @@ exit 1" "$(run "$h/sbin/xmrig-first-boot" "$h" main)"
 cmp -s "$w/settings.before" "$h/state/settings" || fail "the code copy's handoff changed the settings copy"
 cmp -s "$w/code.before" "$h/sbin/xmrig-first-boot" || fail "the code copy's handoff changed the code copy"
 [ -e "$w/systemctl.log" ] && fail "systemctl ran from the code copy's handoff"
+
+# The repository's copy, run by hand on any host, installs nothing.
+h1="$w/h1"; mkdir -p "$h1/sbin" "$h1/unit"; rm -f "$w/systemctl.log"
+same "handoff without a release" "[  ERROR  ] This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository.
+exit 1" "$(run "$script" "$h1" handoff)"
+same "handoff without a release: nothing written" "" "$(find "$h1" -mindepth 1 ! -type d; ls -d "$h1/state" 2>/dev/null)"
+[ -e "$w/systemctl.log" ] && fail "systemctl ran from a handoff without a release"
 
 : > "$w/not-root"
 same "handoff not as root" "[  ERROR  ] The first-boot setup must run as root.
@@ -315,6 +326,7 @@ same "heartbeat LED" "heartbeat" "$(cat "$w/opi/leds/green:indicator-2/trigger")
 # The setup refuses bad settings with the error line and leaves the LED steady on, its blink ended.
 cat >> "$w/extra.sh" <<'EOF2'
 function setup_then() {
+    RELEASE_TAG=v9.9.9 INSTALLER_SHA256=x
     setup
     local code=$?
     printf 'pid %s\n' "$!" > "$FX/pid"

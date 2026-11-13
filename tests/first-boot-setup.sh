@@ -4,8 +4,8 @@
 # unless its sha256 is the one the script carries, and runs it with --prebuilt. The setup is
 # recorded done only once the installer exits 0 and xmrig.service is enabled and running; every
 # refusal leaves it undone, exits 1 and lights the error LED, and a done board only sets the
-# heartbeat. SSH is turned off first, before any check that can refuse, and once more after the apt
-# wait; SSH left on or the host name not set stops the setup before the installer. A clone a
+# heartbeat. SSH is turned off first, before any check that can refuse but the one for a copy without
+# a release, and once more after the apt wait; SSH left on or the host name not set stops the setup before the installer. A clone a
 # power cut left at the wrong commit is removed before the next run.
 # Every run is under env -i with stub curl, git, pgrep, systemctl, hostname and sleep, and a stub
 # installer served by the stub curl; nothing reaches the network. Run from the repository root.
@@ -188,11 +188,11 @@ done_line="[ SUCCESS ] First-boot setup done: rpi5-3fa2 mines as worker"
 
 # ---- the release ----
 board unbundled
-same "unbundled script" "$ssh_line
-[  ERROR  ] This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository.
+same "unbundled script" "[  ERROR  ] This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository.
 exit 1" "$(run unbundled "" "")"
 same "unbundled: error LED" "none 255" "$(led unbundled)"
-same "unbundled: SSH off first" "$ssh_run" "$(calls)"
+# The repository's copy, run by hand on any host, leaves its SSH alone.
+same "unbundled: SSH untouched" "" "$(calls)"
 no_done unbundled
 
 board mismatch
