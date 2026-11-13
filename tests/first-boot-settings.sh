@@ -323,6 +323,7 @@ EOF2
 led pi raspberrypi,5-model-b ACT
 mkdir -p "$w/pi/state"; printf 'mode = eco\n' > "$w/pi/state/settings"
 same "setup on bad settings" "[  ERROR  ] Setting 'wallet' is missing. $remedy
+[  INFO   ] No ssh_key in the settings: the SSH server is disabled and masked.
 exit 1" "$(run "$script" "$w/pi" setup_then)"
 same "setup error LED" "none 255" "$(leds pi ACT)"
 loop_gone pi

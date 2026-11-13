@@ -4,7 +4,8 @@
 # unless its sha256 is the one the script carries, and runs it with --prebuilt. The setup is
 # recorded done only once the installer exits 0 and xmrig.service is enabled and running; every
 # refusal leaves it undone, exits 1 and lights the error LED, and a done board only sets the
-# heartbeat. SSH left on or the host name not set stops the setup before the installer. A clone a
+# heartbeat. SSH is turned off first, before any check that can refuse, and once more after the apt
+# wait; SSH left on or the host name not set stops the setup before the installer. A clone a
 # power cut left at the wrong commit is removed before the next run.
 # Every run is under env -i with stub curl, git, pgrep, systemctl, hostname and sleep, and a stub
 # installer served by the stub curl; nothing reaches the network. Run from the repository root.
@@ -50,9 +51,18 @@ esac
 EOF
 # pgrep finds apt busy while apt-busy counts down.
 printf '#!/bin/bash\necho "pgrep $*" >> "%s/calls.log"\nbash "%s/count.sh" "%s/apt-busy"\n' "$w" "$w" "$w" > "$w/stubs/pgrep"
-# systemctl: xmrig.service is enabled and running unless no-service exists; no SSH server is enabled
-# unless ssh-on exists, and then its disable fails.
-printf '#!/bin/bash\necho "systemctl $*" >> "%s/calls.log"\ncase "$1 ${*: -1}" in "is-"*" xmrig.service") [ ! -e "%s/no-service" ] ;; "is-enabled ssh.service") [ -e "%s/ssh-on" ] ;; is-*) exit 1 ;; disable*) exit 1 ;; esac\n' "$w" "$w" "$w" > "$w/stubs/systemctl"
+# systemctl: xmrig.service is enabled and running unless no-service exists; of the SSH units, systemd
+# knows dropbear.service alone, which stays active after it is turned off while ssh-on exists.
+cat > "$w/stubs/systemctl" <<EOF
+#!/bin/bash
+echo "systemctl \$*" >> "$w/calls.log"
+case "\$1 \${*: -1}" in
+  "is-"*" xmrig.service") [ ! -e "$w/no-service" ] ;;
+  "list-unit-files dropbear.service") echo "dropbear.service enabled enabled" ;;
+  "is-active dropbear.service") [ -e "$w/ssh-on" ] ;;
+  is-*) exit 1 ;;
+esac
+EOF
 # git describe answers the tag clone-tag holds, or fails as on an untagged commit; git submodule
 # status prints sub-status, else one submodule checked out at its pinned commit.
 cat > "$w/stubs/git" <<EOF
@@ -99,6 +109,7 @@ RELEASE_TAG="$TAG" INSTALLER_SHA256="$SUM"
 STATE_DIR="$FX/state" SETUP_BIN="$FX/sbin/xmrig-first-boot" SETUP_UNIT="$FX/unit/xmrig-first-boot.service"
 LEDS_DIR="$FX/leds" DT_COMPATIBLE="$FX/compatible" NET_DIR="$FX/net" MEMINFO="$FX/meminfo"
 HOSTNAME_FILE="$FX/etc/hostname" HOSTS_FILE="$FX/etc/hosts" ROOT_SSH_DIR="$FX/ssh" CLONE_DIR="$FX/clone"
+SSHD_DROPIN="$FX/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf" DROPBEAR_DEFAULTS="$FX/etc/default/dropbear"
 setup
 code=$?
 printf 'pid %s\n' "$BLINK_PID" > "$FX/pid"
@@ -154,23 +165,32 @@ raw="https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/v9.9.9/scr
 sums="https://github.com/MorganKryze/Monero-miner-setup/releases/download/v9.9.9/SHA256SUMS"
 fetch="curl -fsSL --proto =https --proto-redir =https -o $w/%s/state/install.sh $raw"
 head="curl -fsSL --proto =https --proto-redir =https -I -o /dev/null $sums"
-ssh_off="systemctl is-enabled --quiet dropbear.service
-systemctl is-enabled --quiet ssh.service
+# The SSH policy's calls without a key: every unit systemd knows is disabled, masked, then checked.
+ssh_run="systemctl list-unit-files --no-legend --no-pager dropbear.service
+systemctl list-unit-files --no-legend --no-pager dropbear.socket
+systemctl list-unit-files --no-legend --no-pager ssh.service
+systemctl list-unit-files --no-legend --no-pager ssh.socket
+systemctl list-unit-files --no-legend --no-pager sshd.service
+systemctl disable --now dropbear.service
+systemctl mask dropbear.service
+systemctl is-active --quiet dropbear.service"
+ssh_off="$ssh_run
 hostname rpi5-3fa2"
 ok_calls() { # fixture: the calls of a clean run, installer arguments included
   printf '%s\n' "$head" "$(printf "$fetch" "$1")" \
     "installer -w $W --mode eco --prebuilt --autostart -y --name ${2:-rpi5-3fa2}${3:+ $3}" \
     "systemctl is-enabled --quiet xmrig.service" "systemctl is-active --quiet xmrig.service"
 }
-ssh_line="[  INFO   ] No ssh_key in the settings: SSH is turned off."
+ssh_line="[  INFO   ] No ssh_key in the settings: the SSH server is disabled and masked."
 done_line="[ SUCCESS ] First-boot setup done: rpi5-3fa2 mines as worker"
 
 # ---- the release ----
 board unbundled
-same "unbundled script" "[  ERROR  ] This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository.
+same "unbundled script" "$ssh_line
+[  ERROR  ] This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository.
 exit 1" "$(run unbundled "" "")"
 same "unbundled: error LED" "none 255" "$(led unbundled)"
-same "unbundled: no call" "" "$(calls)"
+same "unbundled: SSH off first" "$ssh_run" "$(calls)"
 no_done unbundled
 
 board mismatch
@@ -190,6 +210,7 @@ same "network down three tries" "$ssh_line
 $done_line rpi5-3fa2.
 exit 0" "$(run net)"
 same "network waits" "$ssh_off
+$ssh_run
 $head
 sleep 10
 $head
@@ -211,6 +232,7 @@ exit 0" "$(run apt)"
 same "apt waits" "$ssh_off
 sleep 10
 sleep 10
+$ssh_run
 $(ok_calls apt)" "$(calls)"
 for p in apt apt-get dpkg dietpi-software dietpi-update; do
   grep -qx "pgrep -u 0 -x $p" "$w/calls.log" || fail "apt wait: no pgrep -u 0 -x $p"
@@ -219,9 +241,10 @@ done
 # ---- memory ----
 board small
 printf 'MemTotal:        2014000 kB\n' > "$w/small/meminfo"
-same "memory under the floor" "[  ERROR  ] This board has 1966 MiB of memory, under the 2560 MiB RandomX's fast mode needs. Add light = yes to the settings to mine in the slower light mode, and flash the card again.
+same "memory under the floor" "$ssh_line
+[  ERROR  ] This board has 1966 MiB of memory, under the 2560 MiB RandomX's fast mode needs. Add light = yes to the settings to mine in the slower light mode, and flash the card again.
 exit 1" "$(run small)"
-same "small: no call" "" "$(calls)"
+same "small: SSH off first" "$ssh_run" "$(calls)"
 same "small: error LED" "none 255" "$(led small)"
 no_done small
 board light "light = yes"
@@ -233,19 +256,27 @@ exit 0" "$(run light)"
 # ---- the board ----
 board pi4; printf 'raspberrypi,4-model-b\0brcm,bcm2711\0' > "$w/pi4/compatible"
 same "board outside the profiles" "[ WARNING ] No status LED is known for this board: the setup goes on without LEDs.
+$ssh_line
 [  ERROR  ] This board has no profile: the first boot covers the Raspberry Pi 5 and RK3588 boards. Install with the script instead, as the README says.
 exit 1" "$(run pi4)"
-same "pi4: no call" "" "$(calls)"
+same "pi4: SSH off first" "$ssh_run" "$(calls)"
 same "pi4: host name kept" "DietPi" "$(cat "$w/pi4/etc/hostname")"
 no_done pi4
 
 # ---- the host steps ----
 board sshon; : > "$w/ssh-on"
-same "SSH not turned off" "[  ERROR  ] Failed to turn off ssh.service. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
+same "SSH still active" "[  ERROR  ] dropbear.service is still active after it was disabled and masked, so SSH stays open. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
 exit 1" "$(run sshon)"
-grep -q '^installer' "$w/calls.log" && fail "SSH not turned off: the installer ran"
-same "SSH not turned off: error LED" "none 255" "$(led sshon)"
+grep -q '^installer' "$w/calls.log" && fail "SSH still active: the installer ran"
+same "SSH still active: error LED" "none 255" "$(led sshon)"
 no_done sshon
+# A refused settings file still turns SSH off.
+board badset; printf 'wallet = %s\nmode = turbo\n' "$W" > "$w/badset/state/settings"
+same "bad settings: SSH off" "[  ERROR  ] Setting 'mode' must be max or eco. Fix it in the settings at the top of Automation_Custom_Script.sh and flash the card again, or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot.
+$ssh_line
+exit 1" "$(run badset)"
+same "bad settings: calls" "$ssh_run" "$(calls)"
+no_done badset
 board hostdir; rm -f "$w/hostdir/etc/hostname"; mkdir "$w/hostdir/etc/hostname"
 same "host name not set" "$ssh_line
 [  ERROR  ] Failed to set the host name to rpi5-3fa2. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
@@ -276,6 +307,7 @@ same "success" "$ssh_line
 [ SUCCESS ] First-boot setup done: rpi5-3fa2 mines as worker shelf-2.
 exit 0" "$out"
 same "success calls" "$ssh_off
+$ssh_run
 $(ok_calls ok shelf-2 "-p pool.example.org:10128 --donate 1")" "$(calls)"
 [ -e "$w/ok/state/done" ] || fail "success: no done"
 [ -e "$w/ok/state/installing" ] && fail "success: installing left"

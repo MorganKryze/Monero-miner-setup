@@ -1,10 +1,12 @@
 #!/bin/bash
 # The first-boot setup's host steps (scripts/first_boot.sh): the board's name (short model name and
 # the first wired interface's MAC tail, lower case), the refusal of a board outside the profiles,
-# the hostname files, SSH closed without a key or opened to the key alone, and avahi-daemon only
-# when mdns is on; each step that fails exits 1 with its error on stderr. Every function runs under
-# env -i against fixture trees, with stub systemctl, hostname, apt-get and dpkg-query that only
-# record their arguments, or fail on request. Run from the repository root.
+# the hostname files, SSH closed without a key (every unit systemd knows disabled, masked and found
+# inactive) or opened to the key alone with password logins off, and avahi-daemon only when mdns is
+# on; each step that fails exits 1 with its error on stderr. Every function runs under env -i
+# against fixture trees, with stub systemctl, hostname, apt-get and dpkg-query that record their
+# arguments, or fail on request; systemctl also keeps the units' states. Run from the repository
+# root.
 # Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -20,18 +22,29 @@ for t in chmod cp mkdir mktemp mv rm cat; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
-# systemctl: is-enabled answers yes for the units listed in the enabled file; disable fails while
-# disable-fails exists.
+real_grep=$(command -v grep) || { echo "FAIL no grep on this host"; exit 1; }
+# systemctl keeps unit state in files of unit names: systemd knows the units in known; enabled,
+# masked and active hold their states. disable --now and mask fail while disable-fails or
+# mask-fails exists, restart while restart-fails does; a unit in sticky stays active.
 cat > "$w/stubs/systemctl" <<EOF
 #!/bin/bash
 echo "systemctl \$*" >> "$w/calls.log"
-if [ "\$1" = is-enabled ]; then
-  u=\${*: -1}
-  while read -r e; do [ "\$e" = "\$u" ] && exit 0; done < "$w/enabled"
-  exit 1
-fi
-[ "\$1" = disable ] && [ -e "$w/disable-fails" ] && exit 1
-exit 0
+has() { "$real_grep" -qx "\$1" "$w/\$2" 2>/dev/null; }
+add() { has "\$1" "\$2" || echo "\$1" >> "$w/\$2"; }
+del() { "$real_grep" -vx "\$1" "$w/\$2" > "$w/\$2.new"; mv "$w/\$2.new" "$w/\$2"; }
+u=\${*: -1}
+case "\$1" in
+  list-unit-files) if has "\$u" known; then echo "\$u enabled enabled"; fi ;;
+  is-enabled)
+    if has "\$u" masked; then echo masked; exit 1; fi
+    if has "\$u" enabled; then echo enabled; else echo disabled; exit 1; fi ;;
+  is-active) has "\$u" active ;;
+  disable) [ ! -e "$w/disable-fails" ] || exit 1; del "\$u" enabled; has "\$u" sticky || del "\$u" active ;;
+  mask) [ ! -e "$w/mask-fails" ] || exit 1; add "\$u" masked ;;
+  unmask) del "\$u" masked ;;
+  enable) add "\$u" enabled ;;
+  restart) [ ! -e "$w/restart-fails" ] || exit 1; add "\$u" active ;;
+esac
 EOF
 printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\n' "$w" > "$w/stubs/hostname"
 # apt-get fails while apt-fails exists.
@@ -45,6 +58,7 @@ cat > "$w/drive.sh" <<'EOF'
 source "$SCRIPT"
 STATE_DIR="$FX/state" LEDS_DIR="$FX/leds" DT_COMPATIBLE="$FX/compatible" NET_DIR="$FX/net"
 HOSTNAME_FILE="$FX/etc/hostname" HOSTS_FILE="$FX/etc/hosts" ROOT_SSH_DIR="$FX/ssh"
+SSHD_DROPIN="$FX/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf" DROPBEAR_DEFAULTS="$FX/etc/default/dropbear"
 S_SSH_KEY="$KEY" S_MDNS="$MDNS"
 "$@"
 EOF
@@ -86,9 +100,10 @@ iface() {
 # board <fixture> <compatible...>: a device tree list, eth0 wired and wlan0 wireless.
 board() {
   local fx="$w/$1" c; shift
-  rm -rf -- "$fx" "$w/calls.log" "$w/avahi" "$w/mdns-installed-seen" "$w/disable-fails" "$w/apt-fails"
+  rm -rf -- "$fx" "$w/calls.log" "$w/avahi" "$w/mdns-installed-seen" "$w/disable-fails" "$w/apt-fails" \
+    "$w/mask-fails" "$w/restart-fails"
+  for f in known enabled masked active sticky; do : > "$w/$f"; done
   mkdir -p "$fx/state" "$fx/etc"
-  : > "$w/enabled"
   : > "$fx/compatible"
   for c in "$@"; do printf '%s\0' "$c" >> "$fx/compatible"; done
   iface "${fx##*/}" lo 00:00:00:00:00:00 loopback
@@ -162,25 +177,70 @@ exit 1" "$(split hostdir set_hostname rpi5-3fa2)"
 same "hostname file not writable: not applied" "" "$(calls)"
 
 # ---- SSH ----
-board nokey raspberrypi,5-model-b; echo dropbear.service > "$w/enabled"
-same "no key" "[  INFO   ] No ssh_key in the settings: SSH is turned off.
+# units <state file> <unit...>: sets a unit state file.
+units() { local f=$1; shift; printf '%s\n' "$@" > "$w/$f"; }
+state() {
+  local f u
+  for f in known enabled masked active; do
+    printf '%s:' "$f"; while read -r u; do printf ' %s' "$u"; done < <(sort "$w/$f"); echo
+  done
+}
+error_tail="The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+off_line="[  INFO   ] No ssh_key in the settings: the SSH server is disabled and masked."
+key_line="[  INFO   ] The ssh_key from the settings is added to root's authorized_keys; password logins are off."
+# dropbear <fixture>: DietPi's Dropbear, its service enabled and running, its socket known.
+dropbear() { units known dropbear.service dropbear.socket; units enabled dropbear.service; units active dropbear.service; }
+board nokey raspberrypi,5-model-b; dropbear
+same "no key" "$off_line
 exit 0" "$(run nokey ssh_policy)"
-same "no key: the enabled server is stopped" "systemctl is-enabled --quiet dropbear.service
+same "no key: every known unit off" "known: dropbear.service dropbear.socket
+enabled:
+masked: dropbear.service dropbear.socket
+active:" "$(state)"
+same "no key: calls" "systemctl list-unit-files --no-legend --no-pager dropbear.service
+systemctl list-unit-files --no-legend --no-pager dropbear.socket
+systemctl list-unit-files --no-legend --no-pager ssh.service
+systemctl list-unit-files --no-legend --no-pager ssh.socket
+systemctl list-unit-files --no-legend --no-pager sshd.service
 systemctl disable --now dropbear.service
-systemctl is-enabled --quiet ssh.service" "$(calls)"
+systemctl mask dropbear.service
+systemctl disable --now dropbear.socket
+systemctl mask dropbear.socket
+systemctl is-active --quiet dropbear.service
+systemctl is-active --quiet dropbear.socket" "$(calls)"
+same "no key, run again" "$off_line
+exit 0" "$(run nokey ssh_policy)"
 [ -e "$w/nokey/ssh" ] && fail "no key: an ssh folder is written"
+board openssh raspberrypi,5-model-b
+units known ssh.service ssh.socket sshd.service; units enabled ssh.service; units active ssh.service
+same "no key, OpenSSH" "$off_line
+exit 0" "$(run openssh ssh_policy)"
+same "no key, OpenSSH: every known unit off" "known: ssh.service ssh.socket sshd.service
+enabled:
+masked: ssh.service ssh.socket sshd.service
+active:" "$(state)"
+grep -v list-unit-files "$w/calls.log" | grep -q dropbear && fail "no key, OpenSSH: an unknown unit is touched"
+board offfails raspberrypi,5-model-b; dropbear; : > "$w/disable-fails"
+same "no key, the server not disabled" "err [  ERROR  ] Failed to turn off dropbear.service. $error_tail
+exit 1" "$(split offfails ssh_policy)"
+board maskfails raspberrypi,5-model-b; dropbear; : > "$w/mask-fails"
+same "no key, the server not masked" "err [  ERROR  ] Failed to turn off dropbear.service. $error_tail
+exit 1" "$(split maskfails ssh_policy)"
+board stuck raspberrypi,5-model-b; dropbear; units sticky dropbear.service
+same "no key, the server still active" "err [  ERROR  ] dropbear.service is still active after it was disabled and masked, so SSH stays open. $error_tail
+exit 1" "$(split stuck ssh_policy)"
+
 key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOv8 you@laptop"
-board key raspberrypi,5-model-b; echo dropbear.service > "$w/enabled"
+board key raspberrypi,5-model-b
 mkdir -p "$w/key/ssh"; chmod 0755 "$w/key/ssh"; printf 'ssh-rsa AAAAB3 old@host\n' > "$w/key/ssh/authorized_keys"
 out=$(KEY=$key run key ssh_policy)
-same "key" "[  INFO   ] SSH takes the key from the settings only.
+same "key" "$key_line
 exit 0" "$out"
 KEY=$key run key ssh_policy > /dev/null
 same "key: added once" "ssh-rsa AAAAB3 old@host
 $key" "$(cat "$w/key/ssh/authorized_keys")"
 same "key: folder mode" "700" "$(mode "$w/key/ssh")"
 same "key: file mode" "600" "$(mode "$w/key/ssh/authorized_keys")"
-same "key: no disable" "" "$(calls)"
 grep -q AAAAC3 <<<"$out" && fail "key: the key is printed"
 board newkey raspberrypi,5-model-b
 KEY=$key run newkey ssh_policy > /dev/null
@@ -195,15 +255,58 @@ board emptykeys raspberrypi,5-model-b
 mkdir -p "$w/emptykeys/ssh"; : > "$w/emptykeys/ssh/authorized_keys"
 KEY=$key run emptykeys ssh_policy > /dev/null
 same "key in an empty file" "$key" "$(cat "$w/emptykeys/ssh/authorized_keys")"
-board offfails raspberrypi,5-model-b; echo dropbear.service > "$w/enabled"; : > "$w/disable-fails"
-same "no key, the server not turned off" "err [  ERROR  ] Failed to turn off dropbear.service. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
-exit 1" "$(split offfails ssh_policy)"
 board sshfile raspberrypi,5-model-b; : > "$w/sshfile/ssh"
 out=$(KEY=$key split sshfile ssh_policy)
 same "key, ssh folder not writable: exit" "exit 1" "$(tail -n 1 <<<"$out")"
 same "key, ssh folder not writable: stdout" "" "$(grep '^out ' <<<"$out")"
-same "key, ssh folder not writable: last error" "err [  ERROR  ] Failed to add the ssh_key to $w/sshfile/ssh/authorized_keys. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service." \
+same "key, ssh folder not writable: last error" "err [  ERROR  ] Failed to add the ssh_key to $w/sshfile/ssh/authorized_keys. $error_tail" \
   "$(grep '^err ' <<<"$out" | tail -n 1)"
+
+# With a key, password logins are turned off in the server's own config and the server restarted.
+board kdrop raspberrypi,5-model-b; dropbear; mkdir -p "$w/kdrop/etc/default"
+printf '# Dropbear\nDROPBEAR_PORT=22\nDROPBEAR_EXTRA_ARGS="-w"\n' > "$w/kdrop/etc/default/dropbear"
+chmod 0640 "$w/kdrop/etc/default/dropbear"
+same "key, Dropbear" "$key_line
+exit 0" "$(KEY=$key run kdrop ssh_policy)"
+KEY=$key run kdrop ssh_policy > /dev/null
+same "key, Dropbear: password logins off" "# Dropbear
+DROPBEAR_PORT=22
+DROPBEAR_EXTRA_ARGS=\"-w -s -g\"" "$(cat "$w/kdrop/etc/default/dropbear")"
+same "key, Dropbear: file mode kept" "640" "$(mode "$w/kdrop/etc/default/dropbear")"
+same "key, Dropbear: restarted" "2" "$(grep -cx 'systemctl restart dropbear.service' "$w/calls.log")"
+same "key, Dropbear: state" "known: dropbear.service dropbear.socket
+enabled: dropbear.service
+masked:
+active: dropbear.service" "$(state)"
+[ -e "$w/kdrop/etc/ssh" ] && fail "key, Dropbear: an sshd drop-in is written"
+board kdropnew raspberrypi,5-model-b; dropbear
+KEY=$key run kdropnew ssh_policy > /dev/null
+same "key, Dropbear without defaults" "DROPBEAR_EXTRA_ARGS=\"-s -g\"" "$(cat "$w/kdropnew/etc/default/dropbear" 2>/dev/null)"
+board kssh raspberrypi,5-model-b
+units known ssh.service ssh.socket sshd.service; units enabled ssh.service; units active ssh.service
+same "key, OpenSSH" "$key_line
+exit 0" "$(KEY=$key run kssh ssh_policy)"
+same "key, OpenSSH: drop-in" "PasswordAuthentication no
+PermitRootLogin prohibit-password" "$(cat "$w/kssh/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf" 2>/dev/null)"
+grep -qx 'systemctl restart ssh.service' "$w/calls.log" || fail "key, OpenSSH: not restarted"
+[ -e "$w/kssh/etc/default/dropbear" ] && fail "key, OpenSSH: Dropbear defaults written"
+# An earlier boot without a key masked the server: the key brings it back.
+board kback raspberrypi,5-model-b; units known dropbear.service dropbear.socket; units masked dropbear.service dropbear.socket
+same "key after SSH was turned off" "$key_line
+exit 0" "$(KEY=$key run kback ssh_policy)"
+same "key after SSH was turned off: state" "known: dropbear.service dropbear.socket
+enabled: dropbear.service
+masked:
+active: dropbear.service" "$(state)"
+board krestart raspberrypi,5-model-b; dropbear; : > "$w/restart-fails"
+same "key, the server not restarted" "err [  ERROR  ] Failed to restart dropbear.service with password logins off. $error_tail
+exit 1" "$(KEY=$key split krestart ssh_policy)"
+board kdropin raspberrypi,5-model-b; units known ssh.service; mkdir -p "$w/kdropin/etc"; : > "$w/kdropin/etc/ssh"
+out=$(KEY=$key split kdropin ssh_policy)
+same "key, the drop-in not written: last error" "err [  ERROR  ] Failed to turn off password logins for SSH. $error_tail" \
+  "$(grep '^err ' <<<"$out" | tail -n 1)"
+same "key, the drop-in not written: exit" "exit 1" "$(tail -n 1 <<<"$out")"
+grep -q 'restart' "$w/calls.log" && fail "key, the drop-in not written: the server restarted"
 
 # ---- mDNS ----
 board moff raspberrypi,5-model-b

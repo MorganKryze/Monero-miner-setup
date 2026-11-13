@@ -62,7 +62,13 @@ rk3588 xunlong,orangepi-5-max opi5max -"
 # needs them before the clone exists, and a check keeps the two equal.
 SOCS="bcm2712.compatible=brcm,bcm2712
 rk3588.compatible=rockchip,rk3588 rockchip,rk3588s"
-SSH_UNITS="dropbear.service ssh.service"
+# The SSH units Dropbear or OpenSSH may bring, and the servers among them; the setup skips the ones
+# systemd does not know. sshd.service is OpenSSH's alias on Debian, its own unit elsewhere.
+SSH_UNITS="dropbear.service dropbear.socket ssh.service ssh.socket sshd.service"
+SSH_SERVERS="dropbear.service ssh.service sshd.service"
+# sshd keeps the first value it reads for a keyword, and reads sshd_config.d in name order: 00- first.
+SSHD_DROPIN="/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf"
+DROPBEAR_DEFAULTS="/etc/default/dropbear"
 STATUS_LED=""
 BLINK_PID=""
 
@@ -370,36 +376,120 @@ function set_hostname() {
     fi
 }
 
-# Without ssh_key, stops and disables the SSH server DietPi enabled; with one, adds it once to
-# root's authorized_keys and leaves the server running (DietPi already turned password logins off).
-function ssh_policy() {
-    local unit line lead="" file="$ROOT_SSH_DIR/authorized_keys"
-    if [ -z "$S_SSH_KEY" ]; then
-        for unit in $SSH_UNITS; do
-            systemctl is-enabled --quiet "$unit" || continue
-            if ! systemctl disable --now "$unit"; then
-                error "Failed to turn off $unit. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
-                return 1
+function ssh_error() {
+    error "$* The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+}
+
+# Prints the SSH units systemd knows, one per line.
+function ssh_units_known() {
+    local unit
+    for unit in $SSH_UNITS; do
+        [ -z "$(systemctl list-unit-files --no-legend --no-pager "$unit" 2>/dev/null)" ] || printf '%s\n' "$unit"
+    done
+}
+
+# Prints /etc/default/dropbear with -s and -g (no password logins, root's included) in
+# DROPBEAR_EXTRA_ARGS, its other arguments kept.
+function dropbear_text() {
+    local line args done=0
+    if [ -f "$DROPBEAR_DEFAULTS" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            if [[ $line =~ ^[[:space:]]*DROPBEAR_EXTRA_ARGS=(.*)$ ]]; then
+                [ "$done" -eq 0 ] || continue
+                args=${BASH_REMATCH[1]}
+                args=${args//[\"\']/}
+                [[ " $args " == *" -s "* ]] || args="$args -s"
+                [[ " $args " == *" -g "* ]] || args="$args -g"
+                args=${args#"${args%%[![:space:]]*}"}
+                printf 'DROPBEAR_EXTRA_ARGS="%s"\n' "$args"
+                done=1
+            else
+                printf '%s\n' "$line"
             fi
-        done
-        info "No ssh_key in the settings: SSH is turned off."
-        return 0
+        done <"$DROPBEAR_DEFAULTS"
     fi
+    [ "$done" -eq 1 ] || printf 'DROPBEAR_EXTRA_ARGS="-s -g"\n'
+}
+
+# Without ssh_key: disables, stops and masks every SSH unit systemd knows, then fails unless none
+# is active.
+function ssh_off() {
+    local unit known
+    known=$(ssh_units_known)
+    for unit in $known; do
+        if ! systemctl disable --now "$unit" || ! systemctl mask "$unit"; then
+            ssh_error "Failed to turn off $unit."
+            return 1
+        fi
+    done
+    for unit in $known; do
+        if systemctl is-active --quiet "$unit"; then
+            ssh_error "$unit is still active after it was disabled and masked, so SSH stays open."
+            return 1
+        fi
+    done
+}
+
+# With ssh_key: adds it once to root's authorized_keys, turns password logins off in the server's
+# own config (DietPi's setting is not relied on), brings back a server an earlier boot without a key
+# masked, and restarts the running server.
+function ssh_keyed() {
+    local unit line lead="" have=0 known revived=" " file="$ROOT_SSH_DIR/authorized_keys"
     if ! mkdir -p "$ROOT_SSH_DIR" || ! chmod 0700 "$ROOT_SSH_DIR" || { [ -e "$file" ] && ! chmod 0600 "$file"; }; then
-        error "Failed to add the ssh_key to $file. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+        ssh_error "Failed to add the ssh_key to $file."
         return 1
     fi
     # A last line without a newline gets one first, so the key starts on its own line.
     if [ -f "$file" ]; then
         while IFS= read -r line || { [ -n "$line" ] && lead=$'\n'; }; do
-            [ "$line" != "$S_SSH_KEY" ] || { info "SSH takes the key from the settings only."; return 0; }
+            [ "$line" != "$S_SSH_KEY" ] || have=1
         done <"$file"
     fi
-    if ! (umask 077 && printf '%s%s\n' "$lead" "$S_SSH_KEY" >>"$file") || ! chmod 0600 "$file"; then
-        error "Failed to add the ssh_key to $file. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+    if [ "$have" -eq 0 ] && { ! (umask 077 && printf '%s%s\n' "$lead" "$S_SSH_KEY" >>"$file") || ! chmod 0600 "$file"; }; then
+        ssh_error "Failed to add the ssh_key to $file."
         return 1
     fi
-    info "SSH takes the key from the settings only."
+    known=$(ssh_units_known)
+    known=" ${known//$'\n'/ } "
+    if [[ $known == *" ssh.service "* || $known == *" sshd.service "* ]] &&
+        { ! mkdir -p "${SSHD_DROPIN%/*}" ||
+            ! printf '%s\n' "PasswordAuthentication no" "PermitRootLogin prohibit-password" | put_file "$SSHD_DROPIN" 0644; }; then
+        ssh_error "Failed to turn off password logins for SSH."
+        return 1
+    fi
+    if [[ $known == *" dropbear.service "* ]] &&
+        { ! mkdir -p "${DROPBEAR_DEFAULTS%/*}" || ! dropbear_text | put_file "$DROPBEAR_DEFAULTS"; }; then
+        ssh_error "Failed to turn off password logins for SSH."
+        return 1
+    fi
+    for unit in $known; do
+        [ "$(systemctl is-enabled "$unit" 2>/dev/null)" = masked ] || continue
+        if ! systemctl unmask "$unit" || { [[ " $SSH_SERVERS " == *" $unit "* ]] && ! systemctl enable "$unit"; }; then
+            ssh_error "Failed to turn $unit back on for the ssh_key."
+            return 1
+        fi
+        revived="$revived$unit "
+    done
+    for unit in $SSH_SERVERS; do
+        [[ $known == *" $unit "* ]] || continue
+        [[ $revived == *" $unit "* ]] || systemctl is-active --quiet "$unit" || continue
+        if ! systemctl restart "$unit"; then
+            ssh_error "Failed to restart $unit with password logins off."
+            return 1
+        fi
+    done
+}
+
+# SSH is off unless the settings gave a valid ssh_key, and then open to keys alone. <again> runs it
+# without its log line.
+function ssh_policy() {
+    if [ -z "$S_SSH_KEY" ]; then
+        ssh_off || return 1
+        [ -n "${1:-}" ] || info "No ssh_key in the settings: the SSH server is disabled and masked."
+    else
+        ssh_keyed || return 1
+        [ -n "${1:-}" ] || info "The ssh_key from the settings is added to root's authorized_keys; password logins are off."
+    fi
 }
 
 # With mdns on, installs avahi-daemon when it is missing. The record is written first, so a removal
@@ -560,7 +650,7 @@ function setup_failed() {
 # The setup xmrig-first-boot.service runs at each boot until it is done; a done board only sets
 # its LED, which a reboot resets.
 function setup() {
-    local host
+    local host settings
     umask 077
     STATUS_LED=$(led_find)
     if [ -e "$STATE_DIR/done" ]; then
@@ -568,7 +658,12 @@ function setup() {
         return 0
     fi
     led_blink_start
-    read_settings "$STATE_DIR/settings" || { setup_failed; return 1; }
+    # SSH is settled first, so a refusal below never leaves it open: off unless a valid ssh_key
+    # was read, even from settings refused for another line.
+    read_settings "$STATE_DIR/settings"
+    settings=$?
+    ssh_policy || { setup_failed; return 1; }
+    [ "$settings" -eq 0 ] || { setup_failed; return 1; }
     if [ -z "$RELEASE_TAG" ] || [ -z "$INSTALLER_SHA256" ]; then
         error "This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository."
         setup_failed
@@ -576,10 +671,11 @@ function setup() {
     fi
     memory_floor_ok || { setup_failed; return 1; }
     host=$(board_name) || { setup_failed; return 1; }
-    ssh_policy || { setup_failed; return 1; }
     set_hostname "$host" || { setup_failed; return 1; }
     clean_cut_clone || { setup_failed; return 1; }
     wait_for_apt
+    # DietPi's own first run may have started Dropbear again meanwhile.
+    ssh_policy again || { setup_failed; return 1; }
     fetch_with_retry || { setup_failed; return 1; }
     mdns_setup || { setup_failed; return 1; }
     run_installer "${S_NAME:-$host}" || { setup_failed; return 1; }
