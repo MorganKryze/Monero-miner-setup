@@ -384,10 +384,14 @@ function ssh_error() {
 # Prints the SSH units systemd knows, one per line, its aliases left out: an alias such as Debian's
 # sshd.service is a link that disabling its unit removes, so it is never turned off on its own.
 function ssh_units_known() {
-    local unit state rest listed=" "
+    local files unit state rest listed=" "
+    if ! files=$(systemctl list-unit-files --no-legend --no-pager); then
+        ssh_error "Failed to list the SSH units systemd knows."
+        return 1
+    fi
     while read -r unit state rest; do
         [ "$state" = alias ] || listed="$listed$unit "
-    done < <(systemctl list-unit-files --no-legend --no-pager 2>/dev/null)
+    done <<<"$files"
     for unit in $SSH_UNITS; do
         [[ $listed != *" $unit "* ]] || printf '%s\n' "$unit"
     done
@@ -416,20 +420,21 @@ function dropbear_text() {
     [ "$done" -eq 1 ] || printf 'DROPBEAR_EXTRA_ARGS="-s -g"\n'
 }
 
-# Without ssh_key: disables, stops and masks every SSH unit systemd knows, then fails unless none
-# is active.
+# Without ssh_key: disables, stops and masks every SSH unit systemd knows, then fails unless each
+# SSH unit, listed or not, is reported inactive or failed: no answer counts as open.
 function ssh_off() {
-    local unit known
-    known=$(ssh_units_known)
+    local unit known state
+    known=$(ssh_units_known) || return 1
     for unit in $known; do
         if ! systemctl disable --now "$unit" || ! systemctl mask "$unit"; then
             ssh_error "Failed to turn off $unit."
             return 1
         fi
     done
-    for unit in $known; do
-        if systemctl is-active --quiet "$unit"; then
-            ssh_error "$unit is still active after it was disabled and masked, so SSH stays open."
+    for unit in $SSH_UNITS; do
+        state=$(systemctl is-active "$unit")
+        if [ "$state" != inactive ] && [ "$state" != failed ]; then
+            ssh_error "$unit is still ${state:-in an unknown state} after it was disabled and masked, so SSH stays open."
             return 1
         fi
     done
@@ -454,7 +459,7 @@ function ssh_keyed() {
         ssh_error "Failed to add the ssh_key to $file."
         return 1
     fi
-    known=$(ssh_units_known)
+    known=$(ssh_units_known) || return 1
     known=" ${known//$'\n'/ } "
     if [[ $known == *" ssh.service "* || $known == *" sshd.service "* ]] &&
         { ! mkdir -p "${SSHD_DROPIN%/*}" ||

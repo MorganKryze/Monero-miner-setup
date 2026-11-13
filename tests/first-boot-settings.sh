@@ -26,10 +26,11 @@ for t in chmod mkdir mktemp mv rm cat touch; do
   ln -s "$p" "$w/tools/$t"
 done
 real_sleep=$(command -v sleep) || { echo "FAIL no sleep on this host"; exit 1; }
-# id answers as root unless the fixture says otherwise; systemctl records its arguments; sleep
-# waits a twentieth of a second whatever it is asked, so the blink loop turns fast.
+# id answers as root unless the fixture says otherwise; systemctl records its arguments and finds
+# every unit inactive; sleep waits a twentieth of a second whatever it is asked, so the blink loop
+# turns fast.
 printf '#!/bin/sh\nif [ -e "%s/not-root" ]; then echo 1000; else echo 0; fi\n' "$w" > "$w/stubs/id"
-printf '#!/bin/sh\necho "$*" >> "%s/systemctl.log"\n[ ! -e "%s/systemctl-fails" ]\n' "$w" "$w" > "$w/stubs/systemctl"
+printf '#!/bin/sh\necho "$*" >> "%s/systemctl.log"\n[ "$1" != is-active ] || { echo inactive; exit 3; }\n[ ! -e "%s/systemctl-fails" ]\n' "$w" "$w" > "$w/stubs/systemctl"
 printf '#!/bin/sh\nexec "%s" 0.05\n' "$real_sleep" > "$w/stubs/sleep"
 chmod +x "$w/stubs/"*
 

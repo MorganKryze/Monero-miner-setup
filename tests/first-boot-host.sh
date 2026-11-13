@@ -26,9 +26,11 @@ real_grep=$(command -v grep) || { echo "FAIL no grep on this host"; exit 1; }
 # systemctl keeps unit state in files of unit names: systemd knows the units in known; enabled,
 # masked and active hold their states. alias holds "<alias> <unit>" lines: as on Debian's OpenSSH,
 # the alias is a link that exists while its unit is enabled, is listed with the state alias, reads
-# its unit's activity, and cannot be disabled or masked on its own. disable --now and mask fail
-# while disable-fails or mask-fails exists, restart while restart-fails does; a unit in sticky
-# stays active.
+# its unit's activity, and cannot be disabled or masked on its own. list-unit-files fails while
+# list-fails exists; is-active prints active or inactive, an active unit's state is the one in
+# active-says when it exists, and it prints nothing and fails while bus-fails does. disable --now
+# and mask fail while disable-fails or mask-fails exists, restart while restart-fails does; a unit
+# in sticky stays active.
 cat > "$w/stubs/systemctl" <<EOF
 #!/bin/bash
 echo "systemctl \$*" >> "$w/calls.log"
@@ -40,6 +42,7 @@ u=\${*: -1}
 t=\$(target "\$u")
 case "\$1" in
   list-unit-files)
+    [ ! -e "$w/list-fails" ] || { echo "Failed to connect to bus" >&2; exit 1; }
     [[ \$u == --* ]] && u=
     while read -r k; do [ -n "\$u" ] && [ "\$k" != "\$u" ] || echo "\$k enabled enabled"; done < "$w/known"
     while read -r a k; do has "\$k" enabled && { [ -z "\$u" ] || [ "\$a" = "\$u" ]; } && echo "\$a alias -"; done < "$w/alias"
@@ -47,7 +50,11 @@ case "\$1" in
   is-enabled)
     if has "\$u" masked; then echo masked; exit 1; fi
     if has "\$u" enabled; then echo enabled; else echo disabled; exit 1; fi ;;
-  is-active) has "\${t:-\$u}" active ;;
+  is-active)
+    [ ! -e "$w/bus-fails" ] || { echo "Failed to connect to bus" >&2; exit 1; }
+    s=inactive; has "\${t:-\$u}" active && s=active && [ -e "$w/active-says" ] && s=\$(cat "$w/active-says")
+    [ "\$2" = --quiet ] || echo "\$s"
+    [ "\$s" = active ] || exit 3 ;;
   disable) [ ! -e "$w/disable-fails" ] && [ -z "\$t" ] || exit 1; del "\$u" enabled; has "\$u" sticky || del "\$u" active ;;
   mask) [ ! -e "$w/mask-fails" ] && [ -z "\$t" ] || exit 1; add "\$u" masked ;;
   unmask) del "\$u" masked ;;
@@ -110,7 +117,7 @@ iface() {
 board() {
   local fx="$w/$1" c; shift
   rm -rf -- "$fx" "$w/calls.log" "$w/avahi" "$w/mdns-installed-seen" "$w/disable-fails" "$w/apt-fails" \
-    "$w/mask-fails" "$w/restart-fails"
+    "$w/mask-fails" "$w/restart-fails" "$w/list-fails" "$w/bus-fails" "$w/active-says"
   for f in known enabled masked active sticky alias; do : > "$w/$f"; done
   mkdir -p "$fx/state" "$fx/etc"
   : > "$fx/compatible"
@@ -211,8 +218,11 @@ systemctl disable --now dropbear.service
 systemctl mask dropbear.service
 systemctl disable --now dropbear.socket
 systemctl mask dropbear.socket
-systemctl is-active --quiet dropbear.service
-systemctl is-active --quiet dropbear.socket" "$(calls)"
+systemctl is-active dropbear.service
+systemctl is-active dropbear.socket
+systemctl is-active ssh.service
+systemctl is-active ssh.socket
+systemctl is-active sshd.service" "$(calls)"
 same "no key, run again" "$off_line
 exit 0" "$(run nokey ssh_policy)"
 [ -e "$w/nokey/ssh" ] && fail "no key: an ssh folder is written"
@@ -224,7 +234,7 @@ same "no key, OpenSSH: every known unit off" "known: ssh.service ssh.socket sshd
 enabled:
 masked: ssh.service ssh.socket sshd.service
 active:" "$(state)"
-grep -v list-unit-files "$w/calls.log" | grep -q dropbear && fail "no key, OpenSSH: an unknown unit is touched"
+grep -q '^systemctl \(disable\|mask\).* dropbear' "$w/calls.log" && fail "no key, OpenSSH: an unknown unit is turned off"
 # Debian's OpenSSH: sshd.service is an alias of ssh.service, gone once ssh.service is disabled.
 debian() { units known ssh.service ssh.socket; units enabled ssh.service; units active ssh.service; units alias "sshd.service ssh.service"; }
 board debian raspberrypi,5-model-b; debian
@@ -244,6 +254,22 @@ exit 1" "$(split maskfails ssh_policy)"
 board stuck raspberrypi,5-model-b; dropbear; units sticky dropbear.service
 same "no key, the server still active" "err [  ERROR  ] dropbear.service is still active after it was disabled and masked, so SSH stays open. $error_tail
 exit 1" "$(split stuck ssh_policy)"
+# Fails closed: a unit list systemd cannot give, an active unit it does not list, a state other
+# than inactive or failed, or no state at all.
+board listfails raspberrypi,5-model-b; dropbear; : > "$w/list-fails"
+same "no key, no unit list" "err Failed to connect to bus
+err [  ERROR  ] Failed to list the SSH units systemd knows. $error_tail
+exit 1" "$(split listfails ssh_policy)"
+board unlisted raspberrypi,5-model-b; units active dropbear.service
+same "no key, an active unit not listed" "err [  ERROR  ] dropbear.service is still active after it was disabled and masked, so SSH stays open. $error_tail
+exit 1" "$(split unlisted ssh_policy)"
+board activating raspberrypi,5-model-b; dropbear; units sticky dropbear.service; echo activating > "$w/active-says"
+same "no key, the server activating" "err [  ERROR  ] dropbear.service is still activating after it was disabled and masked, so SSH stays open. $error_tail
+exit 1" "$(split activating ssh_policy)"
+board busfails raspberrypi,5-model-b; dropbear; : > "$w/bus-fails"
+same "no key, no state" "err Failed to connect to bus
+err [  ERROR  ] dropbear.service is still in an unknown state after it was disabled and masked, so SSH stays open. $error_tail
+exit 1" "$(split busfails ssh_policy)"
 
 key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOv8 you@laptop"
 board key raspberrypi,5-model-b
@@ -322,6 +348,11 @@ active: dropbear.service" "$(state)"
 board krestart raspberrypi,5-model-b; dropbear; : > "$w/restart-fails"
 same "key, the server not restarted" "err [  ERROR  ] Failed to restart dropbear.service with password logins off. $error_tail
 exit 1" "$(KEY=$key split krestart ssh_policy)"
+board klistfails raspberrypi,5-model-b; dropbear; : > "$w/list-fails"
+out=$(KEY=$key split klistfails ssh_policy)
+same "key, no unit list: first error" "err [  ERROR  ] Failed to list the SSH units systemd knows. $error_tail" \
+  "$(grep '^err \[' <<<"$out" | head -n 1)"
+same "key, no unit list: exit" "exit 1" "$(tail -n 1 <<<"$out")"
 board kdropin raspberrypi,5-model-b; units known ssh.service; mkdir -p "$w/kdropin/etc"; : > "$w/kdropin/etc/ssh"
 out=$(KEY=$key split kdropin ssh_policy)
 same "key, the drop-in not written: last error" "err [  ERROR  ] Failed to turn off password logins for SSH. $error_tail" \

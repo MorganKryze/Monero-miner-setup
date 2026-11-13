@@ -52,14 +52,16 @@ EOF
 # pgrep finds apt busy while apt-busy counts down.
 printf '#!/bin/bash\necho "pgrep $*" >> "%s/calls.log"\nbash "%s/count.sh" "%s/apt-busy"\n' "$w" "$w" "$w" > "$w/stubs/pgrep"
 # systemctl: xmrig.service is enabled and running unless no-service exists; of the SSH units, systemd
-# knows dropbear.service alone, which stays active after it is turned off while ssh-on exists.
+# knows dropbear.service alone, which stays active after it is turned off while ssh-on exists; the
+# others are inactive.
 cat > "$w/stubs/systemctl" <<EOF
 #!/bin/bash
 echo "systemctl \$*" >> "$w/calls.log"
 case "\$1 \${*: -1}" in
   "is-"*" xmrig.service") [ ! -e "$w/no-service" ] ;;
   "list-unit-files "*) echo "dropbear.service enabled enabled" ;;
-  "is-active dropbear.service") [ -e "$w/ssh-on" ] ;;
+  "is-active dropbear.service") if [ -e "$w/ssh-on" ]; then echo active; else echo inactive; exit 3; fi ;;
+  "is-active "*) echo inactive; exit 3 ;;
   is-*) exit 1 ;;
 esac
 EOF
@@ -169,7 +171,11 @@ head="curl -fsSL --proto =https --proto-redir =https -I -o /dev/null $sums"
 ssh_run="systemctl list-unit-files --no-legend --no-pager
 systemctl disable --now dropbear.service
 systemctl mask dropbear.service
-systemctl is-active --quiet dropbear.service"
+systemctl is-active dropbear.service
+systemctl is-active dropbear.socket
+systemctl is-active ssh.service
+systemctl is-active ssh.socket
+systemctl is-active sshd.service"
 ssh_off="$ssh_run
 hostname rpi5-3fa2"
 ok_calls() { # fixture: the calls of a clean run, installer arguments included
