@@ -324,7 +324,7 @@ firstboot etc/first-boot/mdns-installed etc/logrotate-xmrig
 target service-disable
 rm -f "$w/fail-apt"
 [ "$code" -ne 0 ] || fail "mdns removal fails: exit 0"
-printf '%s\n' "$calls" | grep -q -- '-- $w/etc/first-boot\|rm -f -- ' && fail "mdns removal fails: first-boot files removed"
+printf '%s\n' "$calls" | grep -qF -e "rm -rf -- $w/etc/first-boot" -e 'rm -f -- ' && fail "mdns removal fails: first-boot files removed"
 printf '%s\n' "$calls" | grep -q 'logrotate-xmrig' && fail "mdns removal fails: the logrotate file was removed"
 printf '%s\n' "$out" | grep -qxF '[  ERROR  ] Failed to remove avahi-daemon. The first-boot files are kept so make service-disable can retry once apt is fixed' \
   || fail "mdns removal fails: no line saying the files are kept"
