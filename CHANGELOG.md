@@ -6,6 +6,8 @@ Every release of Monero-miner-setup, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.2.0-rc.1] - 2026-11-13
+
 ### Added
 
 - `--mode max|eco` for the native installer: new configs mine on the CPUs of the board's profile. Not with `--threads`.
@@ -96,5 +98,6 @@ some steps are yours to run.
 - Dependabot auto-merges only GitHub Actions patch and minor bumps, once CI is green. XMRig, bash-toolbox, base image and Gluetun bumps wait for review.
 - The README's install commands use `curl -fsSL` and stop with an error when the download fails or comes back empty.
 
+[0.2.0-rc.1]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.2.0-rc.1
 [0.1.1]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.0
