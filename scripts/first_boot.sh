@@ -384,14 +384,16 @@ function ssh_error() {
 
 # Prints the SSH units systemd knows, one per line, its aliases left out: an alias such as Debian's
 # sshd.service is a link that disabling its unit removes, so it is never turned off on its own.
+# With the argument unmasked, the units systemd lists as masked are left out too.
 function ssh_units_known() {
-    local files unit state rest listed=" "
+    local files unit state rest listed=" " skip=alias
+    [ "${1:-}" != unmasked ] || skip="alias masked"
     if ! files=$(systemctl list-unit-files --no-legend --no-pager); then
         ssh_error "Failed to list the SSH units systemd knows."
         return 1
     fi
     while read -r unit state rest; do
-        [ "$state" = alias ] || listed="$listed$unit "
+        [[ " $skip " == *" $state "* ]] || listed="$listed$unit "
     done <<<"$files"
     for unit in $SSH_UNITS; do
         [[ $listed != *" $unit "* ]] || printf '%s\n' "$unit"
@@ -428,11 +430,12 @@ function dropbear_text() {
     printf '%s\n' "${lines[@]}"
 }
 
-# Without ssh_key: disables, stops and masks every SSH unit systemd knows, then fails unless each
-# SSH unit, listed or not, is reported inactive or failed: no answer counts as open.
+# Without ssh_key: disables, stops and masks every SSH unit systemd knows that is not masked yet (an
+# earlier boot's pass masked it, and disabling it again only prints systemctl's help), then fails
+# unless each SSH unit, listed or not, is reported inactive or failed: no answer counts as open.
 function ssh_off() {
     local unit known now state
-    known=$(ssh_units_known) || return 1
+    known=$(ssh_units_known unmasked) || return 1
     for unit in $known; do
         if ! systemctl disable --now "$unit" || ! systemctl mask "$unit"; then
             # A unit file that was a link to one disabled before it is gone with it: nothing to do.

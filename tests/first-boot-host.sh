@@ -26,8 +26,8 @@ real_grep=$(command -v grep) || { echo "FAIL no grep on this host"; exit 1; }
 # systemctl keeps unit state in files of unit names: systemd knows the units in known; enabled,
 # masked and active hold their states. alias holds "<alias> <unit>" lines: as on Debian's OpenSSH,
 # the alias is a link that exists while its unit is enabled, is listed with the state alias, reads
-# its unit's activity, and cannot be disabled or masked on its own. list-unit-files fails while
-# list-fails exists; is-active prints active or inactive, an active unit's state is the one in
+# its unit's activity, and cannot be disabled or masked on its own. list-unit-files lists a unit in
+# masked with the state masked, and fails while list-fails exists; is-active prints active or inactive, an active unit's state is the one in
 # active-says when it exists, and it prints nothing and fails while bus-fails does. disable --now
 # and mask fail while disable-fails or mask-fails exists, restart while restart-fails does; a unit
 # in sticky stays active. vanish holds "<unit> <trigger>" lines: disabling the trigger removes the
@@ -45,7 +45,10 @@ case "\$1" in
   list-unit-files)
     [ ! -e "$w/list-fails" ] || { echo "Failed to connect to bus" >&2; exit 1; }
     [[ \$u == --* ]] && u=
-    while read -r k; do [ -n "\$u" ] && [ "\$k" != "\$u" ] || echo "\$k enabled enabled"; done < "$w/known"
+    while read -r k; do
+      s=enabled; has "\$k" masked && s=masked
+      [ -n "\$u" ] && [ "\$k" != "\$u" ] || echo "\$k \$s enabled"
+    done < "$w/known"
     while read -r a k; do has "\$k" enabled && { [ -z "\$u" ] || [ "\$a" = "\$u" ]; } && echo "\$a alias -"; done < "$w/alias"
     exit 0 ;;
   is-enabled)
@@ -231,8 +234,17 @@ systemctl is-active dropbear.socket
 systemctl is-active ssh.service
 systemctl is-active ssh.socket
 systemctl is-active sshd.service" "$(calls)"
+: > "$w/calls.log"
 same "no key, run again" "$off_line
 exit 0" "$(run nokey ssh_policy)"
+# The second pass finds every unit masked: none is disabled or masked again, so the journal gets no
+# systemctl help text.
+same "no key, run again: calls" "systemctl list-unit-files --no-legend --no-pager
+systemctl is-active dropbear.service
+systemctl is-active dropbear.socket
+systemctl is-active ssh.service
+systemctl is-active ssh.socket
+systemctl is-active sshd.service" "$(calls)"
 [ -e "$w/nokey/ssh" ] && fail "no key: an ssh folder is written"
 board openssh raspberrypi,5-model-b
 units known ssh.service ssh.socket sshd.service; units enabled ssh.service; units active ssh.service
