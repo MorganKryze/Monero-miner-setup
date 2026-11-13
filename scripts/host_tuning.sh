@@ -137,10 +137,11 @@ function apply() {
 }
 
 # Gives each recorded policy the maximum, then the governor, it had before apply. When a write back
-# fails, the record stays (a later apply then keeps what was first found) and the exit is 1: the
-# unit keeps its runtime directory when it stops, until a reboot or make service-disable.
+# fails, the record keeps that policy's line alone (a later apply then keeps what was first found for
+# it, and records afresh the ones given back) and the exit is 1: the unit keeps its runtime
+# directory when it stops, until a reboot or make service-disable.
 function restore() {
-    local name governor max dir failed=0
+    local name governor max dir kept=""
     [ -f "$RECORD" ] || return 0
     while read -r name governor max; do
         if ! [[ "$name" =~ ^policy[0-9]{1,4}$ && "$governor" =~ ^[a-z]{1,16}$ && "$max" =~ ^[0-9]{1,9}$ ]]; then
@@ -152,10 +153,13 @@ function restore() {
             say "$name: given back governor $governor, at most $((10#$max / 1000)) MHz."
         else
             say "$name: could not be given back governor $governor and maximum $max kHz."
-            failed=1
+            kept="$kept$name $governor $max"$'\n'
         fi
     done <"$RECORD"
-    [ "$failed" -eq 0 ] || return 1
+    if [ -n "$kept" ]; then
+        { printf '%s' "$kept" >"$RECORD"; } 2>/dev/null || say "the record could not be cut down to the policies not given back."
+        return 1
+    fi
     rm -f -- "$RECORD"
     return 0
 }
