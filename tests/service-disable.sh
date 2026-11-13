@@ -336,15 +336,15 @@ printf '%s\n' "$calls" | grep -qF -e "rm -rf -- $w/etc/first-boot" -e 'rm -f -- 
 printf '%s\n' "$calls" | grep -q 'logrotate-xmrig' && fail "mdns removal fails: the logrotate file was removed"
 printf '%s\n' "$out" | grep -qxF '[  ERROR  ] Failed to remove avahi-daemon. The first-boot files are kept so make service-disable can retry once apt is fixed' \
   || fail "mdns removal fails: no line saying the files are kept"
-# sudo cannot look for the record: nothing is removed, so avahi-daemon is not left behind unrecorded.
+# sudo cannot look for the record: the first-boot files are kept, so avahi-daemon is not left behind unrecorded.
 firstboot etc/first-boot/mdns-installed
 : > "$w/fail-sudo-test"
 target service-disable
 rm -f "$w/fail-sudo-test"
 [ "$code" -ne 0 ] || fail "record unreadable: exit 0"
 printf '%s\n' "$calls" | grep -qE 'disable --now xmrig-first-boot|apt-get|rm -' && fail "record unreadable: the setup was touched"
-printf '%s\n' "$out" | grep -qxF '[  ERROR  ] Failed to look for the first-boot record of avahi-daemon with sudo. Nothing is removed so make service-disable can retry' \
-  || fail "record unreadable: no line saying nothing is removed"
+printf '%s\n' "$out" | grep -qxF '[  ERROR  ] Failed to look for the first-boot record of avahi-daemon with sudo. The first-boot files are kept so make service-disable can retry' \
+  || fail "record unreadable: no line saying the first-boot files are kept"
 # Only the state folder left (a setup cut before its unit was written): still removed.
 setup etc/first-boot/settings
 target service-disable

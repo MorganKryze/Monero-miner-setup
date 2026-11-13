@@ -260,12 +260,12 @@ service-disable:
 	@# The first-boot setup: a unit that is absent or already stopped is fine to disable, the files go
 	@# either way, and a failed state it left is reset once its unit is gone. avahi-daemon goes only
 	@# when the setup's record says it installed it; a check that answers neither way (no password, no
-	@# terminal) stops it before anything is removed.
+	@# terminal) stops it before any first-boot file is removed.
 	@if [ -f "$(FIRSTBOOT_UNIT)" ] || [ -f "$(FIRSTBOOT_BIN)" ] || [ -d "$(FIRSTBOOT_STATE)" ]; then \
 		mdns=; \
 		if sudo test -f "$(FIRSTBOOT_STATE)/mdns-installed"; then mdns=yes; \
 		elif ! sudo test ! -f "$(FIRSTBOOT_STATE)/mdns-installed"; then \
-			$(call log-error,"Failed to look for the first-boot record of avahi-daemon with sudo. Nothing is removed so make service-disable can retry"); \
+			$(call log-error,"Failed to look for the first-boot record of avahi-daemon with sudo. The first-boot files are kept so make service-disable can retry"); \
 			exit 1; \
 		fi; \
 		sudo systemctl disable --now xmrig-first-boot.service 2>/dev/null || true; \
