@@ -174,7 +174,7 @@ same "unterminated block" 'exit 1' "$(run "$script" "$w/blk" settings_region "$w
 same "shipped block" "wallet =
 mode = eco" "$(run "$script" "$w/blk" settings_region "$script" | grep -v '^#' | grep -v '^exit 0$' | grep -v '^$')"
 for k in pool name donate light mdns ssh_key; do
-  run "$script" "$w/blk" settings_region "$script" | grep -q "^# $k = " || fail "shipped block: no commented $k"
+  run "$script" "$w/blk" settings_region "$script" | grep "^# $k = " >/dev/null || fail "shipped block: no commented $k"
 done
 bash --norc --noprofile -n "$script" || fail "the script does not parse"
 grep -qx 'RELEASE_TAG=""' "$script" || fail 'no RELEASE_TAG="" line'
