@@ -193,7 +193,7 @@ Each release ships `dietpi-first-boot.zip` with two files: `dietpi.txt` and `Aut
 
 Edit with an editor that keeps Unix (LF) line ends, such as VS Code or Notepad++. A value's trailing CR is dropped, but a script saved with CRLF line ends won't run.
 
-The settings are `key = value` lines, read as data: nothing in them is run or expanded. A line starting with `#` is a comment, so remove the `# ` to set a key. An empty value keeps the default. An unknown key, a key given twice or a value of the wrong form stops the setup, with one line naming the key.
+The settings are `key = value` lines, read as data: nothing in them is run or expanded. A line starting with `#` is a comment, so remove the `# ` to set a key. An empty value keeps the default. An unknown key, a key given twice or a value of the wrong form stops the setup, with one line naming the key, or the line number of a line that is not `key = value`.
 
 | Setting as shipped | Default | Form |
 | --- | --- | --- |
@@ -214,7 +214,7 @@ The settings are `key = value` lines, read as data: nothing in them is run or ex
 | --- | --- |
 | blinks, half a second on, half off | setting up, or waiting for the network |
 | heartbeat | set up. It doesn't say the miner is mining now: `make status` or the pool's panel do |
-| steady on | the setup stopped. `journalctl -u xmrig-first-boot.service` has the line that says why. Fix the setting and flash again, or fix `/var/lib/xmrig-first-boot/settings` over SSH and reboot |
+| steady on | the setup stopped. `journalctl -u xmrig-first-boot.service` has the line that says why. Follow that line's remedy: for a setting, fix it and flash again, or fix `/var/lib/xmrig-first-boot/settings` over SSH and reboot |
 
 A reboot gives the LED back to the board's own trigger until the setup unit sets it again, early in the boot.
 
@@ -228,7 +228,7 @@ A reboot gives the LED back to the board's own trigger until the setup unit sets
 
 Bluetooth stays as the image ships it.
 
-`make service-disable` (or `make wipe`) in `/opt/Monero-miner-setup` removes the unit, the script and `/var/lib/xmrig-first-boot`, and `avahi-daemon` when the setup installed it. The host name stays.
+`make service-disable` (or `make wipe`) in `/opt/Monero-miner-setup` removes the unit, the script and `/var/lib/xmrig-first-boot`, and `avahi-daemon` when the setup installed it. The host name and the SSH settings (masked units, the sshd drop-in, Dropbear's `-s -g`, the key in `authorized_keys`) stay.
 
 **`dietpi.txt`** is DietPi's own file from DietPi v10.8, under GPL-2.0, with three keys changed:
 
