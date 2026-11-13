@@ -258,8 +258,9 @@ service-disable:
 		bash ./scripts/setup_service_tuning.sh remove || exit 1; \
 	fi
 	@# The first-boot setup: a unit that is absent or already stopped is fine to disable, the files go
-	@# either way. avahi-daemon goes only when the setup's record says it installed it; a check
-	@# that answers neither way (no password, no terminal) stops it before anything is removed.
+	@# either way, and a failed state it left is reset once its unit is gone. avahi-daemon goes only
+	@# when the setup's record says it installed it; a check that answers neither way (no password, no
+	@# terminal) stops it before anything is removed.
 	@if [ -f "$(FIRSTBOOT_UNIT)" ] || [ -f "$(FIRSTBOOT_BIN)" ] || [ -d "$(FIRSTBOOT_STATE)" ]; then \
 		mdns=; \
 		if sudo test -f "$(FIRSTBOOT_STATE)/mdns-installed"; then mdns=yes; \
@@ -277,6 +278,7 @@ service-disable:
 		sudo rm -f -- "$(FIRSTBOOT_UNIT)" "$(FIRSTBOOT_BIN)"; \
 		sudo rm -rf -- "$(FIRSTBOOT_STATE)"; \
 		sudo systemctl daemon-reload; \
+		sudo systemctl reset-failed xmrig-first-boot.service 2>/dev/null || true; \
 		$(call log-success,"First-boot setup removed: its unit and script and settings and records. The hostname stays as set."); \
 	fi
 	@if [ -f "$(LOGROTATE_CONF)" ]; then \

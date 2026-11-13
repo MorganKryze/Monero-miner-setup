@@ -311,7 +311,8 @@ sudo test ! -f $w/etc/first-boot/mdns-installed
 sudo systemctl disable --now xmrig-first-boot.service
 sudo rm -f -- $w/etc/xmrig-first-boot.service $w/etc/xmrig-first-boot
 sudo rm -rf -- $w/etc/first-boot
-sudo systemctl daemon-reload" "$calls"
+sudo systemctl daemon-reload
+sudo systemctl reset-failed xmrig-first-boot.service" "$calls"
 printf '%s\n' "$out" | grep -qxF '[ SUCCESS ] First-boot setup removed: its unit and script and settings and records. The hostname stays as set.' \
   || fail "first boot: no line saying the setup was removed"
 printf '%s\n' "$calls" | grep -qE 'hostname|/etc/hosts' && fail "first boot: the hostname was touched"
@@ -324,7 +325,8 @@ sudo systemctl disable --now xmrig-first-boot.service
 sudo apt-get remove --purge -y avahi-daemon
 sudo rm -f -- $w/etc/xmrig-first-boot.service $w/etc/xmrig-first-boot
 sudo rm -rf -- $w/etc/first-boot
-sudo systemctl daemon-reload" "$calls"
+sudo systemctl daemon-reload
+sudo systemctl reset-failed xmrig-first-boot.service" "$calls"
 firstboot etc/first-boot/mdns-installed etc/logrotate-xmrig
 : > "$w/fail-apt"
 target service-disable
