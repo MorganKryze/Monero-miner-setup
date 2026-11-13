@@ -242,6 +242,8 @@ want=$(cat <<'YML'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    outputs:
+      zip-sha256: ${{ steps.zip.outputs.sha256 }}
     steps:
       - uses: actions/checkout@vN
         with:
@@ -253,6 +255,12 @@ want=$(cat <<'YML'
         run: |
           mkdir dist
           bash scripts/dietpi_bundle.sh "$TAG" dist
+
+      # The publish job checks the zip it downloads against this sum, made where the zip was built.
+      - name: Sum the zip
+        id: zip
+        run: |
+          echo "sha256=$(sha256sum dist/dietpi-first-boot.zip | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@vN
         with:
@@ -280,6 +288,16 @@ want=$(cat <<'YML'
         with:
           name: release-bundle
           path: dist
+
+      # The XMRig build job's token can replace a run's artifact, so the zip must match the sum the
+      # bundle job made before it is summed, attested and published.
+      - name: Check the zip is the one the bundle job built
+        working-directory: dist
+        env:
+          BUNDLE_SHA256: ${{ needs.release-bundle.outputs.zip-sha256 }}
+        run: |
+          [[ $BUNDLE_SHA256 =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  dietpi-first-boot.zip\n' "$BUNDLE_SHA256" | sha256sum -c -
 
       - name: Sum the binary and the zip
         working-directory: dist
@@ -376,7 +394,9 @@ step() { block "$p" "      - name: $1" | sed -n '/^        run: |$/,$p' | sed '1
 mkdir -p "$d/rel/bin" "$d/rel/dist" "$d/rel/scripts"
 step "Check the binary's glibc, libuv and version" > "$d/glibc.sh"
 step 'Publish the release' > "$d/publish.sh"
-for t in grep sed sort tail printf cat; do ln -s "$(type -P $t)" "$d/rel/bin/$t"; done
+step 'Sum the zip' > "$d/zipsum.sh"
+step 'Check the zip is the one the bundle job built' > "$d/zipcheck.sh"
+for t in grep sed sort tail printf cat cut sha256sum; do ln -s "$(type -P $t)" "$d/rel/bin/$t"; done
 cat > "$d/rel/bin/objdump" <<'STUB'
 #!/bin/bash
 echo "0000 DF *UND* 0 GLIBC_2.17 memcpy"
@@ -418,5 +438,20 @@ grep -qF "built unmodified by this repository's CI on Debian 13 from https://git
   || { echo "FAIL release notes"; rc=1; }
 publish v0.2.0 'abc; rm -rf /' && { echo "FAIL release step accepted a commit that is not 40 hex digits"; rc=1; }
 [ ! -e "$d/gh.log" ] || { echo "FAIL release step called gh with a bad commit"; rc=1; }
+# The zip's sum crosses jobs as an output: the publish job takes only the bytes the bundle job summed.
+zipcheck() { # sum the publish job is given
+  (cd "$d/rel/dist" && env -i PATH="$d/rel/bin" BUNDLE_SHA256="$1" "$BASH" --norc --noprofile -eo pipefail "$d/zipcheck.sh") >/dev/null 2>&1
+}
+printf 'zip as built\n' > "$d/rel/dist/dietpi-first-boot.zip"
+: > "$d/out"
+(cd "$d/rel" && env -i PATH="$d/rel/bin" GITHUB_OUTPUT="$d/out" "$BASH" --norc --noprofile -eo pipefail "$d/zipsum.sh") >/dev/null 2>&1 \
+  || { echo "FAIL zip sum step"; rc=1; }
+built=$(sed -n 's/^sha256=//p' "$d/out")
+[[ $built =~ ^[0-9a-f]{64}$ ]] && [ "$(wc -l < "$d/out")" -eq 1 ] || { echo "FAIL zip sum output: $(cat "$d/out")"; rc=1; }
+zipcheck "$built" || { echo "FAIL zip check refused the zip the bundle job built"; rc=1; }
+zipcheck '' && { echo "FAIL zip check passed with no sum"; rc=1; }
+zipcheck "${built:0:63}" && { echo "FAIL zip check passed with a short sum"; rc=1; }
+printf 'zip swapped\n' > "$d/rel/dist/dietpi-first-boot.zip"
+zipcheck "$built" && { echo "FAIL zip check passed a swapped zip"; rc=1; }
 [ "$rc" -eq 0 ] && echo "PASS workflow-policy"
 exit "$rc"

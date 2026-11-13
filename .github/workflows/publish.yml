@@ -279,6 +279,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    outputs:
+      zip-sha256: ${{ steps.zip.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -290,6 +292,12 @@ jobs:
         run: |
           mkdir dist
           bash scripts/dietpi_bundle.sh "$TAG" dist
+
+      # The publish job checks the zip it downloads against this sum, made where the zip was built.
+      - name: Sum the zip
+        id: zip
+        run: |
+          echo "sha256=$(sha256sum dist/dietpi-first-boot.zip | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -319,6 +327,16 @@ jobs:
         with:
           name: release-bundle
           path: dist
+
+      # The XMRig build job's token can replace a run's artifact, so the zip must match the sum the
+      # bundle job made before it is summed, attested and published.
+      - name: Check the zip is the one the bundle job built
+        working-directory: dist
+        env:
+          BUNDLE_SHA256: ${{ needs.release-bundle.outputs.zip-sha256 }}
+        run: |
+          [[ $BUNDLE_SHA256 =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  dietpi-first-boot.zip\n' "$BUNDLE_SHA256" | sha256sum -c -
 
       - name: Sum the binary and the zip
         working-directory: dist
