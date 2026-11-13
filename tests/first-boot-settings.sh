@@ -306,14 +306,16 @@ loop_gone() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && { fail "$1: the blink loop still runs"; kill "$pid"; }
 }
 loop_gone pi
-# The loop wrote both levels: tracing its writes shows on and off.
+# The loop wrote both levels: tracing its writes shows on and off. The samples are 0.023 s apart,
+# a step the loop's own 0.05 s never divides, so a busy runner cannot keep them on one level.
+printf 'REAL_SLEEP=%s\n' "$real_sleep" >> "$w/extra.sh"
 cat >> "$w/extra.sh" <<'EOF'
 function blink_trace() {
     STATUS_LED=$(led_find)
     led_blink_start
     local seen="" b
-    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-        sleep 1; read -r b < "$LEDS_DIR/$STATUS_LED/brightness"; seen="$seen $b"
+    for ((i = 0; i < 40; i++)); do
+        "$REAL_SLEEP" 0.023; read -r b < "$LEDS_DIR/$STATUS_LED/brightness"; seen="$seen $b"
     done
     printf "pid %s\n" "$BLINK_PID" > "$FX/pid"
     led_blink_stop
