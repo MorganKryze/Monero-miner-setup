@@ -98,6 +98,7 @@ cat > "$w/stubs/apt-get" <<EOF
 #!/bin/bash
 echo "apt-get \$* (\$DEBIAN_FRONTEND)" >> "$w/calls.log"
 [ ! -e "$w/apt-fails" ] || { echo "E: Unable to locate package bc" >&2; exit 100; }
+[ ! -e "$w/apt-fails-once" ] || { rm -f "$w/apt-fails-once"; echo "E: Unable to locate package bc" >&2; exit 100; }
 EOF
 chmod +x "$w/stubs/"*
 # The installer records its arguments, its umask and whether the installing marker is there while it
@@ -133,7 +134,7 @@ W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBE
 board() {
   local fx="$w/$1"; shift
   rm -rf -- "$fx" "$w/calls.log" "$w/curl-fails" "$w/fetch-fails" "$w/apt-busy" "$w/no-service" "$w/clone-tag" "$w/sub-status" "$w/installer-exit" "$w/ssh-on" \
-    "$w/sleeps" "$w/sleep-cap" "$w/led-samples" "$w/installing-seen" "$w/apt-fails"
+    "$w/sleeps" "$w/sleep-cap" "$w/led-samples" "$w/installing-seen" "$w/apt-fails" "$w/apt-fails-once"
   # git (the stub above), make and bc are on the board unless a case removes them.
   printf '#!/bin/bash\n' > "$w/stubs/make"; printf '#!/bin/bash\n' > "$w/stubs/bc"; chmod +x "$w/stubs/make" "$w/stubs/bc"
   mkdir -p "$fx/state" "$fx/leds/ACT" "$fx/net/eth0" "$fx/dev" "$fx/etc"
@@ -354,11 +355,19 @@ board needfail; rm -f "$w/stubs/bc"; : > "$w/apt-fails"
 same "tools install fails" "out $ssh_line
 out [  INFO   ] Installing bc: the installer needs them.
 err E: Unable to locate package bc
+err E: Unable to locate package bc
 err [  ERROR  ] Failed to install bc, which the installer needs. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service.
 exit 1" "$(split needfail)"
 grep -q '^installer' "$w/calls.log" && fail "tools install fails: the installer ran"
 same "tools install fails: error LED" "none 255" "$(led needfail)"
 no_done needfail
+# Stale package lists: the first install fails, one update and a retry succeed.
+board needupd; rm -f "$w/stubs/bc"; : > "$w/apt-fails-once"
+run needupd >/dev/null
+same "tools after an update: apt calls" "apt-get install -y --no-install-recommends bc (noninteractive)
+apt-get update ()
+apt-get install -y --no-install-recommends bc (noninteractive)" "$(grep '^apt-get' "$w/calls.log")"
+[ -e "$w/needupd/state/done" ] || fail "tools after an update: no done"
 
 # ---- a power cut during the clone ----
 board cut; : > "$w/cut/state/installing"; mkdir -p "$w/cut/clone/.git"

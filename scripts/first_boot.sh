@@ -556,7 +556,9 @@ function tools_setup() {
     done
     [ "${#missing[@]}" -gt 0 ] || return 0
     info "Installing ${missing[*]}: the installer needs them."
-    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"; then
+    # DietPi's first run leaves fresh package lists; when they are gone, one update and a retry.
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}" &&
+        ! { apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"; }; then
         error "Failed to install ${missing[*]}, which the installer needs. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
         return 1
     fi
