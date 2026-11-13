@@ -56,9 +56,9 @@ An image older than 0.1.0 under the new compose file writes its log file inside 
 To pin a release, clone it and run its own installer: the commands above fetch `docker_setup.sh` from `main`, so `--image` alone pins only the image, not the installer. A tag checkout has no branch, so `make update` doesn't apply to it: check out the next tag instead.
 
 ```bash
-git clone --branch v0.2.0-rc.1 --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
+git clone --branch v0.2.0-rc.2 --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git
 cd Monero-miner-setup
-./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:0.2.0-rc.1 -w YOUR_MONERO_WALLET --autostart
+./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:0.2.0-rc.2 -w YOUR_MONERO_WALLET --autostart
 ```
 
 ### Docker (build from source)
@@ -159,7 +159,7 @@ The miner's own unit changes too: no `Nice`, so it runs at normal priority, and 
 | `/etc/systemd/system/xmrig-host-tuning.service` | Runs the boot script as root before `xmrig.service`, and runs it again to give the settings back when stopped |
 | `/usr/local/sbin/xmrig-host-tuning` | The boot script, a root-owned copy of `scripts/host_tuning.sh`. Nothing in the clone is read at boot |
 | `/etc/xmrig-host-tuning.conf` | The values: the mode, one line per policy, the huge pages |
-| `/run/xmrig-host-tuning/found` | The governor and maximum each policy had before the boot script changed it. Gone at shutdown |
+| `/run/xmrig-host-tuning/found` | The governor and maximum each policy had before the boot script changed it. Gone at shutdown or on `make service-disable` |
 
 When the installer writes a new service config, it writes the mode to `configs/board-mode` in the clone. A kept service config keeps the `configs/board-mode` it came with, so a re-run of the installer, with or without `--mode`, leaves the mode as it was. `make service-setup` reads it and writes the values again, and `make update` keeps the mode since it runs `make service-setup`. The values file is written at each setup, so a hand edit of `/etc/xmrig-host-tuning.conf` is replaced at the next one. A setup with no `configs/board-mode` removes the three files, giving the settings back. To keep the service and mine without the tuning, run `make clean-configs`, the installer again without `--mode`, then `make service-setup` and `make restart`, passing your wallet and flags again.
 
@@ -223,6 +223,7 @@ A reboot gives the LED back to the board's own trigger until the setup unit sets
 - `/usr/local/sbin/xmrig-first-boot` (0755, the script without your settings), `/etc/systemd/system/xmrig-first-boot.service` (0644) and the folder `/var/lib/xmrig-first-boot` (0700: your `settings` at 0600, the fetched `install.sh`, and the records `installing`, `done` and `mdns-installed`).
 - The host name: `<model>-<last 4 hex digits of the first wired MAC>`, such as `rpi5-3fa2`, `opi5plus-3fa2` or `opi5max-3fa2`, in `/etc/hostname`, with one `127.0.1.1 <name>` line in `/etc/hosts` in place of any other `127.0.1.1` line. It's also the worker name unless you set `name`.
 - SSH. With no `ssh_key`, every SSH unit (`dropbear` or `ssh`) is disabled, stopped and masked, so SSH is off. With one, it's added once to `/root/.ssh/authorized_keys` and password logins are turned off (a drop-in for OpenSSH, `-s -g` for Dropbear), so only key logins work, as `root`. A key the setup can't add turns SSH off. Until DietPi's first run and then the setup act, the image's own SSH server takes `root` with DietPi's default password: keep the board on a network you trust for its first minutes.
+- `git`, `make` and `bc`, the ones DietPi's minimal image lacks: the installer needs them. They're Debian's, installed through apt without recommended packages.
 - With `mdns = on`: `avahi-daemon`, when it isn't installed yet. It's Debian's (main, LGPL-2.1, about 0.3 MB installed for 0.8-16 on arm64, plus its libraries) and opens UDP port 5353.
 - The miner, as the native install sets it: the setup fetches the release's `scripts/install.sh` from `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/<tag>/scripts/install.sh`, checks it against the sha256 the zip's script carries, and runs it with `-w <wallet> --mode <mode> --prebuilt --autostart -y --name <name>`, plus `-p` and `--donate` when set. That installer clones `v<its version>` to `/opt/Monero-miner-setup`, a tag the repository owner controls, and sets up `xmrig.service` and the board tuning as [Dedicated board](#dedicated-board---mode) says. The sha256 covers the installer alone; what it then runs comes from that tag.
 
@@ -427,7 +428,7 @@ For the native install, run from the repo root. Targets work on both Linux (syst
 | `make benchmark-long`  | 10-minute RandomX benchmark. More stable for hardware comparisons     |
 | `make bench-layouts`   | Bench each CPU layout of the board profile offline, one XMRig run per layout (`MODE=eco`, `BENCH=1M`). arm64 Linux only; refuses root |
 | `make update`          | `git pull`, the pinned submodule commits, rebuild, `make service-setup` again |
-| `make service-disable` | Stop and disable the service, remove the unit and the logrotate file; systemd removes `/etc/xmrig`, `/var/lib/xmrig/<account>` and `/var/log/xmrig/<account>`. On a board set up with `--mode`, it also gives the CPU settings back and removes `/etc/systemd/system/xmrig-host-tuning.service`, `/usr/local/sbin/xmrig-host-tuning` and `/etc/xmrig-host-tuning.conf` |
+| `make service-disable` | Stop and disable the service, remove the unit and the logrotate file; systemd removes `/etc/xmrig`, `/var/lib/xmrig/<account>` and `/var/log/xmrig/<account>`. On a board set up with `--mode`, it also gives the CPU settings back and removes `/etc/systemd/system/xmrig-host-tuning.service`, `/usr/local/sbin/xmrig-host-tuning`, `/etc/xmrig-host-tuning.conf` and the folder `/run/xmrig-host-tuning` |
 | `make clean-build`     | Remove the build directory, the `xmrig` binary or link, and `xmrig.release` |
 | `make clean-configs`   | Remove generated configs                                              |
 | `make wipe`            | `clean-build` + `clean-configs` + `service-disable`                   |
@@ -526,7 +527,7 @@ The installers fetch from the sources below and nothing else. All of it comes ov
 | The Docker installer | your clone's copy, else `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh` | `--docker` |
 | The repository | `https://github.com/MorganKryze/Monero-miner-setup.git`, its submodules at the commits it pins: `https://github.com/MoneroOcean/xmrig.git`, `https://github.com/MorganKryze/bash-toolbox.git` | when there's no clone yet |
 | The release binary | `https://github.com/MorganKryze/Monero-miner-setup/releases/download/<tag>/xmrig-linux-arm64` and `SHA256SUMS` beside it, from the release your clone is checked out at | `--prebuilt` |
-| The first-boot setup's installer | `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/<tag>/scripts/install.sh` of the release the DietPi files come from, refused unless its sha256 matches the one they carry; a HEAD request on `https://github.com/MorganKryze/Monero-miner-setup/releases/download/<tag>/SHA256SUMS` to wait for the network; `avahi-daemon` through apt with `mdns = yes` | a DietPi card set up from the release's `dietpi-first-boot.zip` |
+| The first-boot setup's installer | `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/<tag>/scripts/install.sh` of the release the DietPi files come from, refused unless its sha256 matches the one they carry; a HEAD request on `https://github.com/MorganKryze/Monero-miner-setup/releases/download/<tag>/SHA256SUMS` to wait for the network; `git`, `make` and `bc` through apt when they're missing; `avahi-daemon` through apt with `mdns = on` | a DietPi card set up from the release's `dietpi-first-boot.zip` |
 | The image | `ghcr.io/morgankryze/monero-miner-setup`, built by this repository's CI | Docker, unless `--build` |
 | The base image and its packages | `ubuntu` from Docker Hub, at the tag `docker/Dockerfile` names, and Ubuntu's packages through apt in both build stages | `--build`, or when the image pull fails |
 | The Dockerfile frontend | `docker/dockerfile` from Docker Hub, at the version the `# syntax=` line of `docker/Dockerfile` names: BuildKit runs it to read the Dockerfile | `--build`, or when the image pull fails |
@@ -543,9 +544,9 @@ On Linux, these steps go through `sudo` (`make deps-debian`, `scripts/setup_serv
 - `useradd --system` to create the `xmrig` account, when the service needs it
 - `install -d` of `/etc/xmrig`, then `install` of `/etc/xmrig/config.json`, `/etc/logrotate.d/xmrig` and `/etc/systemd/system/xmrig.service`, root-owned, from private temp files
 - `rm -f` of `/etc/systemd/system/xmrig.service` and `/etc/logrotate.d/xmrig`, on `make service-disable`
-- with `--mode` on a board with a profile: `install` of `/etc/xmrig-host-tuning.conf`, `/usr/local/sbin/xmrig-host-tuning` and `/etc/systemd/system/xmrig-host-tuning.service`, root-owned, from private temp files, and removed again by a setup without a mode or by `make service-disable`
+- with `--mode` on a board with a profile: `install` of `/etc/xmrig-host-tuning.conf`, `/usr/local/sbin/xmrig-host-tuning` and `/etc/systemd/system/xmrig-host-tuning.service`, root-owned, from private temp files, and removed again, with the folder `/run/xmrig-host-tuning`, by a setup without a mode or by `make service-disable`
 - on a board set up from the DietPi files, on `make service-disable`: `test` of the setup's record that it installed `avahi-daemon`, then `apt-get remove` of it when it did; removal of `/etc/systemd/system/xmrig-first-boot.service`, `/usr/local/sbin/xmrig-first-boot` and the folder `/var/lib/xmrig-first-boot`
-- on a DietPi card set up from the release's `dietpi-first-boot.zip`, the first-boot setup runs as root, from DietPi's own custom-script hook: the SSH settings, the host name and its `/etc/hosts` line, root's `authorized_keys`, the board LED, its unit and state folder, `avahi-daemon` with `mdns = yes`, then the installer above with `--prebuilt` (the full list is in the DietPi section)
+- on a DietPi card set up from the release's `dietpi-first-boot.zip`, the first-boot setup runs as root, from DietPi's own custom-script hook: the SSH settings, the host name and its `/etc/hosts` line, root's `authorized_keys`, the board LED, its unit and state folder, `git`, `make` and `bc` when they're missing, `avahi-daemon` with `mdns = yes`, then the installer above with `--prebuilt` (the full list is in the DietPi section)
 - `systemctl daemon-reload`, `enable`, `start`, `try-restart`, `stop`, `status`, `disable`, `reset-failed` and `clean`
 
 `--prebuilt` runs the installer itself as root: `apt-get update` and `apt-get install` of `libuv1t64 libssl3t64 libhwloc15`, the download into a root-only folder in the clone, and the rename onto `<clone>/xmrig` and `xmrig.release`.

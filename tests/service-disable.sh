@@ -117,6 +117,7 @@ sudo systemctl stop xmrig-host-tuning.service
 sudo systemctl disable xmrig-host-tuning.service
 systemctl show -p Result --value xmrig-host-tuning.service
 sudo rm -f -- /etc/systemd/system/xmrig-host-tuning.service /usr/local/sbin/xmrig-host-tuning /etc/xmrig-host-tuning.conf
+sudo rm -rf -- /run/xmrig-host-tuning
 sudo systemctl daemon-reload
 sudo rm -f $w/etc/logrotate-xmrig" "$calls"
 printf '%s\n' "$out" | grep -qxF 'Host tuning removed: CPU settings given back; the huge pages are freed at the next boot.' || fail "tuned: no line saying the tuning was removed"
@@ -129,6 +130,7 @@ printf '%s\n' "$calls" | grep -q 'logrotate-xmrig' && fail "tuning stop fails: t
 printf '%s\n' "$calls" | grep -q 'rm -f -- /etc/systemd/system/xmrig-host-tuning.service' && fail "tuning stop fails: the tuning was removed"
 printf '%s\n' "$out" | grep -qxF "ERROR: Failed to stop xmrig-host-tuning.service, so the host tuning is kept. Fix the error, then run 'make service-disable' again." \
   || fail "tuning stop fails: no line saying the tuning is kept"
+printf '%s\n' "$calls" | grep -q 'rm -rf -- /run/xmrig-host-tuning' && fail "tuning stop fails: the record of what apply found was removed"
 # The stop ran, but the tuning's own stop step failed: the files go, and the line says the CPU
 # settings come back at the next boot rather than that they were given back.
 tuned
@@ -156,6 +158,7 @@ target service-disable
 same "partial tuning: calls" "pgrep -x xmrig
 systemctl show -p FragmentPath --value xmrig-host-tuning.service
 sudo rm -f -- /etc/systemd/system/xmrig-host-tuning.service /usr/local/sbin/xmrig-host-tuning /etc/xmrig-host-tuning.conf
+sudo rm -rf -- /run/xmrig-host-tuning
 sudo systemctl daemon-reload" "$calls"
 same "partial tuning: line" "Host tuning removed: systemd did not know its unit, so nothing was stopped; the huge pages are freed at the next boot." \
   "$(printf '%s\n' "$out" | grep '^Host tuning')"
@@ -308,7 +311,8 @@ sudo test ! -f $w/etc/first-boot/mdns-installed
 sudo systemctl disable --now xmrig-first-boot.service
 sudo rm -f -- $w/etc/xmrig-first-boot.service $w/etc/xmrig-first-boot
 sudo rm -rf -- $w/etc/first-boot
-sudo systemctl daemon-reload" "$calls"
+sudo systemctl daemon-reload
+sudo systemctl reset-failed xmrig-first-boot.service" "$calls"
 printf '%s\n' "$out" | grep -qxF '[ SUCCESS ] First-boot setup removed: its unit and script and settings and records. The hostname stays as set.' \
   || fail "first boot: no line saying the setup was removed"
 printf '%s\n' "$calls" | grep -qE 'hostname|/etc/hosts' && fail "first boot: the hostname was touched"
@@ -321,7 +325,8 @@ sudo systemctl disable --now xmrig-first-boot.service
 sudo apt-get remove --purge -y avahi-daemon
 sudo rm -f -- $w/etc/xmrig-first-boot.service $w/etc/xmrig-first-boot
 sudo rm -rf -- $w/etc/first-boot
-sudo systemctl daemon-reload" "$calls"
+sudo systemctl daemon-reload
+sudo systemctl reset-failed xmrig-first-boot.service" "$calls"
 firstboot etc/first-boot/mdns-installed etc/logrotate-xmrig
 : > "$w/fail-apt"
 target service-disable
@@ -331,15 +336,15 @@ printf '%s\n' "$calls" | grep -qF -e "rm -rf -- $w/etc/first-boot" -e 'rm -f -- 
 printf '%s\n' "$calls" | grep -q 'logrotate-xmrig' && fail "mdns removal fails: the logrotate file was removed"
 printf '%s\n' "$out" | grep -qxF '[  ERROR  ] Failed to remove avahi-daemon. The first-boot files are kept so make service-disable can retry once apt is fixed' \
   || fail "mdns removal fails: no line saying the files are kept"
-# sudo cannot look for the record: nothing is removed, so avahi-daemon is not left behind unrecorded.
+# sudo cannot look for the record: the first-boot files are kept, so avahi-daemon is not left behind unrecorded.
 firstboot etc/first-boot/mdns-installed
 : > "$w/fail-sudo-test"
 target service-disable
 rm -f "$w/fail-sudo-test"
 [ "$code" -ne 0 ] || fail "record unreadable: exit 0"
 printf '%s\n' "$calls" | grep -qE 'disable --now xmrig-first-boot|apt-get|rm -' && fail "record unreadable: the setup was touched"
-printf '%s\n' "$out" | grep -qxF '[  ERROR  ] Failed to look for the first-boot record of avahi-daemon with sudo. Nothing is removed so make service-disable can retry' \
-  || fail "record unreadable: no line saying nothing is removed"
+printf '%s\n' "$out" | grep -qxF '[  ERROR  ] Failed to look for the first-boot record of avahi-daemon with sudo. The first-boot files are kept so make service-disable can retry' \
+  || fail "record unreadable: no line saying the first-boot files are kept"
 # Only the state folder left (a setup cut before its unit was written): still removed.
 setup etc/first-boot/settings
 target service-disable

@@ -384,17 +384,24 @@ function ssh_error() {
 
 # Prints the SSH units systemd knows, one per line, its aliases left out: an alias such as Debian's
 # sshd.service is a link that disabling its unit removes, so it is never turned off on its own.
+# With the argument states, a unit systemd lists as masked is printed as "<unit> masked".
 function ssh_units_known() {
-    local files unit state rest listed=" "
+    local files unit state rest listed=" " masked=" "
     if ! files=$(systemctl list-unit-files --no-legend --no-pager); then
         ssh_error "Failed to list the SSH units systemd knows."
         return 1
     fi
     while read -r unit state rest; do
         [ "$state" = alias ] || listed="$listed$unit "
+        [ "$state" != masked ] || masked="$masked$unit "
     done <<<"$files"
     for unit in $SSH_UNITS; do
-        [[ $listed != *" $unit "* ]] || printf '%s\n' "$unit"
+        [[ $listed == *" $unit "* ]] || continue
+        if [ "${1:-}" = states ] && [[ $masked == *" $unit "* ]]; then
+            printf '%s masked\n' "$unit"
+        else
+            printf '%s\n' "$unit"
+        fi
     done
 }
 
@@ -428,20 +435,26 @@ function dropbear_text() {
     printf '%s\n' "${lines[@]}"
 }
 
-# Without ssh_key: disables, stops and masks every SSH unit systemd knows, then fails unless each
-# SSH unit, listed or not, is reported inactive or failed: no answer counts as open.
+# Without ssh_key: disables, stops and masks every SSH unit systemd knows, and only stops one that is
+# masked already (an earlier boot's pass masked it, and disabling it again only prints systemctl's
+# help, but a unit masked while it ran keeps running). Then fails unless each SSH unit, listed or
+# not, is reported inactive or failed: no answer counts as open.
 function ssh_off() {
     local unit known now state
-    known=$(ssh_units_known) || return 1
-    for unit in $known; do
-        if ! systemctl disable --now "$unit" || ! systemctl mask "$unit"; then
-            # A unit file that was a link to one disabled before it is gone with it: nothing to do.
-            now=$(ssh_units_known) || return 1
-            [[ $'\n'$now$'\n' == *$'\n'$unit$'\n'* ]] || continue
-            ssh_error "Failed to turn off $unit."
-            return 1
+    known=$(ssh_units_known states) || return 1
+    while read -r unit state <&3; do
+        [ -n "$unit" ] || continue
+        if [ "$state" = masked ]; then
+            systemctl stop "$unit" && continue
+        elif systemctl disable --now "$unit" && systemctl mask "$unit"; then
+            continue
         fi
-    done
+        # A unit file that was a link to one disabled before it is gone with it: nothing to do.
+        now=$(ssh_units_known) || return 1
+        [[ $'\n'$now$'\n' == *$'\n'$unit$'\n'* ]] || continue
+        ssh_error "Failed to turn off $unit."
+        return 1
+    done 3<<<"$known"
     for unit in $SSH_UNITS; do
         state=$(systemctl is-active "$unit")
         if [ "$state" != inactive ] && [ "$state" != failed ]; then
@@ -530,6 +543,23 @@ function mdns_setup() {
     info "Installing avahi-daemon to announce this board as its host name .local."
     if ! : >"$STATE_DIR/mdns-installed" || ! apt-get install -y --no-install-recommends avahi-daemon; then
         error "Failed to install avahi-daemon for mdns = on. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
+        return 1
+    fi
+}
+
+# Installs the tools the installer needs that DietPi's minimal image lacks: git, make and bc.
+function tools_setup() {
+    local t
+    local -a missing=()
+    for t in git make bc; do
+        command -v "$t" >/dev/null || missing+=("$t")
+    done
+    [ "${#missing[@]}" -gt 0 ] || return 0
+    info "Installing ${missing[*]}: the installer needs them."
+    # DietPi's first run leaves fresh package lists; when they are gone, one update and a retry.
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}" &&
+        ! { apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"; }; then
+        error "Failed to install ${missing[*]}, which the installer needs. The setup runs again at the next boot; see journalctl -u xmrig-first-boot.service."
         return 1
     fi
 }
@@ -712,6 +742,7 @@ function setup() {
     # DietPi's own first run may have started Dropbear again meanwhile.
     ssh_policy again || { setup_failed; return 1; }
     fetch_with_retry || { setup_failed; return 1; }
+    tools_setup || { setup_failed; return 1; }
     mdns_setup || { setup_failed; return 1; }
     run_installer "${S_NAME:-$host}" || { setup_failed; return 1; }
     if ! systemctl is-enabled --quiet xmrig.service || ! systemctl is-active --quiet xmrig.service; then

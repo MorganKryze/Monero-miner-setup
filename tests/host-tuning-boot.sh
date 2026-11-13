@@ -19,7 +19,7 @@ w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
 mkdir -p "$w/tools"
-for t in awk grep rm cat; do
+for t in awk grep rm cat mv; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
@@ -41,7 +41,7 @@ Type=oneshot
 RemainAfterExit=yes
 RuntimeDirectory=xmrig-host-tuning
 RuntimeDirectoryMode=0700
-RuntimeDirectoryPreserve=restart
+RuntimeDirectoryPreserve=yes
 ExecStart=/usr/local/sbin/xmrig-host-tuning apply
 ExecStop=/usr/local/sbin/xmrig-host-tuning restore
 [Install]
@@ -247,6 +247,35 @@ chmod 644 "$w/opi/cpufreq/policy4/scaling_governor"
 same "record kept after a failed restore" 'policy4 schedutil 2400000' "$(cat "$w/opi/run/found" 2>&1)"
 run opi apply >/dev/null
 same "record after a failed restore and an apply" 'policy4 schedutil 2400000' "$(cat "$w/opi/run/found" 2>&1)"
+# A partial failure keeps only the lines it could not give back: a policy given back is recorded
+# afresh at the next apply, so a value the user set while the tuning was stopped is not overwritten.
+tree opi opi5plus
+printf '%s\n' policy0=powersave 'policy4=performance 1800000' > "$w/opi/conf"
+run opi apply >/dev/null
+rm -rf "${w:?}/opi/cpufreq/policy4"
+same "partly failed restore" 'xmrig-host-tuning: policy0: given back governor schedutil, at most 1800 MHz.
+xmrig-host-tuning: policy4: could not be given back governor schedutil and maximum 2400000 kHz.
+exit 1' "$(run opi restore)"
+same "record after a partly failed restore" 'policy4 schedutil 2400000' "$(cat "$w/opi/run/found" 2>&1)"
+printf 'ondemand\n' > "$w/opi/cpufreq/policy0/scaling_governor"
+run opi apply >/dev/null
+run opi restore >/dev/null
+same "a governor set after a partly failed restore" 'policy0 ondemand 1800000
+policy6 schedutil 2400000
+hugepages 0' "$(state opi)"
+# A record that cannot be cut down (a full /run; here a directory where the new record goes) keeps
+# every line it held: the policy not given back still has what was first found for it.
+tree opi opi5plus
+printf '%s\n' policy0=powersave 'policy4=performance 1800000' > "$w/opi/conf"
+run opi apply >/dev/null
+rm -rf "${w:?}/opi/cpufreq/policy4"
+mkdir "$w/opi/run/found.new"
+same "record not cut down" 'xmrig-host-tuning: policy0: given back governor schedutil, at most 1800 MHz.
+xmrig-host-tuning: policy4: could not be given back governor schedutil and maximum 2400000 kHz.
+xmrig-host-tuning: the record could not be cut down to the policies not given back.
+exit 1' "$(run opi restore)"
+same "record kept whole when it cannot be cut down" 'policy0 schedutil 1800000
+policy4 schedutil 2400000' "$(cat "$w/opi/run/found" 2>&1)"
 # The full count is reserved while 1024 MiB stays free: a 4 GB board, MemTotal 3776 MiB, keeps 1280.
 tree opi opi5plus
 printf 'MemTotal:        3866960 kB\nHugepagesize:       2048 kB\n' > "$w/opi/meminfo"

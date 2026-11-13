@@ -181,6 +181,11 @@ grep -qx 'RELEASE_TAG=""' "$script" || fail 'no RELEASE_TAG="" line'
 grep -qx 'INSTALLER_SHA256=""' "$script" || fail 'no INSTALLER_SHA256="" line'
 grep -qx 'RX_FLOOR_MIB=2560' "$script" || fail 'no RX_FLOOR_MIB=2560 line'
 same "floor equal to the installer's" "$(grep -x 'RX_FLOOR_MIB=[0-9]*' "$root/scripts/install.sh")" "$(grep -x 'RX_FLOOR_MIB=[0-9]*' "$script")"
+# The setup looks for the clone where the installer puts it as root: ROOT_BASE_DIR/REPO_NAME.
+base=$(sed -n 's/^ROOT_BASE_DIR="\(\/[^"]*\)"$/\1/p' "$root/scripts/install.sh")
+name=$(sed -n 's/^REPO_NAME="\([^"/]*\)"$/\1/p' "$root/scripts/install.sh")
+[ -n "$base" ] && [ -n "$name" ] || fail "install.sh: no ROOT_BASE_DIR or REPO_NAME line"
+same "clone folder equal to the installer's" "CLONE_DIR=\"$base/$name\"" "$(grep -x 'CLONE_DIR=.*' "$script")"
 
 # ---- the handoff ----
 # A copy of the script with filled settings, run from its own folder as DietPi would.
@@ -301,14 +306,16 @@ loop_gone() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && { fail "$1: the blink loop still runs"; kill "$pid"; }
 }
 loop_gone pi
-# The loop wrote both levels: tracing its writes shows on and off.
+# The loop wrote both levels: tracing its writes shows on and off. The samples are 0.023 s apart,
+# a step the loop's own 0.05 s never divides, so a busy runner cannot keep them on one level.
+printf 'REAL_SLEEP=%s\n' "$real_sleep" >> "$w/extra.sh"
 cat >> "$w/extra.sh" <<'EOF'
 function blink_trace() {
     STATUS_LED=$(led_find)
     led_blink_start
     local seen="" b
-    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-        sleep 1; read -r b < "$LEDS_DIR/$STATUS_LED/brightness"; seen="$seen $b"
+    for ((i = 0; i < 40; i++)); do
+        "$REAL_SLEEP" 0.023; read -r b < "$LEDS_DIR/$STATUS_LED/brightness"; seen="$seen $b"
     done
     printf "pid %s\n" "$BLINK_PID" > "$FX/pid"
     led_blink_stop

@@ -36,14 +36,16 @@ done
 same "commands that change owners or modes, search or remove" \
   'trap '\''rm -f -- "$UNIT_STAGED" "${SEED_STAGED:-}" "${LOGROTATE_STAGED:-}" "${TUNING_STAGED[@]}"'\'' EXIT' \
   "$(grep -wE 'chown|chmod|find|rm' "$root/$script" | grep -vE '^ *echo ')"
-# The tuning file removes, as root, its own three installed files and nothing else.
+# The tuning file removes, as root, its own three installed files and the unit's record folder under
+# /run, and nothing else.
 same "tuning: commands that change owners or modes, search or remove" \
-  '    if ! sudo rm -f -- "$TUNING_UNIT" "$TUNING_BIN" "$TUNING_CONF" || ! sudo systemctl daemon-reload; then' \
+  '    if ! sudo rm -f -- "$TUNING_UNIT" "$TUNING_BIN" "$TUNING_CONF" || ! sudo rm -rf -- "$TUNING_RECORD_DIR" ||' \
   "$(grep -wE 'chown|chmod|find|rm' "$root/scripts/setup_service_tuning.sh" | grep -vE '^ *(echo|#)')"
 same "tuning: the paths root removes" 'TUNING_BIN="/usr/local/sbin/xmrig-host-tuning"
 TUNING_CONF="/etc/xmrig-host-tuning.conf"
-TUNING_UNIT="/etc/systemd/system/xmrig-host-tuning.service"' \
-  "$(grep -E '^TUNING_(BIN|CONF|UNIT)=' "$root/scripts/setup_service_tuning.sh")"
+TUNING_UNIT="/etc/systemd/system/xmrig-host-tuning.service"
+TUNING_RECORD_DIR="/run/xmrig-host-tuning"' \
+  "$(grep -E '^TUNING_(BIN|CONF|UNIT|RECORD_DIR)=' "$root/scripts/setup_service_tuning.sh")"
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
@@ -628,6 +630,7 @@ same "untuned again: sudo calls" "$(calls_for alice alice)
 sudo systemctl stop xmrig-host-tuning.service
 sudo systemctl disable xmrig-host-tuning.service
 $old_rm
+sudo rm -rf -- /run/xmrig-host-tuning
 sudo systemctl daemon-reload" "$calls"
 same "untuned again: output" "$(out_for alice | sed '/^XMRig service has been setup/i\
 Host tuning removed: CPU settings given back; the huge pages are freed at the next boot.')" "$out"
@@ -641,6 +644,7 @@ for only in xmrig-host-tuning.conf xmrig-host-tuning xmrig-host-tuning.service; 
   [ "$code" -eq 0 ] || fail "only $only left: exit $code"
   same "only $only left: sudo calls" "$(calls_for alice alice)
 $old_rm
+sudo rm -rf -- /run/xmrig-host-tuning
 sudo systemctl daemon-reload" "$calls"
   same "only $only left: output" "$(out_for alice | sed '/^XMRig service has been setup/i\
 Host tuning removed: systemd did not know its unit, so nothing was stopped; the huge pages are freed at the next boot.')" "$out"

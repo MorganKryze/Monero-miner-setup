@@ -1,9 +1,9 @@
 # Color definitions for logging
-GREEN := $(shell tput setaf 2)
-BLUE := $(shell tput setaf 4)
-RED := $(shell tput setaf 1)
-ORANGE := $(shell tput setaf 3)
-RESET := $(shell tput sgr0)
+GREEN := $(shell tput setaf 2 2>/dev/null)
+BLUE := $(shell tput setaf 4 2>/dev/null)
+RED := $(shell tput setaf 1 2>/dev/null)
+ORANGE := $(shell tput setaf 3 2>/dev/null)
+RESET := $(shell tput sgr0 2>/dev/null)
 
 # Build directory outside the repo
 BUILD_DIR := build-xmrig
@@ -258,13 +258,14 @@ service-disable:
 		bash ./scripts/setup_service_tuning.sh remove || exit 1; \
 	fi
 	@# The first-boot setup: a unit that is absent or already stopped is fine to disable, the files go
-	@# either way. avahi-daemon goes only when the setup's record says it installed it; a check
-	@# that answers neither way (no password, no terminal) stops it before anything is removed.
+	@# either way, and a failed state it left is reset once its unit is gone. avahi-daemon goes only
+	@# when the setup's record says it installed it; a check that answers neither way (no password, no
+	@# terminal) stops it before any first-boot file is removed.
 	@if [ -f "$(FIRSTBOOT_UNIT)" ] || [ -f "$(FIRSTBOOT_BIN)" ] || [ -d "$(FIRSTBOOT_STATE)" ]; then \
 		mdns=; \
 		if sudo test -f "$(FIRSTBOOT_STATE)/mdns-installed"; then mdns=yes; \
 		elif ! sudo test ! -f "$(FIRSTBOOT_STATE)/mdns-installed"; then \
-			$(call log-error,"Failed to look for the first-boot record of avahi-daemon with sudo. Nothing is removed so make service-disable can retry"); \
+			$(call log-error,"Failed to look for the first-boot record of avahi-daemon with sudo. The first-boot files are kept so make service-disable can retry"); \
 			exit 1; \
 		fi; \
 		sudo systemctl disable --now xmrig-first-boot.service 2>/dev/null || true; \
@@ -277,6 +278,7 @@ service-disable:
 		sudo rm -f -- "$(FIRSTBOOT_UNIT)" "$(FIRSTBOOT_BIN)"; \
 		sudo rm -rf -- "$(FIRSTBOOT_STATE)"; \
 		sudo systemctl daemon-reload; \
+		sudo systemctl reset-failed xmrig-first-boot.service 2>/dev/null || true; \
 		$(call log-success,"First-boot setup removed: its unit and script and settings and records. The hostname stays as set."); \
 	fi
 	@if [ -f "$(LOGROTATE_CONF)" ]; then \

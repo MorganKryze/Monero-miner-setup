@@ -203,7 +203,7 @@ done
 rmdir "$clone"
 
 url=https://github.com/MorganKryze/Monero-miner-setup.git
-fn PREBUILT=yes VERSION=0.1.1 -- clone_repository
+fn PREBUILT=yes -- clone_repository
 want clone-release exit 0 "$code"
 # The tag cloned is v + the installer's own VERSION, whatever release this tree is.
 version=$(sed -n 's/^VERSION="\(.*\)"$/\1/p' "$root/scripts/install.sh")

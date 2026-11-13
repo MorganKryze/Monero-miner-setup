@@ -10,7 +10,8 @@ function fail() {
     failed=1
 }
 
-# The value of the VERSION="X.Y.Z" line (a pre-release adds -rc.N), the only one a script may hold.
+# The value of the VERSION="X.Y.Z[-rc.N]" line, the only one a script may hold: a pre-release is a
+# release candidate, and no other suffix is one.
 function script_version() {
     local lines
     lines=$(grep -E '^VERSION=' "$1")
@@ -18,8 +19,8 @@ function script_version() {
         fail "$1: expected one VERSION= line, got: $lines"
         return
     fi
-    if ! [[ $lines =~ ^VERSION=\"([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?)\"$ ]]; then
-        fail "$1: not VERSION=\"X.Y.Z\": $lines"
+    if ! [[ $lines =~ ^VERSION=\"([0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)\"$ ]]; then
+        fail "$1: not VERSION=\"X.Y.Z[-rc.N]\": $lines"
         return
     fi
     printf '%s' "${BASH_REMATCH[1]}"
@@ -40,8 +41,8 @@ if [ ! -f CHANGELOG.md ]; then
 else
     [ "$(sed -n 1p CHANGELOG.md)" = "# Changelog" ] || fail "CHANGELOG.md: first line is not '# Changelog'"
     top=$(grep -E '^## \[' CHANGELOG.md | grep -v '^## \[Unreleased\]$' | sed -n 1p)
-    if ! [[ $top =~ ^##\ \[([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?)\]\ -\ [0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-        fail "CHANGELOG.md: the latest release heading is not '## [X.Y.Z] - YYYY-MM-DD': ${top:-none}"
+    if ! [[ $top =~ ^##\ \[([0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)\]\ -\ [0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        fail "CHANGELOG.md: the latest release heading is not '## [X.Y.Z[-rc.N]] - YYYY-MM-DD': ${top:-none}"
     else
         released=${BASH_REMATCH[1]}
         [ "$released" = "$native" ] || fail "CHANGELOG.md's latest release is $released, the scripts say ${native:-nothing}"
