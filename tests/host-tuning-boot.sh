@@ -41,7 +41,7 @@ Type=oneshot
 RemainAfterExit=yes
 RuntimeDirectory=xmrig-host-tuning
 RuntimeDirectoryMode=0700
-RuntimeDirectoryPreserve=restart
+RuntimeDirectoryPreserve=yes
 ExecStart=/usr/local/sbin/xmrig-host-tuning apply
 ExecStop=/usr/local/sbin/xmrig-host-tuning restore
 [Install]

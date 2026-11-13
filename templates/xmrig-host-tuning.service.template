@@ -9,11 +9,11 @@ Before=xmrig.service
 Type=oneshot
 RemainAfterExit=yes
 # What apply found, for restore: under /run, so a reboot, which resets the kernel's values too,
-# forgets it. Kept across a restart, so a restore that could not give a policy back leaves the
-# record for the next one.
+# forgets it. Kept when the unit stops, so a restore that could not give a policy back leaves the
+# record for the next one; make service-disable removes it with the unit.
 RuntimeDirectory=xmrig-host-tuning
 RuntimeDirectoryMode=0700
-RuntimeDirectoryPreserve=restart
+RuntimeDirectoryPreserve=yes
 ExecStart=/usr/local/sbin/xmrig-host-tuning apply
 ExecStop=/usr/local/sbin/xmrig-host-tuning restore
 

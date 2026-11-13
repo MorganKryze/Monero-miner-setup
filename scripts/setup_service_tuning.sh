@@ -13,6 +13,7 @@
 TUNING_BIN="/usr/local/sbin/xmrig-host-tuning"
 TUNING_CONF="/etc/xmrig-host-tuning.conf"
 TUNING_UNIT="/etc/systemd/system/xmrig-host-tuning.service"
+TUNING_RECORD_DIR="/run/xmrig-host-tuning"
 TUNING_CPUFREQ_DIR="/sys/devices/system/cpu/cpufreq"
 DT_COMPATIBLE="/proc/device-tree/compatible"
 MEMINFO="/proc/meminfo"
@@ -302,7 +303,8 @@ function tuning_installed() {
     [ -f "$TUNING_UNIT" ] || [ -f "$TUNING_BIN" ] || [ -f "$TUNING_CONF" ]
 }
 
-# Stops the tuning, which gives the CPU settings back, then removes its unit, script and values;
+# Stops the tuning, which gives the CPU settings back, then removes its unit, script and values,
+# and the record of what apply found (systemd keeps it when the unit stops);
 # a partial install whose unit systemd does not know has nothing to stop. The huge pages are not
 # written back: they are freed at the next boot (a live write would also drop a reservation the
 # user made). A failed stop keeps everything, so a retry can finish. So does a failed query: its
@@ -322,8 +324,9 @@ function remove_tuning() {
         result=$(systemctl show -p Result --value xmrig-host-tuning.service 2>/dev/null)
         [[ "$result" =~ ^[a-z-]{1,32}$ ]] || result=unknown
     fi
-    if ! sudo rm -f -- "$TUNING_UNIT" "$TUNING_BIN" "$TUNING_CONF" || ! sudo systemctl daemon-reload; then
-        echo "ERROR: Failed to remove $TUNING_UNIT, $TUNING_BIN or $TUNING_CONF."
+    if ! sudo rm -f -- "$TUNING_UNIT" "$TUNING_BIN" "$TUNING_CONF" || ! sudo rm -rf -- "$TUNING_RECORD_DIR" ||
+        ! sudo systemctl daemon-reload; then
+        echo "ERROR: Failed to remove $TUNING_UNIT, $TUNING_BIN, $TUNING_CONF or $TUNING_RECORD_DIR."
         return 1
     fi
     if [ -z "$result" ]; then

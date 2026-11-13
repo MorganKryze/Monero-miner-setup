@@ -24,6 +24,7 @@ done
 same "constants" 'TUNING_BIN="/usr/local/sbin/xmrig-host-tuning"
 TUNING_CONF="/etc/xmrig-host-tuning.conf"
 TUNING_UNIT="/etc/systemd/system/xmrig-host-tuning.service"
+TUNING_RECORD_DIR="/run/xmrig-host-tuning"
 TUNING_CPUFREQ_DIR="/sys/devices/system/cpu/cpufreq"
 DT_COMPATIBLE="/proc/device-tree/compatible"
 MEMINFO="/proc/meminfo"

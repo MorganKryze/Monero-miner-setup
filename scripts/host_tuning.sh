@@ -137,7 +137,8 @@ function apply() {
 }
 
 # Gives each recorded policy the maximum, then the governor, it had before apply. When a write back
-# fails, the record stays (a later apply then keeps what was first found) and the exit is 1.
+# fails, the record stays (a later apply then keeps what was first found) and the exit is 1: the
+# unit keeps its runtime directory when it stops, until a reboot or make service-disable.
 function restore() {
     local name governor max dir failed=0
     [ -f "$RECORD" ] || return 0
