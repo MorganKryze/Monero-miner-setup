@@ -397,46 +397,34 @@ function ssh_units_known() {
     done
 }
 
-# Prints /etc/default/dropbear with -s and -g (no password logins, root's included) in
-# DROPBEAR_EXTRA_ARGS, its other arguments kept. A single plain value (no quote inside, no #, $, `
-# or \) is rewritten in place; otherwise the lines are kept and one more adds -s -g to whatever
-# the last one leaves, unless that line is already the last.
+# Prints /etc/default/dropbear with -s and -g (no password logins, root's included) in the last
+# DROPBEAR_EXTRA_ARGS line, its other arguments and lines kept. Debian's dropbear.service reads the
+# file through EnvironmentFile=, where the last assignment wins and nothing is expanded, so that
+# value must be plain (no quote inside, no #, $, ` or \) to mean the same to systemd and a shell.
 function dropbear_text() {
-    local line val args plain=1 count=0 last=""
-    local add='DROPBEAR_EXTRA_ARGS="$DROPBEAR_EXTRA_ARGS -s -g"'
+    local line val i=0 at=-1
     local -a lines=()
     if [ -f "$DROPBEAR_DEFAULTS" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
             lines+=("$line")
-            [[ $line =~ ^[[:space:]]*DROPBEAR_EXTRA_ARGS=(.*)$ ]] || continue
-            count=$((count + 1))
-            val=${BASH_REMATCH[1]}
-            last=$val
-            [[ $val =~ ^\"(.*)\"$ || $val =~ ^\'(.*)\'$ ]] && val=${BASH_REMATCH[1]}
-            [[ $val != *[\"\'#\$\`\\]* ]] || plain=0
+            [[ $line =~ ^[[:space:]]*DROPBEAR_EXTRA_ARGS=(.*)$ ]] && at=$i val=${BASH_REMATCH[1]}
+            i=$((i + 1))
         done <"$DROPBEAR_DEFAULTS"
     fi
-    if [ "$count" -eq 1 ] && [ "$plain" -eq 1 ]; then
-        for line in "${lines[@]}"; do
-            if [[ $line =~ ^[[:space:]]*DROPBEAR_EXTRA_ARGS=(.*)$ ]]; then
-                args=${BASH_REMATCH[1]}
-                args=${args//[\"\']/}
-                [[ " $args " == *" -s "* ]] || args="$args -s"
-                [[ " $args " == *" -g "* ]] || args="$args -g"
-                args=${args#"${args%%[![:space:]]*}"}
-                printf 'DROPBEAR_EXTRA_ARGS="%s"\n' "$args"
-            else
-                printf '%s\n' "$line"
-            fi
-        done
+    if [ "$at" -lt 0 ]; then
+        [ "${#lines[@]}" -eq 0 ] || printf '%s\n' "${lines[@]}"
+        printf 'DROPBEAR_EXTRA_ARGS="-s -g"\n'
         return 0
     fi
-    [ "${#lines[@]}" -eq 0 ] || printf '%s\n' "${lines[@]}"
-    if [ "$count" -eq 0 ]; then
-        printf 'DROPBEAR_EXTRA_ARGS="-s -g"\n'
-    elif [ "DROPBEAR_EXTRA_ARGS=$last" != "$add" ]; then
-        printf '%s\n' "$add"
+    [[ $val =~ ^\"(.*)\"$ || $val =~ ^\'(.*)\'$ ]] && val=${BASH_REMATCH[1]}
+    if [[ $val == *[\"\'#\$\`\\]* ]]; then
+        ssh_error "$DROPBEAR_DEFAULTS gives DROPBEAR_EXTRA_ARGS a value systemd would pass to Dropbear unexpanded (a quote, #, \$, \` or \\ in it), so password logins can't be turned off."
+        return 1
     fi
+    [[ " $val " == *" -s "* ]] || val="$val -s"
+    [[ " $val " == *" -g "* ]] || val="$val -g"
+    lines[at]="DROPBEAR_EXTRA_ARGS=\"${val#"${val%%[![:space:]]*}"}\""
+    printf '%s\n' "${lines[@]}"
 }
 
 # Without ssh_key: disables, stops and masks every SSH unit systemd knows, then fails unless each
@@ -466,7 +454,7 @@ function ssh_off() {
 # own config (DietPi's setting is not relied on), brings back a server an earlier boot without a key
 # masked, and restarts the running server.
 function ssh_keyed() {
-    local unit line lead="" have=0 known revived=" " file="$ROOT_SSH_DIR/authorized_keys"
+    local unit line text lead="" have=0 known revived=" " file="$ROOT_SSH_DIR/authorized_keys"
     if ! mkdir -p "$ROOT_SSH_DIR" || ! chmod 0700 "$ROOT_SSH_DIR" || { [ -e "$file" ] && ! chmod 0600 "$file"; }; then
         ssh_error "Failed to add the ssh_key to $file."
         return 1
@@ -490,10 +478,12 @@ function ssh_keyed() {
         ssh_error "Failed to turn off password logins for SSH."
         return 1
     fi
-    if [[ $known == *" dropbear.service "* ]] &&
-        { ! mkdir -p "${DROPBEAR_DEFAULTS%/*}" || ! dropbear_text | put_file "$DROPBEAR_DEFAULTS"; }; then
-        ssh_error "Failed to turn off password logins for SSH."
-        return 1
+    if [[ $known == *" dropbear.service "* ]]; then
+        text=$(dropbear_text) || return 1
+        if ! mkdir -p "${DROPBEAR_DEFAULTS%/*}" || ! printf '%s\n' "$text" | put_file "$DROPBEAR_DEFAULTS"; then
+            ssh_error "Failed to turn off password logins for SSH."
+            return 1
+        fi
     fi
     for unit in $known; do
         [ "$(systemctl is-enabled "$unit" 2>/dev/null)" = masked ] || continue

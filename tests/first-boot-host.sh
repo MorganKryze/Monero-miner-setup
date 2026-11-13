@@ -338,23 +338,47 @@ enabled: dropbear.service
 masked:
 active: dropbear.service" "$(state)"
 [ -e "$w/kdrop/etc/ssh" ] && fail "key, Dropbear: an sshd drop-in is written"
-# A value that is not one plain word list (several lines, a comment, an expansion) is kept, and a
-# line after it adds -s and -g to whatever it ends up as; a second run adds nothing.
-# dropcase <fixture> <defaults text> <effective value>: the file kept with the line added once.
-add_line='DROPBEAR_EXTRA_ARGS="$DROPBEAR_EXTRA_ARGS -s -g"'
+# Debian's dropbear.service reads the file through EnvironmentFile=: the last assignment wins and
+# nothing in it is expanded. With several lines, the last one gets -s and -g when its value is
+# plain; a value systemd would hand to Dropbear as literal text is refused and SSH turned off.
+# dropcase <fixture> <defaults text> <file after> <value>: what systemd and a shell both read.
 dropcase() {
   board "$1" raspberrypi,5-model-b; dropbear; mkdir -p "$w/$1/etc/default"; printf '%s\n' "$2" > "$w/$1/etc/default/dropbear"
   KEY=$key run "$1" ssh_policy > /dev/null; KEY=$key run "$1" ssh_policy > /dev/null
-  same "key, Dropbear, $1: file" "$2
-$add_line" "$(cat "$w/$1/etc/default/dropbear")"
-  same "key, Dropbear, $1: value" "$3" \
-    "$(env -i F="$w/$1/etc/default/dropbear" "$BASH" --norc --noprofile -c '. "$F"; printf "%s" "$DROPBEAR_EXTRA_ARGS"')"
+  local f="$w/$1/etc/default/dropbear" last
+  same "key, Dropbear, $1: file" "$3" "$(cat "$f")"
+  last=$(grep -E '^[[:space:]]*DROPBEAR_EXTRA_ARGS=' "$f" | tail -n 1)
+  last=${last#*=}; last=${last#\"}; last=${last%\"}
+  same "key, Dropbear, $1: value systemd reads" "$4" "$last"
+  same "key, Dropbear, $1: value a shell reads" "$4" \
+    "$(env -i F="$f" "$BASH" --norc --noprofile -c '. "$F"; printf "%s" "$DROPBEAR_EXTRA_ARGS"')"
 }
 dropcase dtwo 'DROPBEAR_EXTRA_ARGS="-w"
-DROPBEAR_EXTRA_ARGS="-p 2222"' "-p 2222 -s -g"
-dropcase dcomment 'DROPBEAR_EXTRA_ARGS="-w" # no root logins' "-w -s -g"
-dropcase dport 'PORT=2222
-DROPBEAR_EXTRA_ARGS="-p $PORT"' "-p 2222 -s -g"
+DROPBEAR_EXTRA_ARGS="-p 2222"' 'DROPBEAR_EXTRA_ARGS="-w"
+DROPBEAR_EXTRA_ARGS="-p 2222 -s -g"' "-p 2222 -s -g"
+dropcase dlastplain "PORT=2222
+DROPBEAR_EXTRA_ARGS=\"-p \$PORT\"
+DROPBEAR_EXTRA_ARGS='-w'" 'PORT=2222
+DROPBEAR_EXTRA_ARGS="-p $PORT"
+DROPBEAR_EXTRA_ARGS="-w -s -g"' "-w -s -g"
+# dropbad <fixture> <defaults text>: the file is left alone, the key refused and Dropbear off.
+dropbad() {
+  board "$1" raspberrypi,5-model-b; dropbear; mkdir -p "$w/$1/etc/default"; printf '%s\n' "$2" > "$w/$1/etc/default/dropbear"
+  local out; out=$(KEY=$key split "$1" ssh_policy)
+  same "key, Dropbear, $1: exit" "exit 1" "$(tail -n 1 <<<"$out")"
+  same "key, Dropbear, $1: error" "err [  ERROR  ] $w/$1/etc/default/dropbear gives DROPBEAR_EXTRA_ARGS a value systemd would pass to Dropbear unexpanded (a quote, #, \$, \` or \\ in it), so password logins can't be turned off. $error_tail" \
+    "$(grep '^err ' <<<"$out" | head -n 1)"
+  same "key, Dropbear, $1: file kept" "$2" "$(cat "$w/$1/etc/default/dropbear")"
+  same "key, Dropbear, $1: state" "known: dropbear.service dropbear.socket
+enabled:
+masked: dropbear.service dropbear.socket
+active:" "$(state)"
+}
+dropbad dcomment 'DROPBEAR_EXTRA_ARGS="-w" # no root logins'
+dropbad dport 'PORT=2222
+DROPBEAR_EXTRA_ARGS="-p $PORT"'
+dropbad dself 'DROPBEAR_EXTRA_ARGS="-w"
+DROPBEAR_EXTRA_ARGS="$DROPBEAR_EXTRA_ARGS -s -g"'
 board kdropnew raspberrypi,5-model-b; dropbear
 KEY=$key run kdropnew ssh_policy > /dev/null
 same "key, Dropbear without defaults" "DROPBEAR_EXTRA_ARGS=\"-s -g\"" "$(cat "$w/kdropnew/etc/default/dropbear" 2>/dev/null)"
