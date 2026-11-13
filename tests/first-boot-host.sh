@@ -29,8 +29,8 @@ real_grep=$(command -v grep) || { echo "FAIL no grep on this host"; exit 1; }
 # its unit's activity, and cannot be disabled or masked on its own. list-unit-files lists a unit in
 # masked with the state masked, and fails while list-fails exists; is-active prints active or inactive, an active unit's state is the one in
 # active-says when it exists, and it prints nothing and fails while bus-fails does. disable --now
-# and mask fail while disable-fails or mask-fails exists, restart while restart-fails does; a unit
-# in sticky stays active. vanish holds "<unit> <trigger>" lines: disabling the trigger removes the
+# and mask fail while disable-fails or mask-fails exists, stop while stop-fails does, restart while
+# restart-fails does; a unit in sticky stays active. vanish holds "<unit> <trigger>" lines: disabling the trigger removes the
 # unit from known, as a unit file that is a link to it; disable and mask then fail on that unit.
 cat > "$w/stubs/systemctl" <<EOF
 #!/bin/bash
@@ -68,6 +68,9 @@ case "\$1" in
     [ ! -e "$w/mask-fails" ] && [ -z "\$t" ] || exit 1
     has "\$u" gone && { echo "Failed to mask unit: Unit file \$u does not exist." >&2; exit 1; }
     add "\$u" masked ;;
+  stop)
+    [ ! -e "$w/stop-fails" ] || exit 1
+    has "\$u" sticky || del "\$u" active ;;
   unmask) del "\$u" masked ;;
   enable) add "\$u" enabled ;;
   restart) [ ! -e "$w/restart-fails" ] || exit 1; add "\${t:-\$u}" active ;;
@@ -128,7 +131,7 @@ iface() {
 board() {
   local fx="$w/$1" c; shift
   rm -rf -- "$fx" "$w/calls.log" "$w/avahi" "$w/mdns-installed-seen" "$w/disable-fails" "$w/apt-fails" \
-    "$w/mask-fails" "$w/restart-fails" "$w/list-fails" "$w/bus-fails" "$w/active-says"
+    "$w/mask-fails" "$w/stop-fails" "$w/restart-fails" "$w/list-fails" "$w/bus-fails" "$w/active-says"
   for f in known enabled masked active sticky alias vanish gone; do : > "$w/$f"; done
   mkdir -p "$fx/state" "$fx/etc"
   : > "$fx/compatible"
@@ -238,8 +241,10 @@ systemctl is-active sshd.service" "$(calls)"
 same "no key, run again" "$off_line
 exit 0" "$(run nokey ssh_policy)"
 # The second pass finds every unit masked: none is disabled or masked again, so the journal gets no
-# systemctl help text.
+# systemctl help text; each is stopped, since a unit masked while it ran keeps running.
 same "no key, run again: calls" "systemctl list-unit-files --no-legend --no-pager
+systemctl stop dropbear.service
+systemctl stop dropbear.socket
 systemctl is-active dropbear.service
 systemctl is-active dropbear.socket
 systemctl is-active ssh.service
@@ -275,6 +280,17 @@ same "no key, a unit gone during the loop: state" "known: ssh.service ssh.socket
 enabled:
 masked: ssh.service ssh.socket
 active:" "$(state)"
+board maskedon raspberrypi,5-model-b; dropbear; : > "$w/enabled"; units masked dropbear.service dropbear.socket
+same "no key, the server masked but running" "$off_line
+exit 0" "$(run maskedon ssh_policy)"
+same "no key, the server masked but running: stopped" "known: dropbear.service dropbear.socket
+enabled:
+masked: dropbear.service dropbear.socket
+active:" "$(state)"
+board maskedstuck raspberrypi,5-model-b; dropbear; : > "$w/enabled"; units masked dropbear.service dropbear.socket
+: > "$w/stop-fails"
+same "no key, the masked server not stopped" "err [  ERROR  ] Failed to turn off dropbear.service. $error_tail
+exit 1" "$(split maskedstuck ssh_policy)"
 board offfails raspberrypi,5-model-b; dropbear; : > "$w/disable-fails"
 same "no key, the server not disabled" "err [  ERROR  ] Failed to turn off dropbear.service. $error_tail
 exit 1" "$(split offfails ssh_policy)"
