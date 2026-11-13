@@ -346,14 +346,22 @@ units known ssh.service ssh.socket sshd.service; units enabled ssh.service; unit
 same "key, OpenSSH" "$key_line
 exit 0" "$(KEY=$key run kssh ssh_policy)"
 same "key, OpenSSH: drop-in" "PasswordAuthentication no
-PermitRootLogin prohibit-password" "$(cat "$w/kssh/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf" 2>/dev/null)"
+PermitRootLogin prohibit-password
+KbdInteractiveAuthentication no" "$(cat "$w/kssh/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf" 2>/dev/null)"
 grep -qx 'systemctl restart ssh.service' "$w/calls.log" || fail "key, OpenSSH: not restarted"
 [ -e "$w/kssh/etc/default/dropbear" ] && fail "key, OpenSSH: Dropbear defaults written"
+board ksshd raspberrypi,5-model-b; units known sshd.service; units enabled sshd.service; units active sshd.service
+same "key, OpenSSH as sshd.service alone" "$key_line
+exit 0" "$(KEY=$key run ksshd ssh_policy)"
+same "key, OpenSSH as sshd.service alone: drop-in" "PasswordAuthentication no
+PermitRootLogin prohibit-password
+KbdInteractiveAuthentication no" "$(cat "$w/ksshd/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf" 2>/dev/null)"
 board kdebian raspberrypi,5-model-b; debian
 same "key, Debian's OpenSSH" "$key_line
 exit 0" "$(KEY=$key run kdebian ssh_policy)"
 same "key, Debian's OpenSSH: drop-in" "PasswordAuthentication no
-PermitRootLogin prohibit-password" "$(cat "$w/kdebian/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf" 2>/dev/null)"
+PermitRootLogin prohibit-password
+KbdInteractiveAuthentication no" "$(cat "$w/kdebian/etc/ssh/sshd_config.d/00-xmrig-first-boot.conf" 2>/dev/null)"
 same "key, Debian's OpenSSH: restarted once" "systemctl restart ssh.service" "$(grep '^systemctl restart' "$w/calls.log")"
 # An earlier boot without a key masked the server: the key brings it back.
 board kback raspberrypi,5-model-b; units known dropbear.service dropbear.socket; units masked dropbear.service dropbear.socket

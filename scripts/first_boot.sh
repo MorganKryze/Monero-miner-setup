@@ -466,7 +466,8 @@ function ssh_keyed() {
     known=" ${known//$'\n'/ } "
     if [[ $known == *" ssh.service "* || $known == *" sshd.service "* ]] &&
         { ! mkdir -p "${SSHD_DROPIN%/*}" ||
-            ! printf '%s\n' "PasswordAuthentication no" "PermitRootLogin prohibit-password" | put_file "$SSHD_DROPIN" 0644; }; then
+            ! printf '%s\n' "PasswordAuthentication no" "PermitRootLogin prohibit-password" \
+                "KbdInteractiveAuthentication no" | put_file "$SSHD_DROPIN" 0644; }; then
         ssh_error "Failed to turn off password logins for SSH."
         return 1
     fi
