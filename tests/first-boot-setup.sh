@@ -77,8 +77,9 @@ esac
 EOF
 printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\n' "$w" > "$w/stubs/hostname"
 # sleep: the blink loop's half seconds pass fast and unlogged; the retry waits are logged, not slept,
-# and each records the LED's brightness sampled over a few blink periods. Past 20 waits a loop runs
-# away: sleep-cap is written and the setup gets SIGTERM, so the case FAILs instead of hanging.
+# and each records the LED's brightness, sampled until it has been seen both on and off or for up to
+# 40 samples (twelve blink periods, more on a loaded host). Past 20 waits a loop runs away: sleep-cap
+# is written and the setup gets SIGTERM, so the case FAILs instead of hanging.
 cat > "$w/stubs/sleep" <<EOF
 #!/bin/bash
 if [ "\$1" = 0.5 ]; then exec "$real_sleep" 0.05; fi
@@ -86,7 +87,8 @@ echo "sleep \$*" >> "$w/calls.log"
 n=0; [ -f "$w/sleeps" ] && read -r n < "$w/sleeps"
 echo \$((n + 1)) > "$w/sleeps"
 [ "\$n" -lt 20 ] || { : > "$w/sleep-cap"; kill "\$PPID"; exit 1; }
-s=; for i in 1 2 3 4 5 6 7 8 9 10; do b=; read -r b < "\$FX/leds/ACT/brightness"; s="\$s \$b"; "$real_sleep" 0.03; done
+s=; for ((i = 0; i < 40; i++)); do b=; read -r b < "\$FX/leds/ACT/brightness"; s="\$s \$b"
+  [[ \$s =~ \ 0( |\$) && \$s =~ \ 255( |\$) ]] && break; "$real_sleep" 0.03; done
 echo "\$s" >> "$w/led-samples"
 EOF
 chmod +x "$w/stubs/"*
@@ -220,7 +222,7 @@ sleep 10
 $head
 sleep 10
 $(ok_calls net)" "$(calls)"
-grep -q ' 0 .*255\| 255 .* 0' "$w/led-samples" 2>/dev/null || fail "network wait: the LED does not blink"
+grep -E ' 0( |$)' "$w/led-samples" 2>/dev/null | grep -qE ' 255( |$)' || fail "network wait: the LED does not blink"
 board dl; echo 1 > "$w/fetch-fails"
 same "download cut once" "$ssh_line
 [  INFO   ] Waiting for the network to fetch the installer of v9.9.9...
