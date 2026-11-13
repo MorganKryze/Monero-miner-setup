@@ -157,7 +157,12 @@ function restore() {
         fi
     done <"$RECORD"
     if [ -n "$kept" ]; then
-        { printf '%s' "$kept" >"$RECORD"; } 2>/dev/null || say "the record could not be cut down to the policies not given back."
+        # Written beside the record, then moved over it: a write that fails (a full /run) leaves
+        # the record whole rather than empty.
+        if ! { printf '%s' "$kept" >"$RECORD.new" && mv -f -- "$RECORD.new" "$RECORD"; } 2>/dev/null; then
+            rm -f -- "$RECORD.new" 2>/dev/null
+            say "the record could not be cut down to the policies not given back."
+        fi
         return 1
     fi
     rm -f -- "$RECORD"
