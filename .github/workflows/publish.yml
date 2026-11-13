@@ -364,7 +364,7 @@ jobs:
             echo "xmrig-linux-arm64 is XMRig for Linux arm64, built unmodified by this repository's CI on Debian 13 from https://github.com/MoneroOcean/xmrig at commit $XMRIG_COMMIT, the commit this tag pins. XMRig is licensed under GPL-3.0; that commit is its source."
             echo
             echo "Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup"
-            echo "Check it on the board: sha256sum -c SHA256SUMS"
+            echo "Check it on the board: sha256sum -c --ignore-missing SHA256SUMS"
             echo
             echo "dietpi-first-boot.zip holds dietpi.txt and Automation_Custom_Script.sh for a DietPi card: the script installs this release only. Check it from a PC: gh attestation verify dietpi-first-boot.zip --repo MorganKryze/Monero-miner-setup"
           } > notes.md

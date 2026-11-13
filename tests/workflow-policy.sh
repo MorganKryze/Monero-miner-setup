@@ -325,7 +325,7 @@ want=$(cat <<'YML'
             echo "xmrig-linux-arm64 is XMRig for Linux arm64, built unmodified by this repository's CI on Debian 13 from https://github.com/MoneroOcean/xmrig at commit $XMRIG_COMMIT, the commit this tag pins. XMRig is licensed under GPL-3.0; that commit is its source."
             echo
             echo "Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup"
-            echo "Check it on the board: sha256sum -c SHA256SUMS"
+            echo "Check it on the board: sha256sum -c --ignore-missing SHA256SUMS"
             echo
             echo "dietpi-first-boot.zip holds dietpi.txt and Automation_Custom_Script.sh for a DietPi card: the script installs this release only. Check it from a PC: gh attestation verify dietpi-first-boot.zip --repo MorganKryze/Monero-miner-setup"
           } > notes.md
@@ -435,6 +435,7 @@ publish v0.2.0 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0} xmrig-
   || { echo "FAIL release call for a final tag"; rc=1; }
 grep -qF "built unmodified by this repository's CI on Debian 13 from https://github.com/MoneroOcean/xmrig at commit $commit, the commit this tag pins. XMRig is licensed under GPL-3.0; that commit is its source." "$d/rel/dist/notes.md" \
   && grep -qF 'Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup' "$d/rel/dist/notes.md" \
+  && grep -qxF 'Check it on the board: sha256sum -c --ignore-missing SHA256SUMS' "$d/rel/dist/notes.md" \
   || { echo "FAIL release notes"; rc=1; }
 publish v0.2.0 'abc; rm -rf /' && { echo "FAIL release step accepted a commit that is not 40 hex digits"; rc=1; }
 [ ! -e "$d/gh.log" ] || { echo "FAIL release step called gh with a bad commit"; rc=1; }
