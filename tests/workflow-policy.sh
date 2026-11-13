@@ -236,9 +236,34 @@ want=$(cat <<'YML'
           if-no-files-found: error
           retention-days: 1
 
+  release-bundle:
+    name: Build DietPi first-boot zip
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@vN
+        with:
+          persist-credentials: false
+
+      - name: Build the zip
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir dist
+          bash scripts/dietpi_bundle.sh "$TAG" dist
+
+      - uses: actions/upload-artifact@vN
+        with:
+          name: release-bundle
+          path: dist/dietpi-first-boot.zip
+          if-no-files-found: error
+          retention-days: 1
+
   release-publish:
     name: Publish release binary
-    needs: release-build
+    needs: [release-build, release-bundle]
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-24.04
     permissions:
@@ -251,13 +276,20 @@ want=$(cat <<'YML'
           name: release-binary
           path: dist
 
-      - name: Sum the binary
+      - uses: actions/download-artifact@vN
+        with:
+          name: release-bundle
+          path: dist
+
+      - name: Sum the binary and the zip
         working-directory: dist
-        run: sha256sum xmrig-linux-arm64 > SHA256SUMS
+        run: sha256sum xmrig-linux-arm64 dietpi-first-boot.zip > SHA256SUMS
 
       - uses: actions/attest@vN
         with:
-          subject-path: dist/xmrig-linux-arm64
+          subject-path: |
+            dist/xmrig-linux-arm64
+            dist/dietpi-first-boot.zip
 
       # gh release create fails when the release exists, so a published asset is never replaced. A
       # tag with a pre-release part (v0.2.0-rc.1) makes a pre-release.
@@ -276,11 +308,13 @@ want=$(cat <<'YML'
             echo
             echo "Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup"
             echo "Check it on the board: sha256sum -c SHA256SUMS"
+            echo
+            echo "dietpi-first-boot.zip holds dietpi.txt and Automation_Custom_Script.sh for a DietPi card: the script installs this release only. Check it from a PC: gh attestation verify dietpi-first-boot.zip --repo MorganKryze/Monero-miner-setup"
           } > notes.md
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md "${pre[@]}" xmrig-linux-arm64 SHA256SUMS
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md "${pre[@]}" xmrig-linux-arm64 dietpi-first-boot.zip SHA256SUMS
 YML
 )
-got=$({ block "$p" '  release-build:'; block "$p" '  release-publish:'; } | major)
+got=$({ block "$p" '  release-build:'; block "$p" '  release-bundle:'; block "$p" '  release-publish:'; } | major)
 [ "$got" = "$want" ] || { echo "FAIL release jobs"; diff <(echo "$want") <(echo "$got"); rc=1; }
 # Every write scope in the file must be exactly these five. A `#` mid-line may sit inside a quoted
 # value, so only full-line comments are dropped, and every bare `write` counts: a quoted, folded,
@@ -375,9 +409,9 @@ publish() { # tag, commit
 }
 commit=0123456789abcdef0123456789abcdef01234567
 base='release create TAG --repo MorganKryze/Monero-miner-setup --verify-tag --title TAG --notes-file notes.md'
-publish v0.2.0-rc.1 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0-rc.1} --prerelease xmrig-linux-arm64 SHA256SUMS" ] \
+publish v0.2.0-rc.1 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0-rc.1} --prerelease xmrig-linux-arm64 dietpi-first-boot.zip SHA256SUMS" ] \
   || { echo "FAIL release call for a pre-release tag"; rc=1; }
-publish v0.2.0 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0} xmrig-linux-arm64 SHA256SUMS" ] \
+publish v0.2.0 "$commit" && [ "$(cat "$d/gh.log")" = "${base//TAG/v0.2.0} xmrig-linux-arm64 dietpi-first-boot.zip SHA256SUMS" ] \
   || { echo "FAIL release call for a final tag"; rc=1; }
 grep -qF "built unmodified by this repository's CI on Debian 13 from https://github.com/MoneroOcean/xmrig at commit $commit, the commit this tag pins. XMRig is licensed under GPL-3.0; that commit is its source." "$d/rel/dist/notes.md" \
   && grep -qF 'Check it from a PC: gh attestation verify xmrig-linux-arm64 --repo MorganKryze/Monero-miner-setup' "$d/rel/dist/notes.md" \
