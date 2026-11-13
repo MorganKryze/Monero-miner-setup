@@ -2,11 +2,11 @@
 # The first-boot setup's host steps (scripts/first_boot.sh): the board's name (short model name and
 # the first wired interface's MAC tail, lower case), the refusal of a board outside the profiles,
 # the hostname files, SSH closed without a key (every unit systemd knows disabled, masked and found
-# inactive) or opened to the key alone with password logins off, and avahi-daemon only when mdns is
-# on; each step that fails exits 1 with its error on stderr. Every function runs under env -i
-# against fixture trees, with stub systemctl, hostname, apt-get and dpkg-query that record their
-# arguments, or fail on request; systemctl also keeps the units' states. Run from the repository
-# root.
+# inactive) or opened to the key alone with password logins off (closed when that fails), and
+# avahi-daemon only when mdns is on; each step that fails exits 1 with its error on stderr. Every
+# function runs under env -i against fixture trees, with stub systemctl, hostname, apt-get and
+# dpkg-query that record their arguments, or fail on request; systemctl also keeps the units'
+# states. Run from the repository root.
 # Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -359,6 +359,28 @@ same "key, the drop-in not written: last error" "err [  ERROR  ] Failed to turn 
   "$(grep '^err ' <<<"$out" | tail -n 1)"
 same "key, the drop-in not written: exit" "exit 1" "$(tail -n 1 <<<"$out")"
 grep -q 'restart' "$w/calls.log" && fail "key, the drop-in not written: the server restarted"
+# A key that cannot be set up leaves SSH off, not open to the passwords the image came with.
+board kdefaults raspberrypi,5-model-b; dropbear; mkdir -p "$w/kdefaults/etc"; : > "$w/kdefaults/etc/default"
+out=$(KEY=$key split kdefaults ssh_policy)
+same "key, the Dropbear defaults not written: error" "err [  ERROR  ] Failed to turn off password logins for SSH. $error_tail" \
+  "$(grep '^err \[' <<<"$out")"
+same "key, the Dropbear defaults not written: exit" "exit 1" "$(tail -n 1 <<<"$out")"
+same "key, the Dropbear defaults not written: SSH off" "known: dropbear.service dropbear.socket
+enabled:
+masked: dropbear.service dropbear.socket
+active:" "$(state)"
+board kfail raspberrypi,5-model-b; dropbear; : > "$w/kfail/ssh"
+KEY=$key run kfail ssh_policy > /dev/null
+same "key, authorized_keys not written: SSH off" "known: dropbear.service dropbear.socket
+enabled:
+masked: dropbear.service dropbear.socket
+active:" "$(state)"
+board krestoff raspberrypi,5-model-b; dropbear; : > "$w/restart-fails"
+KEY=$key run krestoff ssh_policy > /dev/null
+same "key, the server not restarted: SSH off" "known: dropbear.service dropbear.socket
+enabled:
+masked: dropbear.service dropbear.socket
+active:" "$(state)"
 
 # ---- mDNS ----
 board moff raspberrypi,5-model-b

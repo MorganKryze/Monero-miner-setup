@@ -490,14 +490,18 @@ function ssh_keyed() {
     done
 }
 
-# SSH is off unless the settings gave a valid ssh_key, and then open to keys alone. <again> runs it
+# SSH is off unless the settings gave a valid ssh_key, and then open to keys alone: a key that
+# cannot be set up turns SSH off, rather than leave the image's password logins on. <again> runs it
 # without its log line.
 function ssh_policy() {
     if [ -z "$S_SSH_KEY" ]; then
         ssh_off || return 1
         [ -n "${1:-}" ] || info "No ssh_key in the settings: the SSH server is disabled and masked."
     else
-        ssh_keyed || return 1
+        if ! ssh_keyed; then
+            ssh_off
+            return 1
+        fi
         [ -n "${1:-}" ] || info "The ssh_key from the settings is added to root's authorized_keys; password logins are off."
     fi
 }
