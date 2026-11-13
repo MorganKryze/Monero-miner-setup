@@ -398,26 +398,45 @@ function ssh_units_known() {
 }
 
 # Prints /etc/default/dropbear with -s and -g (no password logins, root's included) in
-# DROPBEAR_EXTRA_ARGS, its other arguments kept.
+# DROPBEAR_EXTRA_ARGS, its other arguments kept. A single plain value (no quote inside, no #, $, `
+# or \) is rewritten in place; otherwise the lines are kept and one more adds -s -g to whatever
+# the last one leaves, unless that line is already the last.
 function dropbear_text() {
-    local line args done=0
+    local line val args plain=1 count=0 last=""
+    local add='DROPBEAR_EXTRA_ARGS="$DROPBEAR_EXTRA_ARGS -s -g"'
+    local -a lines=()
     if [ -f "$DROPBEAR_DEFAULTS" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
+            lines+=("$line")
+            [[ $line =~ ^[[:space:]]*DROPBEAR_EXTRA_ARGS=(.*)$ ]] || continue
+            count=$((count + 1))
+            val=${BASH_REMATCH[1]}
+            last=$val
+            [[ $val =~ ^\"(.*)\"$ || $val =~ ^\'(.*)\'$ ]] && val=${BASH_REMATCH[1]}
+            [[ $val != *[\"\'#\$\`\\]* ]] || plain=0
+        done <"$DROPBEAR_DEFAULTS"
+    fi
+    if [ "$count" -eq 1 ] && [ "$plain" -eq 1 ]; then
+        for line in "${lines[@]}"; do
             if [[ $line =~ ^[[:space:]]*DROPBEAR_EXTRA_ARGS=(.*)$ ]]; then
-                [ "$done" -eq 0 ] || continue
                 args=${BASH_REMATCH[1]}
                 args=${args//[\"\']/}
                 [[ " $args " == *" -s "* ]] || args="$args -s"
                 [[ " $args " == *" -g "* ]] || args="$args -g"
                 args=${args#"${args%%[![:space:]]*}"}
                 printf 'DROPBEAR_EXTRA_ARGS="%s"\n' "$args"
-                done=1
             else
                 printf '%s\n' "$line"
             fi
-        done <"$DROPBEAR_DEFAULTS"
+        done
+        return 0
     fi
-    [ "$done" -eq 1 ] || printf 'DROPBEAR_EXTRA_ARGS="-s -g"\n'
+    [ "${#lines[@]}" -eq 0 ] || printf '%s\n' "${lines[@]}"
+    if [ "$count" -eq 0 ]; then
+        printf 'DROPBEAR_EXTRA_ARGS="-s -g"\n'
+    elif [ "DROPBEAR_EXTRA_ARGS=$last" != "$add" ]; then
+        printf '%s\n' "$add"
+    fi
 }
 
 # Without ssh_key: disables, stops and masks every SSH unit systemd knows, then fails unless each

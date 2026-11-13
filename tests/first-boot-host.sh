@@ -338,6 +338,23 @@ enabled: dropbear.service
 masked:
 active: dropbear.service" "$(state)"
 [ -e "$w/kdrop/etc/ssh" ] && fail "key, Dropbear: an sshd drop-in is written"
+# A value that is not one plain word list (several lines, a comment, an expansion) is kept, and a
+# line after it adds -s and -g to whatever it ends up as; a second run adds nothing.
+# dropcase <fixture> <defaults text> <effective value>: the file kept with the line added once.
+add_line='DROPBEAR_EXTRA_ARGS="$DROPBEAR_EXTRA_ARGS -s -g"'
+dropcase() {
+  board "$1" raspberrypi,5-model-b; dropbear; mkdir -p "$w/$1/etc/default"; printf '%s\n' "$2" > "$w/$1/etc/default/dropbear"
+  KEY=$key run "$1" ssh_policy > /dev/null; KEY=$key run "$1" ssh_policy > /dev/null
+  same "key, Dropbear, $1: file" "$2
+$add_line" "$(cat "$w/$1/etc/default/dropbear")"
+  same "key, Dropbear, $1: value" "$3" \
+    "$(env -i F="$w/$1/etc/default/dropbear" "$BASH" --norc --noprofile -c '. "$F"; printf "%s" "$DROPBEAR_EXTRA_ARGS"')"
+}
+dropcase dtwo 'DROPBEAR_EXTRA_ARGS="-w"
+DROPBEAR_EXTRA_ARGS="-p 2222"' "-p 2222 -s -g"
+dropcase dcomment 'DROPBEAR_EXTRA_ARGS="-w" # no root logins' "-w -s -g"
+dropcase dport 'PORT=2222
+DROPBEAR_EXTRA_ARGS="-p $PORT"' "-p 2222 -s -g"
 board kdropnew raspberrypi,5-model-b; dropbear
 KEY=$key run kdropnew ssh_policy > /dev/null
 same "key, Dropbear without defaults" "DROPBEAR_EXTRA_ARGS=\"-s -g\"" "$(cat "$w/kdropnew/etc/default/dropbear" 2>/dev/null)"
