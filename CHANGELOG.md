@@ -6,6 +6,16 @@ Every release of Monero-miner-setup, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.2.0-rc.2] - 2026-11-13
+
+### Fixed
+
+- The DietPi first boot stopped on a real Raspberry Pi 5: the minimal image has no `git`, `make` or `bc`, which the installer needs. The setup now installs the missing ones, updating the package lists once when the install fails.
+- `make` printed `tput: No value for $TERM` lines when run without a terminal.
+- After a restore that could not write a CPU policy back, stopping the host tuning lost the record of the settings it found, so a later start recorded the tuned values as the originals. The record now survives a stop until `make service-disable` or a setup without a mode removes it.
+- The first boot's second SSH pass filled the journal with systemctl's help text for units already masked.
+- `make service-disable` left the first-boot unit in a failed state.
+
 ## [0.2.0-rc.1] - 2026-11-13
 
 ### Added
@@ -98,6 +108,7 @@ some steps are yours to run.
 - Dependabot auto-merges only GitHub Actions patch and minor bumps, once CI is green. XMRig, bash-toolbox, base image and Gluetun bumps wait for review.
 - The README's install commands use `curl -fsSL` and stop with an error when the download fails or comes back empty.
 
+[0.2.0-rc.2]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.2.0-rc.2
 [0.2.0-rc.1]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.2.0-rc.1
 [0.1.1]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.0
