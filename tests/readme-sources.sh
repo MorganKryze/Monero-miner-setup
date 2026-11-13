@@ -35,8 +35,9 @@ sources=(
     "$(constant scripts/install.sh RELEASE_URL)"
     "$(constant scripts/install.sh REPO_URL)"
     "$(constant scripts/docker_setup.sh REPO_URL)"
-    "$(constant scripts/first_boot.sh RAW_URL)"
-    "$(constant scripts/first_boot.sh RELEASE_URL)"
+    # The first-boot setup's own URLs, as the row names them with the release tag.
+    "$(constant scripts/first_boot.sh RAW_URL)/<tag>/scripts/install.sh"
+    "$(constant scripts/first_boot.sh RELEASE_URL)/<tag>/SHA256SUMS"
     "https://ifconfig.io"
 )
 while IFS= read -r url; do sources+=("$url"); done < <(sed -n 's/^[[:space:]]*url = //p' .gitmodules)

@@ -526,6 +526,7 @@ The installers fetch from the sources below and nothing else. All of it comes ov
 | The Docker installer | your clone's copy, else `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh` | `--docker` |
 | The repository | `https://github.com/MorganKryze/Monero-miner-setup.git`, its submodules at the commits it pins: `https://github.com/MoneroOcean/xmrig.git`, `https://github.com/MorganKryze/bash-toolbox.git` | when there's no clone yet |
 | The release binary | `https://github.com/MorganKryze/Monero-miner-setup/releases/download/<tag>/xmrig-linux-arm64` and `SHA256SUMS` beside it, from the release your clone is checked out at | `--prebuilt` |
+| The first-boot setup's installer | `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/<tag>/scripts/install.sh` of the release the DietPi files come from, refused unless its sha256 matches the one they carry; a HEAD request on `https://github.com/MorganKryze/Monero-miner-setup/releases/download/<tag>/SHA256SUMS` to wait for the network; `avahi-daemon` through apt with `mdns = yes` | a DietPi card set up from the release's `dietpi-first-boot.zip` |
 | The image | `ghcr.io/morgankryze/monero-miner-setup`, built by this repository's CI | Docker, unless `--build` |
 | The base image and its packages | `ubuntu` from Docker Hub, at the tag `docker/Dockerfile` names, and Ubuntu's packages through apt in both build stages | `--build`, or when the image pull fails |
 | The Dockerfile frontend | `docker/dockerfile` from Docker Hub, at the version the `# syntax=` line of `docker/Dockerfile` names: BuildKit runs it to read the Dockerfile | `--build`, or when the image pull fails |
@@ -544,6 +545,7 @@ On Linux, these steps go through `sudo` (`make deps-debian`, `scripts/setup_serv
 - `rm -f` of `/etc/systemd/system/xmrig.service` and `/etc/logrotate.d/xmrig`, on `make service-disable`
 - with `--mode` on a board with a profile: `install` of `/etc/xmrig-host-tuning.conf`, `/usr/local/sbin/xmrig-host-tuning` and `/etc/systemd/system/xmrig-host-tuning.service`, root-owned, from private temp files, and removed again by a setup without a mode or by `make service-disable`
 - on a board set up from the DietPi files, on `make service-disable`: `test` of the setup's record that it installed `avahi-daemon`, then `apt-get remove` of it when it did; removal of `/etc/systemd/system/xmrig-first-boot.service`, `/usr/local/sbin/xmrig-first-boot` and the folder `/var/lib/xmrig-first-boot`
+- on a DietPi card set up from the release's `dietpi-first-boot.zip`, the first-boot setup runs as root, from DietPi's own custom-script hook: the SSH settings, the host name and its `/etc/hosts` line, root's `authorized_keys`, the board LED, its unit and state folder, `avahi-daemon` with `mdns = yes`, then the installer above with `--prebuilt` (the full list is in the DietPi section)
 - `systemctl daemon-reload`, `enable`, `start`, `try-restart`, `stop`, `status`, `disable`, `reset-failed` and `clean`
 
 `--prebuilt` runs the installer itself as root: `apt-get update` and `apt-get install` of `libuv1t64 libssl3t64 libhwloc15`, the download into a root-only folder in the clone, and the rename onto `<clone>/xmrig` and `xmrig.release`.
@@ -627,7 +629,7 @@ The container runs as uid 999, `xmrig`. The compose file and the minimal run abo
 
 MIT. See [LICENSE](./LICENSE).
 
-Banner artwork, scripts, and templates © Yann M. Vidamment 2025. This project is not endorsed by Monero or MoneroOcean.
+Banner artwork, scripts, and templates © Yann M. Vidamment 2025, except `templates/dietpi.txt`: it is DietPi v10.8's `dietpi.txt` (© the DietPi authors, GPL-2.0, https://github.com/MichaIng/DietPi) with the settings this project needs changed. This project is not endorsed by Monero or MoneroOcean.
 
 ## Resources
 
