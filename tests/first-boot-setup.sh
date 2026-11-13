@@ -66,13 +66,13 @@ case "\$1 \${*: -1}" in
 esac
 EOF
 # git describe answers the tag clone-tag holds, or fails as on an untagged commit; git submodule
-# status prints sub-status, else one submodule checked out at its pinned commit.
+# status prints sub-status, else both submodules checked out at their pinned commits, in git's order.
 cat > "$w/stubs/git" <<EOF
 #!/bin/bash
 echo "git \$*" >> "$w/calls.log"
 case "\$*" in
   *" describe "*) [ -f "$w/clone-tag" ] || exit 128; cat "$w/clone-tag" ;;
-  *" submodule status") if [ -f "$w/sub-status" ]; then cat "$w/sub-status"; else echo " 3f2a1b0 dependencies/xmrig (v6.22.2)"; fi ;;
+  *" submodule status") if [ -f "$w/sub-status" ]; then cat "$w/sub-status"; else printf ' %s\n' "5e4d3c2 dependencies/bash-toolbox (v1.4.0)" "3f2a1b0 dependencies/xmrig (v6.22.2)"; fi ;;
 esac
 EOF
 printf '#!/bin/bash\necho "hostname $*" >> "%s/calls.log"\n' "$w" > "$w/stubs/hostname"
@@ -344,10 +344,10 @@ $done_line rpi5-3fa2.
 exit 0" "$(run kept)"
 [ -d "$w/kept/clone/.git" ] || fail "cut: the clone at the tag is removed"
 grep -qx "git -C $w/kept/clone submodule status" "$w/calls.log" || fail "cut: no git submodule status"
-kept subnone; echo "-3f2a1b0 dependencies/xmrig" > "$w/sub-status"
+kept subnone; printf '%s\n' " 5e4d3c2 dependencies/bash-toolbox (v1.4.0)" "-3f2a1b0 dependencies/xmrig" > "$w/sub-status"
 run subnone > /dev/null
 [ -e "$w/subnone/clone" ] && fail "cut: a clone at the tag without its submodule is kept"
-kept subplus; echo "+9c8d7e6 dependencies/xmrig (v6.21.0)" > "$w/sub-status"
+kept subplus; printf '%s\n' " 5e4d3c2 dependencies/bash-toolbox (v1.4.0)" "+9c8d7e6 dependencies/xmrig (v6.21.0)" > "$w/sub-status"
 run subplus > /dev/null
 [ -e "$w/subplus/clone" ] && fail "cut: a clone at the tag with its submodule off the pin is kept"
 kept subempty; rm -f "$w/subempty/clone/dependencies/xmrig/.git"
