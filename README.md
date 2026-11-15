@@ -201,12 +201,13 @@ The settings are `key = value` lines, read as data: nothing in them is run or ex
 | --- | --- | --- |
 | `wallet =` | none: required | your Monero address, 1 to 128 base58 characters |
 | `mode = eco` | none: required, shipped as `eco` | `max` mines on every CPU the board's profile allows; `eco` leaves headroom and runs cooler (see [Dedicated board](#dedicated-board---mode)) |
-| `pool = gulf.moneroocean.stream:10128` | the installer's, `gulf.moneroocean.stream:10128` | 1 to 255 letters, digits or `. + : / _ -` |
+| `pool = gulf.moneroocean.stream` | the installer's, `gulf.moneroocean.stream` over TLS with MoneroOcean's certificate pinned; `stratum+tcp://gulf.moneroocean.stream` mines without TLS | 1 to 255 letters, digits or `. + : / _ -` |
 | `name = rpi5-3fa2` | the board's host name | the worker name the pool shows, 1 to 64 letters, digits or `. _ - @ : +` |
 | `donate = 0` | the installer's, `0` | a whole number from 0 to 5, in percent |
 | `light = no` | `no` | `yes` lets a board under 2560 MiB of memory mine in RandomX's slower light mode; without it, such a board is refused |
 | `mdns = off` | `off` | `on` installs `avahi-daemon` to announce `<host name>.local` |
 | `ssh_key = ssh-ed25519 AAAA... you@laptop` | none: SSH off | one `ssh-ed25519`, `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521` or `ssh-rsa` public key, then an optional comment |
+| `tls_fingerprint =` | MoneroOcean's built-in pin | your TLS pool's certificate sha256, 64 hex digits, with or without a colon between each pair |
 
 **What happens at first boot.** DietPi runs its first run, then our script once, as root. The script copies your settings to a root-only file, installs `xmrig-first-boot.service` and starts it. That service runs the setup at each boot until it has finished once. A board that lost power during the setup picks it up at the next boot; network waits retry every 10 seconds within the boot. A power cut in the first seconds, before the service is installed, needs a reflash: DietPi never runs the script again.
 
