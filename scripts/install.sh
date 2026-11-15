@@ -1421,7 +1421,7 @@ function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
-    local name kept kept_url host service_kept="" listed every="" unlisted=false missing=()
+    local name kept kept_url kept_pass host flags service_kept="" listed every="" unlisted=false missing=()
 
     info "Generating miner configuration files..."
 
@@ -1461,7 +1461,12 @@ function generate_config_files() {
             info "Keeping $kept. To regenerate it, run 'make clean-configs', then the installer again."
             kept_url=$(awk -F'"' '/^[ \t]*"url": "/ { print $4; exit }' "$kept")
             if is_moneroocean "$kept_url" && [[ $kept_url != stratum+ssl://* ]]; then
-                warning "$kept mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'."
+                # Regenerating draws a new worker name unless --name gives one: the line names the
+                # kept pool host and worker name ("x" has no flag, the installer would replace it).
+                host=${kept_url#*://} flags="--pool ${host%%:*}"
+                kept_pass=$(awk -F'"' '/^[ \t]*"pass": "/ { print $4; exit }' "$kept")
+                [ -z "$kept_pass" ] || [ "$kept_pass" = "$DEFAULT_PASS" ] || flags="$flags --name $kept_pass"
+                warning "$kept mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '$flags' and the other flags you gave it, then 'make service-setup' and 'make restart'."
             fi
             # The "rx" list sits on a line of its own, whether this installer wrote it or the miner
             # saved it. The miner saves one naming every CPU; a list this installer wrote for a

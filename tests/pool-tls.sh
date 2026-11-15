@@ -130,18 +130,20 @@ port gulf.moneroocean.stream:10128
 ROWS
 want "other clear line" log "[INFO] Using pool pool.example.com:3333 without TLS." "$(grep -F 'Using pool' "$w/other.out")"
 
-# A config kept from before that mines on MoneroOcean in clear says so; a TLS one does not.
+# A config kept from before that mines on MoneroOcean in clear says so, with the flags that keep its
+# pool and worker name (a worker name of "x" has no flag: the installer would draw a new one); a
+# TLS one does not.
 for url in gulf.moneroocean.stream:10128 stratum+tcp://gulf.moneroocean.stream:10128 stratum+ssl://gulf.moneroocean.stream:20128; do
   rm -rf "$w/kept"; mkdir -p "$w/kept/Monero-miner-setup/configs"
-  for name in config.json config_background.json; do
-    printf '{\n  "pools": [\n    {\n      "url": "%s",\n      "tls": false\n    }\n  ]\n}\n' "$url" > "$w/kept/Monero-miner-setup/configs/$name"
+  for kept in config.json:my_rig config_background.json:x; do
+    printf '{\n  "pools": [\n    {\n      "url": "%s",\n      "pass": "%s",\n      "tls": false\n    }\n  ]\n}\n' "$url" "${kept#*:}" > "$w/kept/Monero-miner-setup/configs/${kept%%:*}"
   done
   gen kept gulf.moneroocean.stream
   got=$(grep -F 'without TLS' "$w/kept.out")
   case $url in
     stratum+ssl://*) want "kept $url" warning "" "$got" ;;
-    *) want "kept $url" warning "[WARNING] $w/kept/Monero-miner-setup/configs/config.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'.
-[WARNING] $w/kept/Monero-miner-setup/configs/config_background.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'." "$got" ;;
+    *) want "kept $url" warning "[WARNING] $w/kept/Monero-miner-setup/configs/config.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name my_rig' and the other flags you gave it, then 'make service-setup' and 'make restart'.
+[WARNING] $w/kept/Monero-miner-setup/configs/config_background.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream' and the other flags you gave it, then 'make service-setup' and 'make restart'." "$got" ;;
   esac
 done
 
