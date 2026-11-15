@@ -146,6 +146,12 @@ for url in gulf.moneroocean.stream:10128 stratum+tcp://gulf.moneroocean.stream:1
 [WARNING] $w/kept/Monero-miner-setup/configs/config_background.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream' and the other flags you gave it, then 'make service-setup' and 'make restart'." "$got" ;;
   esac
 done
+# An edit that replaced the clone root's link with a file is the config the miner reads: it warns too.
+rm -rf "$w/root"; mkdir -p "$w/root/Monero-miner-setup"
+printf '{\n  "pools": [\n    {\n      "url": "stratum+tcp://gulf.moneroocean.stream:10128",\n      "pass": "my_rig",\n      "tls": false\n    }\n  ]\n}\n' > "$w/root/Monero-miner-setup/config.json"
+gen root gulf.moneroocean.stream
+want "kept clone root config.json" warning "[WARNING] $w/root/Monero-miner-setup/config.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name my_rig' and the other flags you gave it, then 'make service-setup' and 'make restart'." \
+  "$(grep -F 'without TLS' "$w/root.out")"
 
 # One pin everywhere: the installer's constant and both templates.
 want constant pin "MONEROOCEAN_FINGERPRINT=\"$pin\"" "$(grep '^MONEROOCEAN_FINGERPRINT=' "$root/scripts/install.sh")"
