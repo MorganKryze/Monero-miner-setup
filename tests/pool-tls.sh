@@ -84,6 +84,9 @@ on parsed -w "$wallet" --tls-fingerprint "$(printf %s "$mine" | tr a-f A-F)"
 want "upper case" fingerprint "$mine" "$out"
 on parsed -w "$wallet"
 want "no flag" fingerprint none "$out"
+# A fingerprint left in the environment is not taken for one the user passed.
+TLS_FINGERPRINT=$mine on parsed -w "$wallet"
+want "fingerprint from the environment" fingerprint none "$out"
 fline="[ERROR] --tls-fingerprint must be a sha256 of 64 hex digits, with or without a colon between each pair."
 for bad in "${mine:1}" "${mine}0" "g${mine:1}" "${pin:0:2}:${pin:2}" '"},"url":"evil' "$mine;id" ''; do
   on parse_arguments -w "$wallet" --tls-fingerprint "$bad"
@@ -91,14 +94,15 @@ for bad in "${mine:1}" "${mine}0" "g${mine:1}" "${pin:0:2}:${pin:2}" '"},"url":"
   want "fingerprint $bad" output "$fline" "$out"
 done
 
-# gen <label> <pool> [fingerprint]: both configs generated into a fresh clone at $w/<label>.
+# gen <label> <pool> [fingerprint] [exit code]: both configs generated into a fresh clone at
+# $w/<label>, the run exiting with the code given (0 by default).
 gen() {
   mkdir -p "$w/$1/Monero-miner-setup/templates"
   cp "$root"/templates/config*.template "$w/$1/Monero-miner-setup/templates/"
   ( BASE_DIR="$w/$1" REPO_NAME=Monero-miner-setup POOL_URL=$2 TLS_FINGERPRINT=${3:-} PORT=10128 PASS=rig1 DEFAULT_PASS=x \
       WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false
     on generate_config_files
-    [ "$code" -eq 0 ] || echo "FAIL generate $1: exit $code: $out"
+    [ "$code" -eq "${4:-0}" ] || echo "FAIL generate $1: exit $code: $out"
     printf '%s\n' "$out" ) > "$w/$1.out"
   grep '^FAIL' "$w/$1.out" && rc=1
 }
@@ -109,6 +113,10 @@ gen own stratum+ssl://pool.example.com:443 "$mine"
 gen unpinned stratum+ssl://pool.example.com:443
 gen port gulf.moneroocean.stream:10128
 gen other pool.example.com:3333
+# A fingerprint on a pool in clear stops the run before any config is written.
+gen pinclear stratum+tcp://gulf.moneroocean.stream "$mine" 1
+want "pin without tls generate" log "$tline" "$(grep -F '[ERROR]' "$w/pinclear.out")"
+want "pin without tls generate" configs "" "$(cd "$w/pinclear/Monero-miner-setup" && find . -name 'config*.json')"
 for name in config.json config_background.json; do
   want "default $name" pool "[\"stratum+ssl://gulf.moneroocean.stream:20128\",true,\"$pin\"]" "$(pool0 default "$name")"
   want "clear $name" pool '["stratum+tcp://gulf.moneroocean.stream:10128",false,null]' "$(pool0 clear "$name")"
