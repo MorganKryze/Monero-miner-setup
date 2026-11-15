@@ -1,10 +1,11 @@
 #!/bin/bash
 # The native installer mines to MoneroOcean over TLS by default, with MoneroOcean's certificate
 # pinned: a MoneroOcean host with no port gets the TLS port (20000 + the power of two the CPUs give),
-# stratum+tcp:// opts out, any other URL is written as given, and a fingerprint the user passes pins
-# any TLS pool and is refused without TLS. A config kept from before says it mines in clear. The
-# functions are taken from scripts/install.sh and run on the real templates; PATH holds only the
-# tool-link directory. Nothing is cloned, built, installed or reached over the network.
+# stratum+tcp:// or a typed plain port opts out with a warning line, any other URL is written as
+# given, and a fingerprint the user passes pins any TLS pool and is refused without TLS. A config
+# kept from before says it mines in clear. The functions are taken from scripts/install.sh and run
+# on the real templates; PATH holds only the tool-link directory. Nothing is cloned, built,
+# installed or reached over the network.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -105,6 +106,8 @@ pool0() { jq -c '.pools[0] | [.url, .tls, ."tls-fingerprint"]' "$w/$1/Monero-min
 gen default gulf.moneroocean.stream
 gen clear stratum+tcp://gulf.moneroocean.stream
 gen own stratum+ssl://pool.example.com:443 "$mine"
+gen port gulf.moneroocean.stream:10128
+gen other pool.example.com:3333
 for name in config.json config_background.json; do
   want "default $name" pool "[\"stratum+ssl://gulf.moneroocean.stream:20128\",true,\"$pin\"]" "$(pool0 default "$name")"
   want "clear $name" pool '["stratum+tcp://gulf.moneroocean.stream:10128",false,null]' "$(pool0 clear "$name")"
@@ -117,8 +120,15 @@ for name in config.json config_background.json; do
 done
 want "default line" log "[INFO] Using pool stratum+ssl://gulf.moneroocean.stream:20128 over TLS, certificate pinned." \
   "$(grep -F 'Using pool' "$w/default.out")"
-want "clear line" log "[INFO] Using pool stratum+tcp://gulf.moneroocean.stream:10128 without TLS." \
-  "$(grep -F 'Using pool' "$w/clear.out")"
+# MoneroOcean in clear warns, with the flags that move the same worker to TLS; another pool does not.
+while read -r label form; do
+  want "clear line $form" log "[WARNING] Using pool $form on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name rig1' and the other flags you gave it, then 'make service-setup' and 'make restart'." \
+    "$(grep -F 'Using pool' "$w/$label.out")"
+done <<ROWS
+clear stratum+tcp://gulf.moneroocean.stream:10128
+port gulf.moneroocean.stream:10128
+ROWS
+want "other clear line" log "[INFO] Using pool pool.example.com:3333 without TLS." "$(grep -F 'Using pool' "$w/other.out")"
 
 # A config kept from before that mines on MoneroOcean in clear says so; a TLS one does not.
 for url in gulf.moneroocean.stream:10128 stratum+ssl://gulf.moneroocean.stream:20128; do

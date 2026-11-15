@@ -1421,7 +1421,7 @@ function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
-    local name kept kept_url service_kept="" listed every="" unlisted=false missing=()
+    local name kept kept_url host service_kept="" listed every="" unlisted=false missing=()
 
     info "Generating miner configuration files..."
 
@@ -1484,13 +1484,6 @@ function generate_config_files() {
 
     if [ ${#missing[@]} -gt 0 ]; then
         pool_settings "$POOL_URL" "$PORT" || return 1
-        if [ -n "$POOL_PIN" ]; then
-            info "Using pool $POOL_WRITTEN over TLS, certificate pinned."
-        elif [ "$POOL_TLS" = true ]; then
-            info "Using pool $POOL_WRITTEN over TLS, certificate not pinned."
-        else
-            info "Using pool $POOL_WRITTEN without TLS."
-        fi
 
         function generate_random_worker_name() {
             local adjectives=("swift" "rapid" "blazing" "cosmic" "digital" "quantum" "stellar" "epic" "crypto" "atomic" "shadow" "hyper" "mega" "ultra" "power" "turbo")
@@ -1511,6 +1504,18 @@ function generate_config_files() {
         if [ "$worker_name" = "$DEFAULT_PASS" ]; then
             worker_name=$(generate_random_worker_name)
             info "Generated random worker name: $worker_name"
+        fi
+        # The worker name is known here, so the clear text line can name the flags that bring the
+        # same worker back over TLS.
+        if [ -n "$POOL_PIN" ]; then
+            info "Using pool $POOL_WRITTEN over TLS, certificate pinned."
+        elif [ "$POOL_TLS" = true ]; then
+            info "Using pool $POOL_WRITTEN over TLS, certificate not pinned."
+        elif is_moneroocean "$POOL_WRITTEN"; then
+            host=${POOL_WRITTEN#*://}
+            warning "Using pool $POOL_WRITTEN on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool ${host%%:*} --name $worker_name' and the other flags you gave it, then 'make service-setup' and 'make restart'."
+        else
+            info "Using pool $POOL_WRITTEN without TLS."
         fi
 
         # The service setup tunes the host for the mode the service config was written for: a kept
