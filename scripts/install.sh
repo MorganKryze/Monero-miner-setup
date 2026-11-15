@@ -1466,7 +1466,7 @@ function generate_config_files() {
                 host=${kept_url#*://} flags="--pool ${host%%:*}"
                 kept_pass=$(awk -F'"' '/^[ \t]*"pass": "/ { print $4; exit }' "$kept")
                 [ -z "$kept_pass" ] || [ "$kept_pass" = "$DEFAULT_PASS" ] || flags="$flags --name $kept_pass"
-                warning "$kept mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '$flags' and the other flags you gave it, then 'make service-setup' and 'make restart'."
+                warning "$kept mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '$flags' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'."
             fi
             # The "rx" list sits on a line of its own, whether this installer wrote it or the miner
             # saved it. The miner saves one naming every CPU; a list this installer wrote for a
@@ -1518,7 +1518,7 @@ function generate_config_files() {
             info "Using pool $POOL_WRITTEN over TLS, certificate not pinned."
         elif is_moneroocean "$POOL_WRITTEN"; then
             host=${POOL_WRITTEN#*://}
-            warning "Using pool $POOL_WRITTEN on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool ${host%%:*} --name $worker_name' and the other flags you gave it, then 'make service-setup' and 'make restart'."
+            warning "Using pool $POOL_WRITTEN on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool ${host%%:*} --name $worker_name' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'."
         else
             info "Using pool $POOL_WRITTEN without TLS."
         fi

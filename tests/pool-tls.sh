@@ -122,7 +122,7 @@ want "default line" log "[INFO] Using pool stratum+ssl://gulf.moneroocean.stream
   "$(grep -F 'Using pool' "$w/default.out")"
 # MoneroOcean in clear warns, with the flags that move the same worker to TLS; another pool does not.
 while read -r label form; do
-  want "clear line $form" log "[WARNING] Using pool $form on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name rig1' and the other flags you gave it, then 'make service-setup' and 'make restart'." \
+  want "clear line $form" log "[WARNING] Using pool $form on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name rig1' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'." \
     "$(grep -F 'Using pool' "$w/$label.out")"
 done <<ROWS
 clear stratum+tcp://gulf.moneroocean.stream:10128
@@ -142,15 +142,15 @@ for url in gulf.moneroocean.stream:10128 stratum+tcp://gulf.moneroocean.stream:1
   got=$(grep -F 'without TLS' "$w/kept.out")
   case $url in
     stratum+ssl://*) want "kept $url" warning "" "$got" ;;
-    *) want "kept $url" warning "[WARNING] $w/kept/Monero-miner-setup/configs/config.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name my_rig' and the other flags you gave it, then 'make service-setup' and 'make restart'.
-[WARNING] $w/kept/Monero-miner-setup/configs/config_background.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream' and the other flags you gave it, then 'make service-setup' and 'make restart'." "$got" ;;
+    *) want "kept $url" warning "[WARNING] $w/kept/Monero-miner-setup/configs/config.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name my_rig' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'.
+[WARNING] $w/kept/Monero-miner-setup/configs/config_background.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'." "$got" ;;
   esac
 done
 # An edit that replaced the clone root's link with a file is the config the miner reads: it warns too.
 rm -rf "$w/root"; mkdir -p "$w/root/Monero-miner-setup"
 printf '{\n  "pools": [\n    {\n      "url": "stratum+tcp://gulf.moneroocean.stream:10128",\n      "pass": "my_rig",\n      "tls": false\n    }\n  ]\n}\n' > "$w/root/Monero-miner-setup/config.json"
 gen root gulf.moneroocean.stream
-want "kept clone root config.json" warning "[WARNING] $w/root/Monero-miner-setup/config.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name my_rig' and the other flags you gave it, then 'make service-setup' and 'make restart'." \
+want "kept clone root config.json" warning "[WARNING] $w/root/Monero-miner-setup/config.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name my_rig' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'." \
   "$(grep -F 'without TLS' "$w/root.out")"
 
 # One pin everywhere: the installer's constant and both templates.
