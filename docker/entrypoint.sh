@@ -500,7 +500,7 @@ function main() {
         log_info "Using pool: $FULL_POOL_URL over TLS, certificate not pinned"
     elif is_moneroocean "$FULL_POOL_URL"; then
         hostport=${FULL_POOL_URL#stratum+???://}
-        log_warning "Using pool: $FULL_POOL_URL on MoneroOcean without TLS. To switch to TLS, set POOL_URL in docker/.env to ${hostport%%:*}, with no port, then run 'docker compose up -d' from docker/."
+        log_warning "Using pool: $FULL_POOL_URL on MoneroOcean without TLS. To switch to TLS, set POOL_URL in docker/.env to ${hostport%%:*}, with no port, then run 'docker compose up -d' from docker/, or 'docker compose -f compose.yml -f compose.vpn.yml up -d' if you use the VPN."
     else
         log_info "Using pool: $FULL_POOL_URL without TLS"
     fi

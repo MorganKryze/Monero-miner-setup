@@ -150,7 +150,7 @@ for f in is_fingerprint is_moneroocean pool_uses_tls; do
 done
 # MoneroOcean in clear text says so, and how to switch back to TLS.
 run tcp-line WALLET_ADDRESS="$wallet" POOL_URL=stratum+tcp://gulf.moneroocean.stream
-want tcp-line log "[ WARNING ] Using pool: stratum+tcp://gulf.moneroocean.stream:10016 on MoneroOcean without TLS. To switch to TLS, set POOL_URL in docker/.env to gulf.moneroocean.stream, with no port, then run 'docker compose up -d' from docker/." "$(printf '%s\n' "$out" | grep -F 'Using pool:')"
+want tcp-line log "[ WARNING ] Using pool: stratum+tcp://gulf.moneroocean.stream:10016 on MoneroOcean without TLS. To switch to TLS, set POOL_URL in docker/.env to gulf.moneroocean.stream, with no port, then run 'docker compose up -d' from docker/, or 'docker compose -f compose.yml -f compose.vpn.yml up -d' if you use the VPN." "$(printf '%s\n' "$out" | grep -F 'Using pool:')"
 run other-line WALLET_ADDRESS="$wallet" POOL_URL=pool.example.com:3333
 want other-line log "[  INFO   ] Using pool: pool.example.com:3333 without TLS" "$(printf '%s\n' "$out" | grep -F 'Using pool:')"
 # The wallet from the secret file, its final newline dropped.
