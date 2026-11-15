@@ -166,6 +166,18 @@ printf '{\n  "pools": [\n    {\n      "url": "stratum+tcp://gulf.moneroocean.str
 gen root gulf.moneroocean.stream
 want "kept clone root config.json" warning "[WARNING] $w/root/Monero-miner-setup/config.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name my_rig' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'." \
   "$(grep -F 'without TLS' "$w/root.out")"
+# The flags the line hands back are checked as the installer checks its own: a pool host that is not
+# a pool falls back to the default pool, and a worker name outside the rule (shell syntax, a control
+# byte) is not printed: the line asks for the worker name again.
+rm -rf "$w/odd"; mkdir -p "$w/odd/Monero-miner-setup/configs"
+printf '{\n  "pools": [\n    {\n      "url": "%s",\n      "pass": "%s",\n      "tls": false\n    }\n  ]\n}\n' \
+  'stratum+tcp://x;id;.gulf.moneroocean.stream:10128' 'rig; touch pwned #' > "$w/odd/Monero-miner-setup/configs/config.json"
+printf '{\n  "pools": [\n    {\n      "url": "%s",\n      "pass": "%s",\n      "tls": false\n    }\n  ]\n}\n' \
+  'stratum+tcp://de.moneroocean.stream:10128' "rig$(printf '\033')[2J" > "$w/odd/Monero-miner-setup/configs/config_background.json"
+gen odd gulf.moneroocean.stream
+want "kept unchecked values" warning "[WARNING] $w/odd/Monero-miner-setup/configs/config.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream', your worker name in --name and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'.
+[WARNING] $w/odd/Monero-miner-setup/configs/config_background.json mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool de.moneroocean.stream', your worker name in --name and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'." \
+  "$(grep -F 'without TLS' "$w/odd.out")"
 
 # One pin everywhere: the installer's constant and both templates.
 want constant pin "MONEROOCEAN_FINGERPRINT=\"$pin\"" "$(grep '^MONEROOCEAN_FINGERPRINT=' "$root/scripts/install.sh")"

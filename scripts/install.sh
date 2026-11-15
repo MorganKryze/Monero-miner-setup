@@ -1463,10 +1463,20 @@ function generate_config_files() {
             if is_moneroocean "$kept_url" && [[ $kept_url != stratum+ssl://* ]]; then
                 # Regenerating draws a new worker name unless --name gives one: the line names the
                 # kept pool host and worker name ("x" has no flag, the installer would replace it).
-                host=${kept_url#*://} flags="--pool ${host%%:*}"
+                # Both come from a file and become a command the user copies: they pass the checks
+                # --pool and --name do, or the line names the default pool and asks for the name.
+                host=$DEFAULT_POOL_URL
+                if is_pool "$kept_url"; then host=${kept_url#*://} host=${host%%:*}; fi
+                flags="'--pool $host'"
                 kept_pass=$(awk -F'"' '/^[ \t]*"pass": "/ { print $4; exit }' "$kept")
-                [ -z "$kept_pass" ] || [ "$kept_pass" = "$DEFAULT_PASS" ] || flags="$flags --name $kept_pass"
-                warning "$kept mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '$flags' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'."
+                if [ -z "$kept_pass" ] || [ "$kept_pass" = "$DEFAULT_PASS" ]; then
+                    :
+                elif is_worker_name "$kept_pass"; then
+                    flags="'--pool $host --name $kept_pass'"
+                else
+                    flags="$flags, your worker name in --name"
+                fi
+                warning "$kept mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with $flags and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'."
             fi
             # The "rx" list sits on a line of its own, whether this installer wrote it or the miner
             # saved it. The miner saves one naming every CPU; a list this installer wrote for a
