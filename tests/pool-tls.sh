@@ -106,12 +106,14 @@ pool0() { jq -c '.pools[0] | [.url, .tls, ."tls-fingerprint"]' "$w/$1/Monero-min
 gen default gulf.moneroocean.stream
 gen clear stratum+tcp://gulf.moneroocean.stream
 gen own stratum+ssl://pool.example.com:443 "$mine"
+gen unpinned stratum+ssl://pool.example.com:443
 gen port gulf.moneroocean.stream:10128
 gen other pool.example.com:3333
 for name in config.json config_background.json; do
   want "default $name" pool "[\"stratum+ssl://gulf.moneroocean.stream:20128\",true,\"$pin\"]" "$(pool0 default "$name")"
   want "clear $name" pool '["stratum+tcp://gulf.moneroocean.stream:10128",false,null]' "$(pool0 clear "$name")"
   want "own $name" pool "[\"stratum+ssl://pool.example.com:443\",true,\"$mine\"]" "$(pool0 own "$name")"
+  want "unpinned $name" pool '["stratum+ssl://pool.example.com:443",true,null]' "$(pool0 unpinned "$name")"
   # Nothing but the pool's url, tls and fingerprint differs between TLS and clear text (the log
   # path names each fixture's own clone).
   rest() { jq -S 'del(.pools[0].url, .pools[0].tls, .pools[0]."tls-fingerprint", ."log-file")' "$w/$1/Monero-miner-setup/configs/$name" 2>&1; }
@@ -120,6 +122,10 @@ for name in config.json config_background.json; do
 done
 want "default line" log "[INFO] Using pool stratum+ssl://gulf.moneroocean.stream:20128 over TLS, certificate pinned." \
   "$(grep -F 'Using pool' "$w/default.out")"
+want "own line" log "[INFO] Using pool stratum+ssl://pool.example.com:443 over TLS, certificate pinned." \
+  "$(grep -F 'Using pool' "$w/own.out")"
+want "unpinned line" log "[INFO] Using pool stratum+ssl://pool.example.com:443 over TLS, certificate not pinned." \
+  "$(grep -F 'Using pool' "$w/unpinned.out")"
 # MoneroOcean in clear warns, with the flags that move the same worker to TLS; another pool does not.
 while read -r label form; do
   want "clear line $form" log "[WARNING] Using pool $form on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool gulf.moneroocean.stream --name rig1' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'." \
