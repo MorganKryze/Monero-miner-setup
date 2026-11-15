@@ -131,7 +131,7 @@ ROWS
 want "other clear line" log "[INFO] Using pool pool.example.com:3333 without TLS." "$(grep -F 'Using pool' "$w/other.out")"
 
 # A config kept from before that mines on MoneroOcean in clear says so; a TLS one does not.
-for url in gulf.moneroocean.stream:10128 stratum+ssl://gulf.moneroocean.stream:20128; do
+for url in gulf.moneroocean.stream:10128 stratum+tcp://gulf.moneroocean.stream:10128 stratum+ssl://gulf.moneroocean.stream:20128; do
   rm -rf "$w/kept"; mkdir -p "$w/kept/Monero-miner-setup/configs"
   for name in config.json config_background.json; do
     printf '{\n  "pools": [\n    {\n      "url": "%s",\n      "tls": false\n    }\n  ]\n}\n' "$url" > "$w/kept/Monero-miner-setup/configs/$name"
