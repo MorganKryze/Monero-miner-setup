@@ -22,7 +22,7 @@ unset SUDO_USER
 w=$(mktemp -d) && [ -d "$w" ] || { echo "FAIL mktemp -d"; exit 1; }
 trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
-fns="usage trusted_by_root validate_directory parse_arguments"
+fns="usage trusted_by_root validate_directory is_fingerprint is_moneroocean pool_settings parse_arguments"
 {
   sed -n '/^# ===== Constants =====$/,/^DOCKER_SCRIPT_URL=/p' "$root/scripts/install.sh"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done

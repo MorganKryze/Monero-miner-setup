@@ -106,7 +106,8 @@ The service runs the miner as you. Installed with `sudo`, it runs as the user wh
 Common flags (run `install.sh --help` for the complete list):
 
 - `-t, --threads PERCENT`: `max-threads-hint` 1–100, a percentage of the host's cores (default: `75`). On arm64, where XMRig would start a thread on every core whatever the hint, the config lists the cores to mine on instead: that share of them, rounded up, the biggest first
-- `-p, --pool URL`: pool override (default: `gulf.moneroocean.stream`). A `stratum+ssl://` URL is used as given, so give its port.
+- `-p, --pool URL`: pool override (default: `gulf.moneroocean.stream`, over TLS with MoneroOcean's certificate pinned, on a port from 20001 to 28192 the CPU count picks). `stratum+tcp://gulf.moneroocean.stream` mines without TLS. Any other URL is used as given, so a TLS pool needs `stratum+ssl://` and its port.
+- `--tls-fingerprint HEX`: pin your TLS pool's certificate, its sha256 as 64 hex digits (the colon form `openssl` prints works too). It replaces MoneroOcean's built-in pin.
 - `--mode max|eco`: on a board with a profile (Raspberry Pi 5, RK3588 boards), mine on the CPUs of that profile's `max` or `eco` list (see [Board profiles](#board-profiles)). Not with `-t`: the two both choose the CPUs, so the installer stops if you pass both
 - `--name STRING`: worker name (default: random `adjective_noun_NNN`)
 - `-d, --dir DIR`: where the clone goes (default: `$HOME`; as root on Linux, `/opt`)

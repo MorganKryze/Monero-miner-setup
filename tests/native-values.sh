@@ -18,7 +18,7 @@ for t in awk cat cp cut ln mkdir mv rm; do
   ln -s "$p" "$w/tools/$t"
 done
 command -v jq >/dev/null || { echo "FAIL no jq on this host"; exit 1; }
-fns="usage is_arm64 ranked_cpus arm_cpu_list pick_cpu_list board_compatible board_model profile_value find_profile expand_cpus profile_ok profile_status total_mem_mib mode_cpu_list configs_exist huge_page_line resolve_board validate_wallet is_wallet is_worker_name is_pool parse_arguments write_miner_config generate_config_files"
+fns="usage is_arm64 ranked_cpus arm_cpu_list pick_cpu_list board_compatible board_model profile_value find_profile expand_cpus profile_ok profile_status total_mem_mib mode_cpu_list configs_exist huge_page_line resolve_board validate_wallet is_wallet is_worker_name is_pool is_fingerprint is_moneroocean pool_settings parse_arguments write_miner_config generate_config_files"
 {
   sed -n '/^# ===== Constants =====$/,/^DOCKER_SCRIPT_URL=/p' "$root/scripts/install.sh"
   for f in $fns; do sed -n "/^function $f() {\$/,/^}\$/p" "$root/scripts/install.sh"; done
@@ -78,13 +78,14 @@ want "wallet suffix" exit 0 "$code"
 # was. A log path holding a quote, a backslash and an ampersand stays one JSON string. The last
 # key of the template has no comma and is filled in too.
 log="$w/we\"ird\\&dir/logs/xmrig.log"
+fp=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
 for name in config.json config_background.json; do
-  ( WALLET="$wallet.Rig42" MAX_THREADS=42 DONATE_LEVEL=3 PAUSE_ON_BATTERY=true PAUSE_ON_ACTIVE=true
+  ( WALLET="$wallet.Rig42" MAX_THREADS=42 DONATE_LEVEL=3 PAUSE_ON_BATTERY=true PAUSE_ON_ACTIVE=true POOL_TLS=true POOL_PIN=$fp
     on write_miner_config "$root/templates/$name.template" "$w/$name" "$log" "stratum+ssl://pool.example.com:443" "rig@home:1+a.b-c_d"
     [ "$code" -eq 0 ] || echo "FAIL $name: writer exit $code: $out" ) | grep . && rc=1
-  got=$(jq -c '[.cpu."max-threads-hint", ."donate-level", ."log-file", .pools[0].url, .pools[0].user, .pools[0].pass, ."pause-on-battery", ."pause-on-active"]' "$w/$name" 2>&1)
-  want "$name" values "[42,3,$(printf '%s' "$log" | jq -Rc .),\"stratum+ssl://pool.example.com:443\",\"$wallet.Rig42\",\"rig@home:1+a.b-c_d\",true,true]" "$got"
-  rest() { jq -S 'del(.cpu."max-threads-hint", ."donate-level", ."log-file", .pools[0].url, .pools[0].user, .pools[0].pass, ."pause-on-battery", ."pause-on-active")' "$1"; }
+  got=$(jq -c '[.cpu."max-threads-hint", ."donate-level", ."log-file", .pools[0].url, .pools[0].user, .pools[0].pass, .pools[0].tls, .pools[0]."tls-fingerprint", ."pause-on-battery", ."pause-on-active"]' "$w/$name" 2>&1)
+  want "$name" values "[42,3,$(printf '%s' "$log" | jq -Rc .),\"stratum+ssl://pool.example.com:443\",\"$wallet.Rig42\",\"rig@home:1+a.b-c_d\",true,\"$fp\",true,true]" "$got"
+  rest() { jq -S 'del(.cpu."max-threads-hint", ."donate-level", ."log-file", .pools[0].url, .pools[0].user, .pools[0].pass, .pools[0].tls, .pools[0]."tls-fingerprint", ."pause-on-battery", ."pause-on-active")' "$1"; }
   want "$name" "other settings" "$(rest "$root/templates/$name.template")" "$(rest "$w/$name")"
   want "$name" "lines" "$(wc -l < "$root/templates/$name.template")" "$(wc -l < "$w/$name")"
 done
@@ -94,24 +95,20 @@ done
 want exploit url "$(printf '%s' "$exploit" | jq -Rc .)" "$(jq -c '.pools[0].url' "$w/exploit.json" 2>&1)"
 want exploit pass "$(printf '%s' "$exploit" | jq -Rc .)" "$(jq -c '.pools[0].pass' "$w/exploit.json" 2>&1)"
 [ ! -e "$w/pwned" ] || fail "exploit: the value ran as a command"
-# A MoneroOcean pool given with no scheme or stratum+tcp:// and no port gets the computed port.
-for pool in gulf.moneroocean.stream stratum+tcp://gulf.moneroocean.stream; do
+# A MoneroOcean pool with no port gets the computed one: over TLS (20000 + the power of two) bare
+# or after stratum+ssl://, the plain one after stratum+tcp://.
+for pair in gulf.moneroocean.stream=stratum+ssl://gulf.moneroocean.stream:20128 \
+    stratum+ssl://gulf.moneroocean.stream=stratum+ssl://gulf.moneroocean.stream:20128 \
+    stratum+tcp://gulf.moneroocean.stream=stratum+tcp://gulf.moneroocean.stream:10128; do
+  pool=${pair%%=*}
   rm -rf "$w/home"; mkdir -p "$w/home/Monero-miner-setup/templates"
   cp "$root"/templates/config*.template "$w/home/Monero-miner-setup/templates/"
   ( BASE_DIR="$w/home" REPO_NAME=Monero-miner-setup POOL_URL=$pool PORT=10128 PASS=x DEFAULT_PASS=x \
       WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false
     on generate_config_files
     [ "$code" -eq 0 ] || echo "FAIL generate $pool: exit $code: $out" ) | grep . && rc=1
-  want "generate $pool" url "\"$pool:10128\"" "$(jq -c '.pools[0].url' "$w/home/Monero-miner-setup/configs/config.json" 2>&1)"
+  want "generate $pool" url "\"${pair#*=}\"" "$(jq -c '.pools[0].url' "$w/home/Monero-miner-setup/configs/config.json" 2>&1)"
 done
-# A TLS MoneroOcean URL with no port is kept as given: the computed port is a plain TCP one.
-rm -rf "$w/home"; mkdir -p "$w/home/Monero-miner-setup/templates"
-cp "$root"/templates/config*.template "$w/home/Monero-miner-setup/templates/"
-( BASE_DIR="$w/home" REPO_NAME=Monero-miner-setup POOL_URL=stratum+ssl://gulf.moneroocean.stream PORT=10128 PASS=x DEFAULT_PASS=x \
-    WALLET=$wallet MAX_THREADS=75 DONATE_LEVEL=0 PAUSE_ON_BATTERY=false PAUSE_ON_ACTIVE=false
-  on generate_config_files
-  [ "$code" -eq 0 ] || echo "FAIL generate tls: exit $code: $out" ) | grep . && rc=1
-want "generate tls" url '"stratum+ssl://gulf.moneroocean.stream"' "$(jq -c '.pools[0].url' "$w/home/Monero-miner-setup/configs/config.json" 2>&1)"
 # A config that cannot be written stops the generator with one error line.
 rm -rf "$w/home"; mkdir -p "$w/home/Monero-miner-setup/templates" "$w/home/Monero-miner-setup/configs"
 cp "$root"/templates/config*.template "$w/home/Monero-miner-setup/templates/"
