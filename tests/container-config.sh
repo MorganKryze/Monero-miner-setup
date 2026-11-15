@@ -81,7 +81,7 @@ refused() { # name, error line, VAR=value...
 run defaults WALLET_ADDRESS="$wallet"
 want defaults exit 0 "$code"
 want defaults args "--config=$w/configs/config.json --verbose" "$(cat "$w/xmrig.args" 2>/dev/null)"
-want defaults values "{\"url\":\"gulf.moneroocean.stream:10016\",\"user\":\"$wallet\",\"pass\":\"docker_miner\",\"donate\":0,\"hint\":75,\"forced\":{\"threads\":2,\"affinity\":-1},\"battery\":false,\"active\":false,\"pools\":1}" "$(picked)"
+want defaults values "{\"url\":\"stratum+ssl://gulf.moneroocean.stream:20016\",\"user\":\"$wallet\",\"pass\":\"docker_miner\",\"donate\":0,\"hint\":75,\"forced\":{\"threads\":2,\"affinity\":-1},\"battery\":false,\"active\":false,\"pools\":1}" "$(picked)"
 want defaults mode "-rw-r--r--" "$(ls -l "$w/configs/config.json" | cut -c1-10)"
 want defaults "config dir" "config.json" "$(ls -A "$w/configs")"
 
@@ -93,16 +93,66 @@ want edges values "{\"url\":\"stratum+ssl://pool.example.com:443\",\"user\":\"$w
 # Numbers written with leading zeros are read as decimal, never as octal.
 run zeros WALLET_ADDRESS="$wallet" DONATE_LEVEL=05 MAX_THREADS_PERCENT=075 FORCE_THREAD_COUNT=09
 want zeros exit 0 "$code"
-want zeros values "{\"url\":\"gulf.moneroocean.stream:10128\",\"user\":\"$wallet\",\"pass\":\"docker_miner\",\"donate\":5,\"hint\":75,\"forced\":{\"threads\":9,\"affinity\":-1},\"battery\":false,\"active\":false,\"pools\":1}" "$(picked)"
+want zeros values "{\"url\":\"stratum+ssl://gulf.moneroocean.stream:20128\",\"user\":\"$wallet\",\"pass\":\"docker_miner\",\"donate\":5,\"hint\":75,\"forced\":{\"threads\":9,\"affinity\":-1},\"battery\":false,\"active\":false,\"pools\":1}" "$(picked)"
 run zeros-percent WALLET_ADDRESS="$wallet" MAX_THREADS_PERCENT=08
 want zeros-percent exit 0 "$code"
 want zeros-percent hint 8 "$(printf '%s\n' "$config" | jq -c '.cpu."max-threads-hint"')"
 # A scheme before a pool without a port still gets the port.
 run scheme WALLET_ADDRESS="$wallet" POOL_URL="stratum+tcp://gulf.moneroocean.stream"
 want scheme url '"stratum+tcp://gulf.moneroocean.stream:10016"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
-# A TLS pool without a port is kept as given: the computed ports are plain TCP ones.
-run tls WALLET_ADDRESS="$wallet" POOL_URL="stratum+ssl://gulf.moneroocean.stream"
-want tls url '"stratum+ssl://gulf.moneroocean.stream"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
+# MoneroOcean over TLS by default, its certificate pinned: a MoneroOcean host with no port gets the
+# TLS port (20000 + the power of two), stratum+tcp:// opts out, any other pool keeps today's URL, and
+# TLS_FINGERPRINT pins any TLS pool. Each line: POOL_URL, TLS_FINGERPRINT, the pool written.
+pin=239daadd5c7d0ac097376c7871f787738826eef1c024729eff870e473b970855
+fp=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+pool0() { printf '%s\n' "$config" | jq -c '.pools[0] | [.url, .tls, ."tls-fingerprint"]'; }
+while read -r given given_fp expected; do
+  [ "$given" != - ] || given=""
+  [ "$given_fp" != - ] || given_fp=""
+  run "tls $given" WALLET_ADDRESS="$wallet" ${given:+POOL_URL=$given} ${given_fp:+TLS_FINGERPRINT=$given_fp}
+  want "tls $given ${given_fp:+pinned}" pool "$expected" "$(pool0)"
+done <<ROWS
+- - ["stratum+ssl://gulf.moneroocean.stream:20016",true,"$pin"]
+gulf.moneroocean.stream - ["stratum+ssl://gulf.moneroocean.stream:20016",true,"$pin"]
+De.MoneroOcean.Stream - ["stratum+ssl://De.MoneroOcean.Stream:20016",true,"$pin"]
+stratum+ssl://gulf.moneroocean.stream - ["stratum+ssl://gulf.moneroocean.stream:20016",true,"$pin"]
+stratum+ssl://gulf.moneroocean.stream:20128 - ["stratum+ssl://gulf.moneroocean.stream:20128",true,"$pin"]
+stratum+tcp://gulf.moneroocean.stream - ["stratum+tcp://gulf.moneroocean.stream:10016",false,null]
+gulf.moneroocean.stream:10128 - ["gulf.moneroocean.stream:10128",false,null]
+moneroocean.example.com - ["moneroocean.example.com:3333",false,null]
+stratum+ssl://moneroocean.stream.example.com:443 - ["stratum+ssl://moneroocean.stream.example.com:443",true,null]
+stratum+ssl://pool.example.com - ["stratum+ssl://pool.example.com",true,null]
+stratum+ssl://pool.example.com:443 23:9D:AA:DD:5C:7D:0A:C0:97:37:6C:78:71:F7:87:73:88:26:EE:F1:C0:24:72:9E:FF:87:0E:47:3B:97:08:55 ["stratum+ssl://pool.example.com:443",true,"$pin"]
+gulf.moneroocean.stream $fp ["stratum+ssl://gulf.moneroocean.stream:20016",true,"$fp"]
+ROWS
+run tls-line WALLET_ADDRESS="$wallet"
+want tls-line log "[  INFO   ] Using pool: stratum+ssl://gulf.moneroocean.stream:20016 over TLS, certificate pinned" "$(printf '%s\n' "$out" | grep -F 'Using pool:')"
+# Nothing but the pool's url, tls and fingerprint differs between TLS and clear text.
+rest() { printf '%s\n' "$config" | jq -S 'del(.pools[0].url, .pools[0].tls, .pools[0]."tls-fingerprint")'; }
+run tls-rest WALLET_ADDRESS="$wallet"; with_tls=$(rest)
+run tcp-rest WALLET_ADDRESS="$wallet" POOL_URL=stratum+tcp://gulf.moneroocean.stream
+want "only the pool differs" config "$with_tls" "$(rest)"
+# One pin: the container's and the native installer's.
+want "same pin" constant "MONEROOCEAN_FINGERPRINT=\"$pin\"" "$(grep '^MONEROOCEAN_FINGERPRINT=' "$root/scripts/install.sh")"
+want "same pin" container "MONEROOCEAN_FINGERPRINT=\"$pin\"" "$(grep '^MONEROOCEAN_FINGERPRINT=' "$root/docker/entrypoint.sh")"
+for tpl in config.json.template config_background.json.template; do
+  want "same pin" "$tpl" "\"tls-fingerprint\": \"$pin\"," "$(grep -oF "\"tls-fingerprint\": \"$pin\"," "$root/templates/$tpl")"
+done
+# One rule set on every path: the installers and the container share these bodies word for word.
+body() { sed -n "/^function $1() {\$/,/^}\$/p" "$2"; }
+for f in is_fingerprint is_moneroocean pool_uses_tls; do
+  [ -n "$(body "$f" "$root/docker/entrypoint.sh")" ] || want "same rules $f" container "a body" ""
+  for script in scripts/install.sh scripts/docker_setup.sh; do
+    # The native installer decides TLS while it writes the pool, so it has no pool_uses_tls.
+    [ "$f/$script" != pool_uses_tls/scripts/install.sh ] || continue
+    want "same rules $f" "$script" "$(body "$f" "$root/docker/entrypoint.sh")" "$(body "$f" "$root/$script")"
+  done
+done
+# MoneroOcean in clear text says so, and how to switch back to TLS.
+run tcp-line WALLET_ADDRESS="$wallet" POOL_URL=stratum+tcp://gulf.moneroocean.stream
+want tcp-line log "[ WARNING ] Using pool: stratum+tcp://gulf.moneroocean.stream:10016 on MoneroOcean without TLS. To switch to TLS, set POOL_URL in docker/.env to gulf.moneroocean.stream, with no port, then run 'docker compose up -d' from docker/." "$(printf '%s\n' "$out" | grep -F 'Using pool:')"
+run other-line WALLET_ADDRESS="$wallet" POOL_URL=pool.example.com:3333
+want other-line log "[  INFO   ] Using pool: pool.example.com:3333 without TLS" "$(printf '%s\n' "$out" | grep -F 'Using pool:')"
 # The wallet from the secret file, its final newline dropped.
 printf '%s\n' "$wallet" > "$w/secret"
 run secret
@@ -125,6 +175,12 @@ done
 pline="POOL_URL must be a host name or IPv4 address, optionally after stratum+tcp:// or stratum+ssl:// and before a :port from 1 to 65535."
 for bad in 'a;b' 'pool:0' 'pool:65536' 'pool:' '-pool' 'pool-' 'http://pool' 'stratum+tcp://' 'pool:80:80' 'po ol' 'pool","x":"y'; do
   refused "pool $bad" "$pline" WALLET_ADDRESS="$wallet" POOL_URL="$bad"
+done
+for bad in "${fp:1}" "${fp}0" "g${fp:1}" '"},"url":"evil' "$fp;id"; do
+  refused "fingerprint $bad" "TLS_FINGERPRINT must be empty or a sha256 of 64 hex digits, with or without a colon between each pair." TLS_FINGERPRINT="$bad"
+done
+for pool in pool.example.com:3333 stratum+tcp://gulf.moneroocean.stream pool.example.com; do
+  refused "fingerprint without tls $pool" "TLS_FINGERPRINT needs a TLS pool: give POOL_URL after stratum+ssl://, or a MoneroOcean host with no port." POOL_URL="$pool" TLS_FINGERPRINT="$fp"
 done
 for bad in 6 -1 abc 1.5 05x; do refused "donate '$bad'" "DONATE_LEVEL must be a whole number from 0 to 5." DONATE_LEVEL="$bad"; done
 for bad in 0 101 x 50%; do refused "percent $bad" "MAX_THREADS_PERCENT must be a whole number from 1 to 100." MAX_THREADS_PERCENT="$bad"; done
@@ -177,10 +233,10 @@ ARCH=aarch64 run arm-over WALLET_ADDRESS="$wallet" FORCE_THREAD_COUNT=12
 want arm-over exit 0 "$code"
 want arm-over cpus '[[[0,1,2,3,4,5,6,7]],[0,1,2,3,4,5,6,7],null]' "$(cpus)"
 want arm-over warning "[ WARNING ] 12 threads asked for, but this container may use 8 CPUs: one thread on each." "$(printf '%s\n' "$out" | grep -F 'WARNING' | grep -vF 'Pool connectivity')"
-want arm-over url '"gulf.moneroocean.stream:10128"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
+want arm-over url '"stratum+ssl://gulf.moneroocean.stream:20128"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
 # The pool port follows the threads that run: 24 asked for would get :10256.
 ARCH=aarch64 run arm-over-port WALLET_ADDRESS="$wallet" FORCE_THREAD_COUNT=24
-want arm-over-port url '"gulf.moneroocean.stream:10128"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
+want arm-over-port url '"stratum+ssl://gulf.moneroocean.stream:20128"' "$(printf '%s\n' "$config" | jq -c '.pools[0].url')"
 for broken in sys status; do
   if [ "$broken" = sys ]; then export SYS=$w/none; else export STATUS=$w/none; fi
   ARCH=aarch64 run "arm-no-$broken" WALLET_ADDRESS="$wallet" FORCE_THREAD_COUNT=3

@@ -100,7 +100,10 @@ Mining:
   --worker-name NAME           Worker name, 1-64 letters, digits or . _ - @ : +
                                (default: ${DEFAULT_WORKER_NAME})
   --pool URL                   Pool host[:port], optionally after stratum+tcp:// or
-                               stratum+ssl:// (default: ${DEFAULT_POOL_URL})
+                               stratum+ssl:// (default: ${DEFAULT_POOL_URL}, over TLS
+                               with its certificate pinned; stratum+tcp:// for no TLS)
+  --tls-fingerprint HEX        Pin the pool's certificate: its sha256, 64 hex digits
+                               (needs TLS)
   --donate N                   Donation level 0-5 (default: ${DEFAULT_DONATE_LEVEL})
   --threads N                  Threads as a percentage 1-100 of the container's CPU quota,
                                at most xmrig's own count (default: ${DEFAULT_MAX_THREADS})
@@ -217,6 +220,29 @@ function is_pool() {
     [ -z "${BASH_REMATCH[3]}" ] || { [ "$((10#${BASH_REMATCH[3]}))" -ge 1 ] && [ "$((10#${BASH_REMATCH[3]}))" -le 65535 ]; }
 }
 
+# A certificate's sha256 as 64 hex digits, or as the 32 colon-separated pairs openssl prints.
+function is_fingerprint() {
+    local LC_ALL=C
+    [[ $1 =~ ^[0-9A-Fa-f]{64}$ || $1 =~ ^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){31}$ ]]
+}
+
+# A pool URL whose host is moneroocean.stream or a name under it, never a lookalike holding it.
+function is_moneroocean() {
+    # Host names ignore case: the pattern spells each letter both ways (bash 3.2 has no ${x,,}).
+    local host=${1#stratum+???://} name='[Mm][Oo][Nn][Ee][Rr][Oo][Oo][Cc][Ee][Aa][Nn].[Ss][Tt][Rr][Ee][Aa][Mm]'
+    host=${host%%:*}
+    # shellcheck disable=SC2254 # the name is a pattern on purpose
+    case $host in $name | *.$name) return 0 ;; esac
+    return 1
+}
+
+# Whether the pool $1 is reached over TLS: after stratum+ssl://, or a MoneroOcean host with no port
+# and no stratum+tcp://, which gets MoneroOcean's TLS port.
+function pool_uses_tls() {
+    case $1 in stratum+ssl://*) return 0 ;; stratum+tcp://*) return 1 ;; esac
+    is_moneroocean "$1" && [[ $1 != *:* ]]
+}
+
 # Arguments: value, lowest, highest.
 function is_whole_number() {
     local LC_ALL=C re='^[0-9]{1,5}$'
@@ -237,6 +263,12 @@ function check_values() {
     fi
     if ! is_pool "$POOL_URL"; then
         error "--pool must be a host name or IPv4 address, optionally after stratum+tcp:// or stratum+ssl:// and before a :port from 1 to 65535."; return 1
+    fi
+    if [ -n "$TLS_FINGERPRINT" ] && ! is_fingerprint "$TLS_FINGERPRINT"; then
+        error "--tls-fingerprint must be a sha256 of 64 hex digits, with or without a colon between each pair."; return 1
+    fi
+    if [ -n "$TLS_FINGERPRINT" ] && ! pool_uses_tls "$POOL_URL"; then
+        error "--tls-fingerprint needs a TLS pool: give it after stratum+ssl://, or a MoneroOcean host with no port."; return 1
     fi
     if ! is_whole_number "$DONATE_LEVEL" 0 5; then
         error "--donate must be a whole number from 0 to 5."; return 1
@@ -345,6 +377,7 @@ function parse_args() {
     BASE_DIR=""
     WORKER_NAME="$DEFAULT_WORKER_NAME"
     POOL_URL="$DEFAULT_POOL_URL"
+    TLS_FINGERPRINT=""
     DONATE_LEVEL="$DEFAULT_DONATE_LEVEL"
     MAX_THREADS="$DEFAULT_MAX_THREADS"
     CPU_COUNT="$DEFAULT_CPU_COUNT"
@@ -376,6 +409,7 @@ function parse_args() {
             -d|--dir) BASE_DIR="$2"; shift 2 ;;
             --worker-name) WORKER_NAME="$2"; shift 2 ;;
             --pool) POOL_URL="$2"; shift 2 ;;
+            --tls-fingerprint) TLS_FINGERPRINT="$2"; shift 2 ;;
             --donate) DONATE_LEVEL="$2"; shift 2 ;;
             --threads) MAX_THREADS="$2"; shift 2 ;;
             --force-threads) FORCE_THREAD_COUNT="$2"; shift 2 ;;
@@ -653,6 +687,7 @@ function env_content() {
 WALLET_ADDRESS="$(env_value "$WALLET")"
 WORKER_NAME="$(env_value "$WORKER_NAME")"
 POOL_URL="$(env_value "$POOL_URL")"
+TLS_FINGERPRINT="$(env_value "$TLS_FINGERPRINT")"
 DONATE_LEVEL="$(env_value "$DONATE_LEVEL")"
 MAX_THREADS_PERCENT="$(env_value "$MAX_THREADS")"
 FORCE_THREAD_COUNT="$(env_value "$FORCE_THREAD_COUNT")"

@@ -36,7 +36,8 @@ Under 2560 MiB usable (the memory limit or the host's available memory, whicheve
 Common flags (run `install.sh --docker --help` for the complete list):
 
 - `--worker-name NAME`: label shown on the pool (default: `docker_miner`)
-- `--pool URL`: pool override (default: `gulf.moneroocean.stream`). A `stratum+ssl://` URL is kept as given, so give its port; only a bare or `stratum+tcp://` MoneroOcean URL gets the computed port
+- `--pool URL`: pool override (default: `gulf.moneroocean.stream`, over TLS with MoneroOcean's certificate pinned, on the port the container's threads pick). `stratum+tcp://gulf.moneroocean.stream` mines without TLS; a MoneroOcean URL with no port gets the computed one, any other URL is used as given
+- `--tls-fingerprint HEX`: pin your TLS pool's certificate, its sha256 as 64 hex digits (`TLS_FINGERPRINT` in `docker/.env`); it replaces MoneroOcean's built-in pin
 - `--cpus N` / `--memory LIMIT`: container caps (defaults: `2.0`, `3g`). Under 2560 MiB the miner runs in RandomX light mode, at a fraction of the hashrate
 - `--threads PCT` / `--force-threads N`: threads as a percentage of the container's CPU quota, at most the count XMRig picks itself, or exactly N threads (defaults: `75`, none). On arm64 each thread gets its own CPU, the biggest first, so the count is at most the CPUs the container may use
 - `--pause-battery` / `--pause-active`: pause mining when on battery or when the user is active

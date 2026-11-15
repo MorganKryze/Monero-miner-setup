@@ -15,6 +15,7 @@ services:
       - WALLET_ADDRESS=${WALLET_ADDRESS}
       - WORKER_NAME=${WORKER_NAME:-docker_miner}
       - POOL_URL=${POOL_URL:-gulf.moneroocean.stream}
+      - TLS_FINGERPRINT=${TLS_FINGERPRINT:-}
       - DONATE_LEVEL=${DONATE_LEVEL:-0}
       - MAX_THREADS_PERCENT=${MAX_THREADS_PERCENT:-75}
       - PAUSE_ON_BATTERY=${PAUSE_ON_BATTERY:-false}

@@ -7,6 +7,9 @@ set -e
 XMRIG_BIN=/app/xmrig
 CONFIG_DIR=/app/configs
 WALLET_SECRET=/run/secrets/wallet_address
+# MoneroOcean's self-signed certificate (CN=mining.proxy, valid to 2117), the same on every server its
+# names reach, as the native installer pins it. XMRig compares its sha256 as 64 hex digits.
+MONEROOCEAN_FINGERPRINT="239daadd5c7d0ac097376c7871f787738826eef1c024729eff870e473b970855"
 # What the container may use, as the kernel tells it.
 CGROUP_DIR=/sys/fs/cgroup
 MEMINFO=/proc/meminfo
@@ -121,8 +124,8 @@ CONFIG_TEMPLATE='{
             "nicehash": false,
             "keepalive": true,
             "enabled": true,
-            "tls": false,
-            "tls-fingerprint": null,
+            "tls": $tls,
+            "tls-fingerprint": (if $pin == "" then null else $pin end),
             "daemon": false,
             "socks5": null,
             "self-select": null,
@@ -178,6 +181,29 @@ function is_pool() {
     esac
     [[ $hostport =~ $re ]] || return 1
     [ -z "${BASH_REMATCH[3]}" ] || { [ "$((10#${BASH_REMATCH[3]}))" -ge 1 ] && [ "$((10#${BASH_REMATCH[3]}))" -le 65535 ]; }
+}
+
+# A certificate's sha256 as 64 hex digits, or as the 32 colon-separated pairs openssl prints.
+function is_fingerprint() {
+    local LC_ALL=C
+    [[ $1 =~ ^[0-9A-Fa-f]{64}$ || $1 =~ ^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){31}$ ]]
+}
+
+# A pool URL whose host is moneroocean.stream or a name under it, never a lookalike holding it.
+function is_moneroocean() {
+    # Host names ignore case: the pattern spells each letter both ways (bash 3.2 has no ${x,,}).
+    local host=${1#stratum+???://} name='[Mm][Oo][Nn][Ee][Rr][Oo][Oo][Cc][Ee][Aa][Nn].[Ss][Tt][Rr][Ee][Aa][Mm]'
+    host=${host%%:*}
+    # shellcheck disable=SC2254 # the name is a pattern on purpose
+    case $host in $name | *.$name) return 0 ;; esac
+    return 1
+}
+
+# Whether the pool $1 is reached over TLS: after stratum+ssl://, or a MoneroOcean host with no port
+# and no stratum+tcp://, which gets MoneroOcean's TLS port.
+function pool_uses_tls() {
+    case $1 in stratum+ssl://*) return 0 ;; stratum+tcp://*) return 1 ;; esac
+    is_moneroocean "$1" && [[ $1 != *:* ]]
 }
 
 # Arguments: value, lowest, highest.
@@ -368,6 +394,12 @@ function check_values() {
     fi
     case $PAUSE_ON_BATTERY in true | false) ;; *) log_error "PAUSE_ON_BATTERY must be true or false."; return 1 ;; esac
     case $PAUSE_ON_ACTIVE in true | false) ;; *) log_error "PAUSE_ON_ACTIVE must be true or false."; return 1 ;; esac
+    if [ -n "$TLS_FINGERPRINT" ] && ! is_fingerprint "$TLS_FINGERPRINT"; then
+        log_error "TLS_FINGERPRINT must be empty or a sha256 of 64 hex digits, with or without a colon between each pair."; return 1
+    fi
+    if [ -n "$TLS_FINGERPRINT" ] && ! pool_uses_tls "$POOL_URL"; then
+        log_error "TLS_FINGERPRINT needs a TLS pool: give POOL_URL after stratum+ssl://, or a MoneroOcean host with no port."; return 1
+    fi
 }
 
 function main() {
@@ -389,6 +421,7 @@ function main() {
     PAUSE_ON_BATTERY=${PAUSE_ON_BATTERY:-false}
     PAUSE_ON_ACTIVE=${PAUSE_ON_ACTIVE:-false}
     FORCE_THREAD_COUNT=${FORCE_THREAD_COUNT:-}
+    TLS_FINGERPRINT=${TLS_FINGERPRINT:-}
 
     check_values || exit 1
     # The rules accept leading zeros, which bash arithmetic would read as octal: 08 fails, 075 is 61.
@@ -401,12 +434,12 @@ function main() {
     pin_threads
     pick_randomx_mode
 
-    # Handle pool URL and port. The computed port is a plain TCP one: only a bare or
-    # stratum+tcp:// URL gets it.
-    local hostport=${POOL_URL#stratum+tcp://}
+    # Handle pool URL and port. A MoneroOcean URL with no port gets the one computed from the
+    # threads: its TLS port (20000 + the power of two) unless it asks for stratum+tcp://.
+    local hostport=${POOL_URL#stratum+???://}
     if [[ "$hostport" != *":"* ]]; then
         # No port specified, calculate optimal port for MoneroOcean
-        if [[ "$POOL_URL" == *"moneroocean"* ]]; then
+        if is_moneroocean "$POOL_URL"; then
             EXP_MONERO_HASHRATE=$((THREAD_COUNT * 700 / 1000))
             PORT=$((EXP_MONERO_HASHRATE * 30))
             PORT=$((PORT == 0 ? 1 : PORT))
@@ -442,8 +475,12 @@ function main() {
                 PORT="1"
             fi
 
-            PORT=$((10000 + PORT))
-            FULL_POOL_URL="${POOL_URL}:${PORT}"
+            case $POOL_URL in
+                stratum+tcp://*) FULL_POOL_URL="${POOL_URL}:$((10000 + PORT))" ;;
+                *) FULL_POOL_URL="stratum+ssl://${hostport}:$((20000 + PORT))" ;;
+            esac
+        elif [[ "$POOL_URL" == stratum+ssl://* ]]; then
+            FULL_POOL_URL="$POOL_URL"
         else
             # Default port for other pools
             FULL_POOL_URL="${POOL_URL}:3333"
@@ -452,7 +489,21 @@ function main() {
         FULL_POOL_URL="$POOL_URL"
     fi
 
-    log_info "Using pool: $FULL_POOL_URL"
+    POOL_TLS=false POOL_PIN=$(printf '%s\n' "${TLS_FINGERPRINT//:/}" | awk '{ print tolower($0) }')
+    [[ $FULL_POOL_URL != stratum+ssl://* ]] || POOL_TLS=true
+    if [ "$POOL_TLS" = true ] && [ -z "$POOL_PIN" ] && is_moneroocean "$POOL_URL"; then
+        POOL_PIN=$MONEROOCEAN_FINGERPRINT
+    fi
+    if [ -n "$POOL_PIN" ]; then
+        log_info "Using pool: $FULL_POOL_URL over TLS, certificate pinned"
+    elif [ "$POOL_TLS" = true ]; then
+        log_info "Using pool: $FULL_POOL_URL over TLS, certificate not pinned"
+    elif is_moneroocean "$FULL_POOL_URL"; then
+        hostport=${FULL_POOL_URL#stratum+???://}
+        log_warning "Using pool: $FULL_POOL_URL on MoneroOcean without TLS. To switch to TLS, set POOL_URL in docker/.env to ${hostport%%:*}, with no port, then run 'docker compose up -d' from docker/."
+    else
+        log_info "Using pool: $FULL_POOL_URL without TLS"
+    fi
 
     # Test pool connectivity
     log_info "Testing pool connectivity..."
@@ -488,7 +539,8 @@ function write_config() {
         --arg url "$FULL_POOL_URL" --arg user "$WALLET_ADDRESS" --arg pass "$WORKER_NAME" \
         --argjson donate "$DONATE_LEVEL" --argjson hint "$MAX_THREADS_PERCENT" --argjson threads "$THREAD_COUNT" --arg mode "$RANDOMX_MODE" \
         --argjson cpus "${CPU_LIST:-null}" \
-        --argjson battery "$PAUSE_ON_BATTERY" --argjson active "$PAUSE_ON_ACTIVE" "$CONFIG_TEMPLATE" >"$tmp" \
+        --argjson battery "$PAUSE_ON_BATTERY" --argjson active "$PAUSE_ON_ACTIVE" \
+        --argjson tls "$POOL_TLS" --arg pin "$POOL_PIN" "$CONFIG_TEMPLATE" >"$tmp" \
         || ! chmod 644 "$tmp" || ! mv -f "$tmp" "$CONFIG_DIR/config.json"; then
         rm -f "$tmp"
         log_error "Could not write the miner's config in $CONFIG_DIR."
