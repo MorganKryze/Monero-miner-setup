@@ -36,8 +36,8 @@ Under 2560 MiB usable (the memory limit or the host's available memory, whicheve
 Common flags (run `install.sh --docker --help` for the complete list):
 
 - `--worker-name NAME`: label shown on the pool (default: `docker_miner`)
-- `--pool URL`: pool override (default: `gulf.moneroocean.stream`, over TLS with MoneroOcean's certificate pinned, on the port the container's threads pick). `stratum+tcp://gulf.moneroocean.stream` mines without TLS; a MoneroOcean URL with no port gets the computed one, any other URL is used as given
-- `--tls-fingerprint HEX`: pin your TLS pool's certificate, its sha256 as 64 hex digits (`TLS_FINGERPRINT` in `docker/.env`); it replaces MoneroOcean's built-in pin
+- `--pool URL`: pool override (default: `gulf.moneroocean.stream`, over TLS with MoneroOcean's certificate pinned, on the port the container's threads pick). `stratum+tcp://gulf.moneroocean.stream` mines without TLS; a MoneroOcean URL with no port gets the computed one (from 20001 to 28192 over TLS). Any other URL is used as given, except a host with no port and no `stratum+ssl://`, which gets `:3333`
+- `--tls-fingerprint HEX`: pin your TLS pool's certificate, its sha256 as 64 hex digits or the 32 colon-separated pairs `openssl x509 -fingerprint -sha256` prints (`TLS_FINGERPRINT` in `docker/.env`); it replaces MoneroOcean's built-in pin
 - `--cpus N` / `--memory LIMIT`: container caps (defaults: `2.0`, `3g`). Under 2560 MiB the miner runs in RandomX light mode, at a fraction of the hashrate
 - `--threads PCT` / `--force-threads N`: threads as a percentage of the container's CPU quota, at most the count XMRig picks itself, or exactly N threads (defaults: `75`, none). On arm64 each thread gets its own CPU, the biggest first, so the count is at most the CPUs the container may use
 - `--pause-battery` / `--pause-active`: pause mining when on battery or when the user is active
@@ -102,13 +102,13 @@ Clones to `$HOME/Monero-miner-setup`, builds the XMRig commit the repository pin
 
 The service runs the miner as you. Installed with `sudo`, it runs as the user who ran `sudo`; installed as root with no `sudo` user, it runs as the system account `xmrig` (no login shell, no home), created once and reused. That account owns nothing in the clone. systemd creates `/etc/xmrig`, `/var/lib/xmrig/<account>` (its config and calibration) and `/var/log/xmrig/<account>`, and removes them on `make service-disable`.
 
-`--service-as-root` is for systemd only: the macOS service refuses it, and refuses to run as root. It exists for the x86 RandomX MSR boost, which needs root. With it, the miner runs as root on the host: a flaw in XMRig, a hostile pool, or anyone on the network path to the pool (the default connection has no TLS) reaches a root process. Without it, the miner gets no MSR boost and can't reserve huge pages itself, so reserve them with `sysctl` (see [Tuning](#tuning-for-performance)).
+`--service-as-root` is for systemd only: the macOS service refuses it, and refuses to run as root. It exists for the x86 RandomX MSR boost, which needs root. With it, the miner runs as root on the host: a flaw in XMRig, or a hostile pool reaches a root process. The default connection is TLS with MoneroOcean's certificate pinned; a pool you add without TLS or without a pin is still open to anyone on the network path to it, and through it to that root process. Without it, the miner gets no MSR boost and can't reserve huge pages itself, so reserve them with `sysctl` (see [Tuning](#tuning-for-performance)).
 
 Common flags (run `install.sh --help` for the complete list):
 
 - `-t, --threads PERCENT`: `max-threads-hint` 1–100, a percentage of the host's cores (default: `75`). On arm64, where XMRig would start a thread on every core whatever the hint, the config lists the cores to mine on instead: that share of them, rounded up, the biggest first
 - `-p, --pool URL`: pool override (default: `gulf.moneroocean.stream`, over TLS with MoneroOcean's certificate pinned, on a port from 20001 to 28192 the CPU count picks). `stratum+tcp://gulf.moneroocean.stream` mines without TLS. Any other URL is used as given, so a TLS pool needs `stratum+ssl://` and its port.
-- `--tls-fingerprint HEX`: pin your TLS pool's certificate, its sha256 as 64 hex digits (the colon form `openssl` prints works too). It replaces MoneroOcean's built-in pin.
+- `--tls-fingerprint HEX`: pin your TLS pool's certificate, its sha256 as 64 hex digits or the 32 colon-separated pairs `openssl x509 -fingerprint -sha256` prints. It replaces MoneroOcean's built-in pin.
 - `--mode max|eco`: on a board with a profile (Raspberry Pi 5, RK3588 boards), mine on the CPUs of that profile's `max` or `eco` list (see [Board profiles](#board-profiles)). Not with `-t`: the two both choose the CPUs, so the installer stops if you pass both
 - `--name STRING`: worker name (default: random `adjective_noun_NNN`)
 - `-d, --dir DIR`: where the clone goes (default: `$HOME`; as root on Linux, `/opt`)
@@ -207,7 +207,7 @@ The settings are `key = value` lines, read as data: nothing in them is run or ex
 | `light = no` | `no` | `yes` lets a board under 2560 MiB of memory mine in RandomX's slower light mode; without it, such a board is refused |
 | `mdns = off` | `off` | `on` installs `avahi-daemon` to announce `<host name>.local` |
 | `ssh_key = ssh-ed25519 AAAA... you@laptop` | none: SSH off | one `ssh-ed25519`, `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521` or `ssh-rsa` public key, then an optional comment |
-| `tls_fingerprint =` | MoneroOcean's built-in pin | your TLS pool's certificate sha256, 64 hex digits, with or without a colon between each pair |
+| `tls_fingerprint =` | MoneroOcean's built-in pin on a MoneroOcean host over TLS; no pin on your own pool | your TLS pool's certificate sha256, 64 hex digits, with or without a colon between each pair. Needs a TLS pool: `stratum+ssl://` or a MoneroOcean host with no port |
 
 **What happens at first boot.** DietPi runs its first run, then our script once, as root. The script copies your settings to a root-only file, installs `xmrig-first-boot.service` and starts it. That service runs the setup at each boot until it has finished once. A board that lost power during the setup picks it up at the next boot; network waits retry every 10 seconds within the boot. A power cut in the first seconds, before the service is installed, needs a reflash: DietPi never runs the script again.
 
@@ -459,6 +459,7 @@ An update keeps your wallet, pool and worker settings. A few steps are yours.
 - The setup turns background mode off in `configs/config_background.json`, that one setting alone, and says so. Miners an earlier background start left running are reported with the command that stops them (add `sudo` if they run as another user). Nothing is stopped for you.
 - The service keeps running the old binary until you run `make restart`.
 - On arm64, a kept config has no CPU list, or one naming every CPU, so the miner runs on every core whatever `--threads` says. The installer warns: `--threads does not apply to the kept configs: they let the miner run on every CPU. To apply it, run 'make clean-configs', the installer again, then 'make service-setup' and 'make restart'.` Do that, passing your wallet and flags again.
+- A kept config keeps its pool as it was: one that mines on MoneroOcean in clear text stays in clear text until you regenerate it. The installer warns with the flags that bring TLS: `<config> mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool <host> --name <worker>' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'.`
 - Installed as root with the clone in `/root`? The miner's account can't enter root's home, so `make update` stops with `The account xmrig cannot run /root/Monero-miner-setup/xmrig; move the clone where it can, such as /opt.` and your old service keeps running. Run `make service-disable` in the old clone, then the installer again as root with `-d /opt` (or without `-d` once `/root/Monero-miner-setup` is gone), passing your wallet and flags again.
 
 **Docker.**
@@ -468,6 +469,9 @@ An update keeps your wallet, pool and worker settings. A few steps are yours.
 - The config moved from `docker/docker-configs` to the `xmrig-configs` volume, and the log from `docker/logs` to the container's output. Delete both folders; use `sudo` if Docker created them as root.
 - An old `docker/.env.vpn` keeps a `FIREWALL=on` line. Gluetun never read it, so it changes nothing; delete it if you like.
 - The MoneroOcean calibration is redone at every container start, as before.
+- A `POOL_URL` that's a MoneroOcean host with no port (the default) moves to TLS at the container's next start on the new image: port 20000 + n instead of 10000 + n, MoneroOcean's certificate pinned. A network that blocks those ports stops mining; set `POOL_URL=stratum+tcp://gulf.moneroocean.stream` in `docker/.env` and run `docker compose up -d` to mine in clear text again.
+
+On x86, nothing else changes: only the first pool's URL, `tls` and `tls-fingerprint` differ. Threads, MSR, huge pages and the service stay as they were.
 
 ## Tuning for performance
 
@@ -516,6 +520,8 @@ For the XMRig schema itself, see the [XMRig docs](https://xmrig.com/docs).
 | Docker  | Container output only: `docker compose logs -f`    | Compose rotates it at 3 files of 10 MB. `docker compose down` drops it with the container             |
 
 ## Security
+
+The miner talks to the default pool over TLS, with MoneroOcean's certificate pinned: a certificate that doesn't match stops mining instead of mining for someone else. A pool you add with `stratum+tcp://` or without a pin can be read and answered by anyone on the network path.
 
 XMRig is legitimate open-source software. AV tools flag it because malware installs miners without the user's consent. Your AV will flag this project too.
 
@@ -622,6 +628,12 @@ The container runs as uid 999, `xmrig`. The compose file and the minimal run abo
 **`<clone> is a link, so this run does not use it.`** The installer won't act through a link at the clone's path. Pass `-d` with the folder that holds the one the link points to (the error line names it), so the installer finds the clone there. A link to nothing: move it away and run the installer again.
 
 **`<directory> can be changed by a user other than you, so this run does not use <clone>.`** followed by `Pass -d with a directory only you can change.` Another user could swap the clone inside that directory between the check and the build. A sticky directory such as `/tmp` is fine. Pass `-d` with a directory that only you (or root) can change.
+
+**Mining stopped and the log says `Failed to verify server certificate fingerprint`.** The pool's certificate isn't the pinned one. The miner logs that line with the pool URL, then the fingerprint it was given and the one configured, in `make status` and `/var/log/xmrig/<account>/xmrig.log` (macOS: `logs/xmrig_stderr.log` in the clone) or, for Docker, `docker compose logs xmrig` from `docker/`. It gets no new jobs and MoneroOcean's panel shows the worker offline, but the Docker healthcheck stays healthy: the process is alive and reconnecting. Either MoneroOcean changed its certificate, or someone on the network path is answering in its place. Never pin the fingerprint the miner reports as given: that's the one a man in the middle would show you. Pick one fix:
+
+- Update to a release that carries the new pin. Native: `make update`, then `make clean-configs`, the installer again with your wallet and flags, `make service-setup` and `make restart`. Docker, from `docker/`: `docker compose pull` and `docker compose up -d`.
+- Pin a fingerprint you checked yourself from a second network (a phone hotspot, say): `openssl s_client -connect gulf.moneroocean.stream:20128 -servername gulf.moneroocean.stream </dev/null | openssl x509 -noout -fingerprint -sha256`. Native: `make clean-configs`, the installer again with `--tls-fingerprint <that value>` and your flags, then `make service-setup` and `make restart`. Docker: set `TLS_FINGERPRINT=<that value>` in `docker/.env`, then `docker compose up -d` from `docker/`.
+- Mine without TLS, if you accept that anyone on the path can read and change the pool's traffic: the same steps with `--pool stratum+tcp://gulf.moneroocean.stream` (Docker: `POOL_URL=stratum+tcp://gulf.moneroocean.stream`).
 
 ## Development
 

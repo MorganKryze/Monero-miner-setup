@@ -83,6 +83,32 @@ if grep -n '/app/logs' "$README"; then
     fail "$README: names /app/logs, where the image writes no log"
 fi
 
+# TLS to the pool. The README's port range is the one the code computes: the native installer adds
+# 10000 to its clear-text port (10001 to 18192), the container adds 20000 to the power of two.
+case $(grep -F -- '- `-p, --pool URL`' "$README") in
+    *"from 20001 to 28192"*) ;;
+    *) fail "$README: the native --pool line does not give the TLS ports 20001 to 28192" ;;
+esac
+grep -qF 'POOL_WRITTEN="stratum+ssl://$hostport:$(($2 + 10000))"' $N ||
+    fail "$N: the TLS port is no longer the clear-text port + 10000"
+grep -qF 'if [ "$PORT" -lt "10001" -o "$PORT" -gt "18192" ]; then' $N ||
+    fail "$N: the clear-text port range is no longer 10001 to 18192"
+grep -qF 'FULL_POOL_URL="stratum+ssl://${hostport}:$((20000 + PORT))"' docker/entrypoint.sh ||
+    fail "docker/entrypoint.sh: the TLS port is no longer 20000 + PORT"
+for pair in "--tls-fingerprint $N" "--tls-fingerprint $D" "TLS_FINGERPRINT docker/entrypoint.sh" \
+    "tls_fingerprint scripts/first_boot.sh"; do
+    name=${pair%% *} script=${pair#* }
+    grep -qF -- "\`$name" "$README" || fail "$README: does not name $name"
+    grep -qF -- "$name" "$script" || fail "$script: does not take $name, which the README names"
+done
+# XMRig's own line when the pool's certificate is not the pinned one (src/base/net/stratum/Tls.cpp).
+ENTRY='**Mining stopped and the log says `Failed to verify server certificate fingerprint`.** '
+[ "$(grep -cF -- "$ENTRY" "$README")" -eq 1 ] && case $(grep -F -- "$ENTRY" "$README") in "$ENTRY"*) ;; *) false ;; esac ||
+    fail "$README: no troubleshooting entry starting with XMRig's 'Failed to verify server certificate fingerprint'"
+if grep -nF 'the default connection has no TLS' "$README"; then
+    fail "$README: still says the default connection has no TLS"
+fi
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi

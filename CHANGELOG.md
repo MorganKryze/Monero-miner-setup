@@ -6,6 +6,19 @@ Every release of Monero-miner-setup, newest first. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The native installer, the Docker container and the DietPi first boot mine on MoneroOcean over TLS by default: a MoneroOcean host with no port gets port 20000 + n (20001 to 28192) where it got 10000 + n. `stratum+tcp://gulf.moneroocean.stream` mines in clear text as before.
+- A Docker install whose `POOL_URL` is a MoneroOcean host with no port moves to TLS at its next start on the new image. Native kept configs stay in clear text until regenerated; the installer warns with the flags that bring TLS.
+
+### Added
+
+- `--tls-fingerprint` for both installers, `TLS_FINGERPRINT` in `docker/.env` and `tls_fingerprint` in the DietPi settings: pin your TLS pool's certificate sha256, 64 hex digits or colon-separated pairs.
+
+### Security
+
+- The default pool's certificate is pinned to MoneroOcean's. A certificate that doesn't match stops mining (`Failed to verify server certificate fingerprint`) instead of mining for whoever answered; the README's troubleshooting entry gives the fixes.
+
 ## [0.2.0-rc.2] - 2026-11-13
 
 ### Fixed
