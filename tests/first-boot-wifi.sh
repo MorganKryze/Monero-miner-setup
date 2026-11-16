@@ -167,6 +167,18 @@ key_rule="must be 8 to 63 printable ASCII characters, or the 64 hex digits of it
 refused key7 "Setting 'wifi_key' $key_rule. $remedy" 'wifi_ssid = Home' 'wifi_key = abcdefg' 'wifi_country = FR'
 p64=$(printf 'p%.0s' {1..64})
 refused key64 "Setting 'wifi_key' $key_rule. $remedy" 'wifi_ssid = Home' "wifi_key = $p64" 'wifi_country = FR'
+# WPA takes 8 to 63 printable ASCII characters: both ends pass, a non-ASCII or control byte does not.
+fixture key8 'wifi_ssid = Home' 'wifi_key = made-up8' 'wifi_country = FR'
+same "key of 8 characters" "[  INFO   ] $(set_line Home FR)
+exit 0" "$(step key8 made-up8)"
+ok key8 Home made-up8 FR
+p63=${p64%p}
+fixture key63 'wifi_ssid = Home' "wifi_key = $p63" 'wifi_country = FR'
+same "key of 63 characters" "[  INFO   ] $(set_line Home FR)
+exit 0" "$(step key63 "$p63")"
+ok key63 Home "$p63" FR
+refused key-accent "Setting 'wifi_key' $key_rule. $remedy" 'wifi_ssid = Home' 'wifi_key = made-up-clé-1' 'wifi_country = FR'
+refused key-del "Setting 'wifi_key' $key_rule. $remedy" 'wifi_ssid = Home' "wifi_key = made-up$(printf '\177')key-2" 'wifi_country = FR'
 h64=$(printf '0123456789abcdef%.0s' 1 2 3 4)
 fixture hex64 'wifi_ssid = Home' "wifi_key = $h64" 'wifi_country = FR'
 same "64 hex key" "[  INFO   ] $(set_line Home FR)
@@ -178,6 +190,8 @@ exit 0" "$(step hash 'pa ss #word')"
 ok hash Home 'pa ss #word' FR
 refused country "Setting 'wifi_country' must be your country's two-letter code, such as FR. $remedy" \
   'wifi_ssid = Home' "wifi_key = $KEY" 'wifi_country = FRA'
+refused country-digit "Setting 'wifi_country' must be your country's two-letter code, such as FR. $remedy" \
+  'wifi_ssid = Home' "wifi_key = $KEY" 'wifi_country = F1'
 
 # ---- pairs and repeats ----
 refused key-alone "Settings 'wifi_ssid' and 'wifi_key' go together. $remedy" "wifi_key = $KEY" 'wifi_country = FR'
