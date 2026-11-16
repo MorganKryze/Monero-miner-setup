@@ -144,6 +144,24 @@ case $unreleased in
     *"blocks ports 20001 to 28192"*"stratum+tcp://gulf.moneroocean.stream"*) ;;
     *) fail "CHANGELOG.md: [Unreleased] does not say a network blocking 20001 to 28192 stops mining, and the stratum+tcp:// way out" ;;
 esac
+# A MoneroOcean URL with no port gets the computed one on both paths, and the container gives other
+# portless hosts :3333; the docs that say "used as given" say so, and take openssl's colon form.
+case $(grep -F -- '- `-p, --pool URL`' "$README") in
+    *"a MoneroOcean URL with no port gets the computed one"*) ;;
+    *) fail "$README: the native --pool line does not say a MoneroOcean URL with no port gets the computed port" ;;
+esac
+grep -qF 'FULL_POOL_URL="${POOL_URL}:3333"' docker/entrypoint.sh ||
+    fail "docker/entrypoint.sh: no longer gives a portless pool :3333, which docker/.env.example says"
+pool_doc=$(sed -n '/^# Optional: Mining pool URL/,/^POOL_URL=/p' docker/.env.example)
+case $pool_doc in
+    *":3333"*) ;;
+    *) fail "docker/.env.example: the POOL_URL comment does not give the :3333 a portless host gets" ;;
+esac
+fp_doc=$(sed -n '/^# Optional: pin your TLS pool/,/^TLS_FINGERPRINT=/p' docker/.env.example)
+case $fp_doc in
+    *"colon"*) ;;
+    *) fail "docker/.env.example: the TLS_FINGERPRINT comment does not take the colon form" ;;
+esac
 if grep -nF 'the default connection has no TLS' "$README"; then
     fail "$README: still says the default connection has no TLS"
 fi
