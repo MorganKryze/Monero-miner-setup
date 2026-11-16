@@ -162,6 +162,12 @@ case $fp_doc in
     *"colon"*) ;;
     *) fail "docker/.env.example: the TLS_FINGERPRINT comment does not take the colon form" ;;
 esac
+# openssl prints the fingerprint after "sha256 Fingerprint=", which --tls-fingerprint refuses: the
+# entry's recipe says what to keep.
+case $(grep -F -- '- Pin a fingerprint you checked yourself' "$README") in
+    *"openssl x509 -noout -fingerprint -sha256"*"after the \`=\`"*) ;;
+    *) fail "$README: the certificate entry's openssl recipe does not say to keep the part after the =" ;;
+esac
 if grep -nF 'the default connection has no TLS' "$README"; then
     fail "$README: still says the default connection has no TLS"
 fi
