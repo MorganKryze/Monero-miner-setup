@@ -722,7 +722,6 @@ function release_ok() {
     fi
 }
 
-# The part DietPi runs: copies and installs the setup, then returns. Nothing here needs the network.
 # Prints the settings lines from stdin with every Wi-Fi key value gone: the setup never needs one.
 function settings_keyless() {
     local line
@@ -731,6 +730,7 @@ function settings_keyless() {
     done
 }
 
+# The part DietPi runs: copies and installs the setup, then returns. Nothing here needs the network.
 function handoff() {
     local self="${BASH_SOURCE[0]}" step="" settings
     if [ "$(id -u)" != 0 ]; then
