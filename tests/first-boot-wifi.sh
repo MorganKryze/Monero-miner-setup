@@ -53,7 +53,8 @@ W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBE
 KEY='not-a-real-key-42'
 
 # fixture <name> <settings lines...>: boot/ with the template's dietpi.txt and a copy of the script
-# whose settings block holds the lines; expected.sh is that copy with each wifi_key line emptied.
+# whose settings block holds the lines; expected.sh is that copy with each wifi_key line emptied,
+# a commented one or one in another case included.
 fixture() {
   local fx="$w/$1" line; shift
   rm -rf -- "$fx"; mkdir -p "$fx/boot"
@@ -65,7 +66,9 @@ fixture() {
   { sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$script"
     printf '%s\n' '# the owner'"'"'s settings'
     for line in "$@"; do
-      if [[ $line =~ ^[[:space:]]*wifi_key[[:space:]]*= ]]; then echo 'wifi_key ='; else printf '%s\n' "$line"; fi
+      if [[ ${line,,} =~ ^[[:space:]]*#[#[:space:]]*wifi_key[[:space:]]*= ]]; then echo '# wifi_key ='
+      elif [[ ${line,,} =~ ^[[:space:]]*wifi_key[[:space:]]*= ]]; then echo 'wifi_key ='
+      else printf '%s\n' "$line"; fi
     done
     sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$script"
   } > "$fx/expected.sh"
@@ -80,6 +83,7 @@ step() {
   code=$?
   grep -F -- "$key" "$w/run.out" >/dev/null && fail "$1: the output holds the key"
   cmp -s "$fx/expected.sh" "$fx/boot/Automation_Custom_Script.sh" || fail "$1: the script is not its copy with wifi_key emptied"
+  grep -F -- "$key" "$fx/boot/Automation_Custom_Script.sh" >/dev/null && fail "$1: the script holds the key"
   cat "$w/run.out"; echo "exit $code"
 }
 # readback <name>: the network bash reads from dietpi-wifi.txt as DietPi does, from the scratch folder.
@@ -179,6 +183,18 @@ refused key-alone "Settings 'wifi_ssid' and 'wifi_key' go together. $remedy" "wi
 refused country-alone "Settings 'wifi_ssid' and 'wifi_country' go together. $remedy" 'wifi_country = FR'
 refused no-country "Settings 'wifi_ssid' and 'wifi_country' go together. $remedy" 'wifi_ssid = Home' "wifi_key = $KEY"
 refused no-key "Settings 'wifi_ssid' and 'wifi_key' go together. $remedy" 'wifi_ssid = Home' 'wifi_country = FR'
+# A key filled in on a line left commented, or with its name in capitals, leaves the card too.
+fixture commented 'wifi_ssid = Home' "#wifi_key = $KEY" 'wifi_country = FR'
+same "key on a commented line" "[  ERROR  ] Settings 'wifi_ssid' and 'wifi_key' go together. $remedy
+exit 1" "$(step commented)"
+untouched commented
+fixture all-commented '# wifi_ssid = Home' "  # wifi_key = $KEY" '## wifi_country = FR'
+same "all three commented" "exit 0" "$(step all-commented)"
+untouched all-commented
+fixture capitals 'wifi_ssid = Home' "WiFi_Key = $KEY" 'wifi_country = FR'
+same "key named in capitals" "[  ERROR  ] Settings 'wifi_ssid' and 'wifi_key' go together. $remedy
+exit 1" "$(step capitals)"
+untouched capitals
 refused key-twice "Setting 'wifi_key' is given twice. $remedy" 'wifi_ssid = Home' "wifi_key = $KEY" "  wifi_key = $KEY" 'wifi_country = FR'
 
 # ---- only the Wi-Fi keys count ----

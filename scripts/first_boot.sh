@@ -355,30 +355,34 @@ function dietpi_wifi_text() {
     printf '%s\n' "${lines[@]}"
 }
 
-# Prints the line with its value gone when it is a wifi_key line, else as it is.
+# Prints the line with its value gone when it is a wifi_key line, else as it is. A key typed on a
+# line left commented, or with its name in capitals, is a key all the same: it leaves the card too.
+# Exit 1, printing no error, when the write fails.
 function key_line_emptied() {
-    if [[ $1 =~ ^[[:space:]]*wifi_key[[:space:]]*= ]]; then
-        printf '%s\n' "wifi_key ="
-    else
-        printf '%s\n' "$1"
+    local LC_ALL=C out="$1"
+    if [[ ${1,,} =~ ^[[:space:]]*#[#[:space:]]*wifi_key[[:space:]]*= ]]; then
+        out="# wifi_key ="
+    elif [[ ${1,,} =~ ^[[:space:]]*wifi_key[[:space:]]*= ]]; then
+        out="wifi_key ="
     fi
+    printf '%s\n' "$out" 2>/dev/null
 }
 
-# Prints the file with every wifi_key line of its settings block written as `wifi_key =`.
+# Prints the file with every wifi_key line of its settings block emptied by key_line_emptied.
+# systemd ignores SIGPIPE: it stops at the first failed write instead of one error per line.
 function key_emptied() {
     local line inside=0
     while IFS= read -r line || [ -n "$line" ]; do
-        if [ "$inside" -eq 0 ]; then
-            [ "$line" != "$SETTINGS_START" ] || inside=1
-            printf '%s\n' "$line"
-        elif [ "$line" = "$SETTINGS_END" ]; then
-            inside=2
-            printf '%s\n' "$line"
-        elif [ "$inside" -eq 1 ]; then
-            key_line_emptied "$line"
-        else
-            printf '%s\n' "$line"
+        if [ "$inside" -eq 1 ] && [ "$line" != "$SETTINGS_END" ]; then
+            key_line_emptied "$line" || return 1
+            continue
         fi
+        if [ "$inside" -eq 0 ] && [ "$line" = "$SETTINGS_START" ]; then
+            inside=1
+        elif [ "$inside" -eq 1 ]; then
+            inside=2
+        fi
+        printf '%s\n' "$line" 2>/dev/null || return 1
     done <"$1"
 }
 
@@ -718,7 +722,7 @@ function release_ok() {
 function settings_keyless() {
     local line
     while IFS= read -r line || [ -n "$line" ]; do
-        key_line_emptied "$line"
+        key_line_emptied "$line" || return 1
     done
 }
 

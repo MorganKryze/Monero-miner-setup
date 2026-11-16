@@ -259,7 +259,7 @@ started="[  INFO   ] The first-boot setup is installed and starts now: the statu
 h="$w/h"; mkdir -p "$h/sbin" "$h/unit" "$h/boot"
 # The release build fills its tag and the installer's sha256.
 { sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$script"
-  printf '%s\n' "wallet = $W" 'mode = max' '# pool = x' 'wifi_ssid = Home' '  wifi_key = not-a-real-key-42' 'wifi_country = FR'
+  printf '%s\n' "wallet = $W" 'mode = max' '# pool = x' 'wifi_ssid = Home' '  wifi_key = not-a-real-key-42' '# wifi_key = old-made-up-key-7' 'wifi_country = FR'
   sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$script" |
     sed 's/^RELEASE_TAG=""$/RELEASE_TAG="v9.9.9"/; s/^INSTALLER_SHA256=""$/INSTALLER_SHA256="'"$(printf '%064d' 0)"'"/'
 } > "$h/boot/Automation_Custom_Script.sh"
@@ -273,8 +273,12 @@ mode = max
 # pool = x
 wifi_ssid = Home
 wifi_key =
+# wifi_key =
 wifi_country = FR" "$(cat "$h/state/settings")"
-grep -F not-a-real-key-42 "$h/boot/Automation_Custom_Script.sh" >/dev/null && fail "the card's script still holds the Wi-Fi key"
+for k in not-a-real-key-42 old-made-up-key-7; do
+  grep -F "$k" "$h/boot/Automation_Custom_Script.sh" >/dev/null && fail "the card's script still holds the Wi-Fi key $k"
+  grep -F "$k" "$h/state/settings" >/dev/null && fail "the settings copy holds the Wi-Fi key $k"
+done
 same "the card's script with its key emptied" "wifi_key =" "$(grep -x '[[:space:]]*wifi_key[[:space:]]*=.*' "$h/boot/Automation_Custom_Script.sh")"
 same "code copy mode" "755 $me" "$(mode_of "$h/sbin/xmrig-first-boot")"
 same "code copy without the settings block" "$(sed "/^: <<'END_OF_MINER_SETTINGS'$/,/^END_OF_MINER_SETTINGS$/d" "$h/boot/Automation_Custom_Script.sh")" "$(cat "$h/sbin/xmrig-first-boot")"
