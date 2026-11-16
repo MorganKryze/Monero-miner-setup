@@ -105,6 +105,15 @@ done
 ENTRY='**Mining stopped and the log says `Failed to verify server certificate fingerprint`.** '
 [ "$(grep -cF -- "$ENTRY" "$README")" -eq 1 ] && case $(grep -F -- "$ENTRY" "$README") in "$ENTRY"*) ;; *) false ;; esac ||
     fail "$README: no troubleshooting entry starting with XMRig's 'Failed to verify server certificate fingerprint'"
+# XMRig writes that line to stdout (src/base/io/log/backends/ConsoleLog.cpp): on macOS it lands in
+# the file launchd sends stdout to, which the entry must name.
+PLIST=templates/com.moneroocean.xmrig.plist.template
+out_log=$(grep -A1 -F '<key>StandardOutPath</key>' "$PLIST" | sed -n 's|.*%%LOG_PATH%%/\([^<]*\)</string>.*|\1|p')
+[ -n "$out_log" ] || fail "$PLIST: no StandardOutPath under %%LOG_PATH%%"
+case $(grep -F -- "$ENTRY" "$README") in
+    *"(macOS: \`logs/$out_log\` in the clone)"*) ;;
+    *) fail "$README: the certificate entry does not send macOS users to logs/$out_log, where launchd writes XMRig's output" ;;
+esac
 if grep -nF 'the default connection has no TLS' "$README"; then
     fail "$README: still says the default connection has no TLS"
 fi
