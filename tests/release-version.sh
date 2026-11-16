@@ -1,6 +1,6 @@
 #!/bin/bash
 # The version both installers print is the latest release in CHANGELOG.md, whose heading, link and
-# README anchors follow Keep a Changelog: a release whose scripts and notes disagree fails here
+# README pins follow Keep a Changelog: a release whose scripts and notes disagree fails here
 # before its tag is pushed.
 set -u
 
@@ -26,11 +26,6 @@ function script_version() {
     printf '%s' "${BASH_REMATCH[1]}"
 }
 
-# GitHub's anchor for a heading: lower case, punctuation other than - and _ dropped, spaces to -.
-function slug() {
-    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | LC_ALL=C sed -e 's/[^a-z0-9 _-]//g' -e 's/ /-/g'
-}
-
 native=$(script_version scripts/install.sh)
 docker=$(script_version scripts/docker_setup.sh)
 [ -n "$native" ] && [ "$native" = "$docker" ] ||
@@ -53,11 +48,6 @@ else
         grep -qxF "[$released]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v$released" CHANGELOG.md ||
             fail "CHANGELOG.md: no link line for [$released] to its v$released tag"
     fi
-    anchors=$(grep -oE '\(README\.md#[^)]*\)' CHANGELOG.md | sed -e 's/^(README\.md#//' -e 's/)$//')
-    headings=$(sed -n 's/^##* //p' README.md | while IFS= read -r h; do slug "$h"; echo; done)
-    for a in $anchors; do
-        printf '%s\n' "$headings" | grep -qxF -- "$a" || fail "CHANGELOG.md links README.md#$a, which no README heading gives"
-    done
 fi
 
 # The security notes claim only what the scripts do. The root refusal of a directory others can

@@ -95,11 +95,12 @@ grep -qF 'if [ "$PORT" -lt "10001" -o "$PORT" -gt "18192" ]; then' $N ||
     fail "$N: the clear-text port range is no longer 10001 to 18192"
 grep -qF 'FULL_POOL_URL="stratum+ssl://${hostport}:$((20000 + PORT))"' docker/entrypoint.sh ||
     fail "docker/entrypoint.sh: the TLS port is no longer 20000 + PORT"
-for pair in "--tls-fingerprint $N" "--tls-fingerprint $D" "TLS_FINGERPRINT docker/entrypoint.sh" \
-    "tls_fingerprint scripts/first_boot.sh"; do
-    name=${pair%% *} script=${pair#* }
-    grep -qF -- "\`$name" "$README" || fail "$README: does not name $name"
-    grep -qF -- "$name" "$script" || fail "$script: does not take $name, which the README names"
+# The first-boot setting is on the boards page, which holds the settings of the DietPi files.
+for pair in "--tls-fingerprint $N $README" "--tls-fingerprint $D $README" "TLS_FINGERPRINT docker/entrypoint.sh $README" \
+    "tls_fingerprint scripts/first_boot.sh docs/boards.md"; do
+    read -r name script page <<<"$pair"
+    grep -qF -- "\`$name" "$page" || fail "$page: does not name $name"
+    grep -qF -- "$name" "$script" || fail "$script: does not take $name, which $page names"
 done
 # XMRig's own line when the pool's certificate is not the pinned one (src/base/net/stratum/Tls.cpp).
 ENTRY='**Mining stopped and the log says `Failed to verify server certificate fingerprint`.** '
