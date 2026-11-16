@@ -357,13 +357,14 @@ function dietpi_wifi_text() {
 
 # Prints the line with its value gone when it is a wifi_key line, else as it is. A key typed on a
 # line left commented, or with its name in capitals, is a key all the same: it leaves the card too.
+# read_settings runs in the board's locale, where [[:space:]] also takes Unicode spaces (U+3000 in
+# C.UTF-8), so any byte but a letter, a digit, _ or = may stand around the name here.
 # Exit 1, printing no error, when the write fails.
 function key_line_emptied() {
     local LC_ALL=C out="$1"
-    if [[ ${1,,} =~ ^[[:space:]]*#[#[:space:]]*wifi_key[[:space:]]*= ]]; then
-        out="# wifi_key ="
-    elif [[ ${1,,} =~ ^[[:space:]]*wifi_key[[:space:]]*= ]]; then
+    if [[ ${1,,} =~ ^([^[:alnum:]_=]*)wifi_key[^[:alnum:]_=]*= ]]; then
         out="wifi_key ="
+        [[ ${BASH_REMATCH[1]} != *#* ]] || out="# wifi_key ="
     fi
     printf '%s\n' "$out" 2>/dev/null
 }

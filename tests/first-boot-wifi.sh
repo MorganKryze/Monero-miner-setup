@@ -54,9 +54,9 @@ KEY='not-a-real-key-42'
 
 # fixture <name> <settings lines...>: boot/ with the template's dietpi.txt and a copy of the script
 # whose settings block holds the lines; expected.sh is that copy with each wifi_key line emptied,
-# a commented one or one in another case included.
+# a commented one, one in another case or one set apart by a Unicode space included.
 fixture() {
-  local fx="$w/$1" line; shift
+  local LC_ALL=C fx="$w/$1" line; shift
   rm -rf -- "$fx"; mkdir -p "$fx/boot"
   cp "$root/templates/dietpi.txt" "$fx/boot/dietpi.txt"
   { sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$script"
@@ -66,19 +66,20 @@ fixture() {
   { sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$script"
     printf '%s\n' '# the owner'"'"'s settings'
     for line in "$@"; do
-      if [[ ${line,,} =~ ^[[:space:]]*#[#[:space:]]*wifi_key[[:space:]]*= ]]; then echo '# wifi_key ='
-      elif [[ ${line,,} =~ ^[[:space:]]*wifi_key[[:space:]]*= ]]; then echo 'wifi_key ='
+      if [[ ${line,,} =~ ^([^[:alnum:]_=]*)wifi_key[^[:alnum:]_=]*= ]]; then
+        if [[ ${BASH_REMATCH[1]} == *#* ]]; then echo '# wifi_key ='; else echo 'wifi_key ='; fi
       else printf '%s\n' "$line"; fi
     done
     sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$script"
   } > "$fx/expected.sh"
   cp "$fx/boot/dietpi.txt" "$fx/dietpi.before"
 }
-# step <name> [key]: runs the Wi-Fi mode on the fixture from the scratch folder; prints its output
-# and exit code. Checks the key is in no output line and the script kept all but its key's value.
+# step <name> [key]: runs the Wi-Fi mode on the fixture from the scratch folder, in the locale
+# RUN_LANG names when set; prints its output and exit code. Checks the key is in no output line and
+# the script kept all but its key's value.
 step() {
   local fx="$w/$1" key=${2:-$KEY} code
-  (cd "$w/cwd" && env -i PATH="$w/stubs:$w/tools" SCRIPT="$fx/boot/Automation_Custom_Script.sh" FX="$fx" \
+  (cd "$w/cwd" && env -i ${RUN_LANG:+"LANG=$RUN_LANG"} PATH="$w/stubs:$w/tools" SCRIPT="$fx/boot/Automation_Custom_Script.sh" FX="$fx" \
     FAIL_DIETPI="${FAIL_DIETPI:-}" "$BASH" --norc --noprofile "$w/drive.sh" main wifi) > "$w/run.out" 2>&1
   code=$?
   grep -F -- "$key" "$w/run.out" >/dev/null && fail "$1: the output holds the key"
@@ -195,6 +196,27 @@ fixture capitals 'wifi_ssid = Home' "WiFi_Key = $KEY" 'wifi_country = FR'
 same "key named in capitals" "[  ERROR  ] Settings 'wifi_ssid' and 'wifi_key' go together. $remedy
 exit 1" "$(step capitals)"
 untouched capitals
+# DietPi runs the step in C.UTF-8, where bash's [[:space:]] also takes Unicode spaces such as
+# U+3000 and U+2003: the key on a line set apart by one is read, so it leaves the card too.
+u3000=$'\xe3\x80\x80' u2003=$'\xe2\x80\x83'
+env -i LANG=C.UTF-8 "$BASH" --norc --noprofile -c '[[ $1 =~ ^[[:space:]]$ ]]' _ "$u3000" ||
+  fail "no C.UTF-8 locale here that reads U+3000 as a space"
+fixture wide-before 'wifi_ssid = Home' "${u3000}wifi_key = $KEY" 'wifi_country = FR'
+same "key after a Unicode space, UTF-8 locale" "[  INFO   ] $(set_line Home FR)
+exit 0" "$(RUN_LANG=C.UTF-8 step wide-before)"
+fixture wide-after 'wifi_ssid = Home' "wifi_key${u2003}= $KEY" 'wifi_country = FR'
+same "key name then a Unicode space, UTF-8 locale" "[  INFO   ] $(set_line Home FR)
+exit 0" "$(RUN_LANG=C.UTF-8 step wide-after)"
+fixture wide-commented 'wifi_ssid = Home' "#${u3000}wifi_key = $KEY" 'wifi_country = FR'
+same "key commented with a Unicode space, UTF-8 locale" "[  ERROR  ] Settings 'wifi_ssid' and 'wifi_key' go together. $remedy
+exit 1" "$(RUN_LANG=C.UTF-8 step wide-commented)"
+untouched wide-commented
+# A name that only holds wifi_key, or goes on past it, is not the key's line.
+fixture key-in-name 'wifi_ssid = my_wifi_key=net' "wifi_key = $KEY" 'wifi_country = FR'
+same "network named after the key" "[  INFO   ] $(set_line my_wifi_key=net FR)
+exit 0" "$(step key-in-name)"
+grep -x 'wifi_ssid = my_wifi_key=net' "$w/key-in-name/boot/Automation_Custom_Script.sh" >/dev/null ||
+  fail "network named after the key: its line was emptied"
 refused key-twice "Setting 'wifi_key' is given twice. $remedy" 'wifi_ssid = Home' "wifi_key = $KEY" "  wifi_key = $KEY" 'wifi_country = FR'
 
 # ---- only the Wi-Fi keys count ----

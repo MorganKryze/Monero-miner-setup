@@ -57,11 +57,12 @@ source "$EXTRA"
 "$@"
 EOF
 : > "$w/extra.sh"
-# run <script> <fixture> <function> <args...>: prints stdout and stderr, then the exit code. The
-# output goes through a file, not a pipe: a blink loop left running must not hold the check up.
+# run <script> <fixture> <function> <args...>: prints stdout and stderr, then the exit code, in the
+# locale RUN_LANG names when set. The output goes through a file, not a pipe: a blink loop left
+# running must not hold the check up.
 run() {
   local script=$1 fx=$2 code; shift 2
-  env -i PATH="$w/stubs:$w/tools" SCRIPT="$script" FX="$fx" EXTRA="$w/extra.sh" "$BASH" --norc --noprofile "$w/drive.sh" "$@" > "$w/run.out" 2>&1
+  env -i ${RUN_LANG:+"LANG=$RUN_LANG"} PATH="$w/stubs:$w/tools" SCRIPT="$script" FX="$fx" EXTRA="$w/extra.sh" "$BASH" --norc --noprofile "$w/drive.sh" "$@" > "$w/run.out" 2>&1
   code=$?
   cat "$w/run.out"; echo "exit $code"
 }
@@ -335,6 +336,27 @@ h5="$w/h5"; mkdir -p "$h5/sbin" "$h5/unit"; : > "$w/systemctl-fails"
 same "handoff systemctl fails" "[  ERROR  ] Failed to install the first-boot setup: systemctl daemon-reload.
 exit 1" "$(run "$h/boot/Automation_Custom_Script.sh" "$h5" handoff)"
 rm -f "$w/systemctl-fails"
+# DietPi runs the handoff in C.UTF-8, where a wifi_key line set apart by a Unicode space (U+3000)
+# reads as a key: neither the card's script nor the settings copy keeps it.
+u3000=$'\xe3\x80\x80'
+h6="$w/h6"; mkdir -p "$h6/sbin" "$h6/unit" "$h6/boot"; rm -f "$w/systemctl.log"
+{ sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$h/boot/Automation_Custom_Script.sh"
+  printf '%s\n' "wallet = $W" 'mode = max' 'wifi_ssid = Home' "${u3000}wifi_key = not-a-real-key-42" \
+    "#${u3000}wifi_key = old-made-up-key-7" 'wifi_country = FR'
+  sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$h/boot/Automation_Custom_Script.sh"
+} > "$h6/boot/Automation_Custom_Script.sh"
+same "handoff with Unicode spaces, UTF-8 locale" "$started
+exit 0" "$(RUN_LANG=C.UTF-8 run "$h6/boot/Automation_Custom_Script.sh" "$h6" handoff)"
+same "settings copy with Unicode spaces" "wallet = $W
+mode = max
+wifi_ssid = Home
+wifi_key =
+# wifi_key =
+wifi_country = FR" "$(cat "$h6/state/settings")"
+for k in not-a-real-key-42 old-made-up-key-7; do
+  grep -F "$k" "$h6/boot/Automation_Custom_Script.sh" >/dev/null && fail "Unicode spaces: the card's script still holds the Wi-Fi key $k"
+  grep -F "$k" "$h6/state/settings" >/dev/null && fail "Unicode spaces: the settings copy holds the Wi-Fi key $k"
+done
 
 # ---- the LED ----
 led() { # fixture, compatible, LED name or -
