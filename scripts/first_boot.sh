@@ -22,6 +22,10 @@ mode = eco
 # ssh_key = ssh-ed25519 AAAA... you@laptop
 # Your TLS pool's certificate sha256, 64 hex digits, colons allowed (default: MoneroOcean's pin).
 # tls_fingerprint =
+# A WPA-PSK Wi-Fi network to join before the cable, the key whole after `=` (needs Automation_Custom_PreScript.sh on the card).
+# wifi_ssid =
+# wifi_key =
+# wifi_country = FR
 END_OF_MINER_SETTINGS
 
 # DietPi runs this file once, as root, near the end of its first run. It only hands off: it copies
@@ -33,6 +37,7 @@ END_OF_MINER_SETTINGS
 # The release this file ships with and its installer's sha256, filled when the release is built.
 RELEASE_TAG=""
 INSTALLER_SHA256=""
+BOOT_DIR="/boot"
 STATE_DIR="/var/lib/xmrig-first-boot"
 SETUP_BIN="/usr/local/sbin/xmrig-first-boot"
 SETUP_UNIT="/etc/systemd/system/xmrig-first-boot.service"
@@ -144,32 +149,43 @@ function setting_rule() {
         light) [[ $value =~ ^(yes|no)$ ]] || echo "must be yes or no" ;;
         mdns) [[ $value =~ ^(on|off)$ ]] || echo "must be on or off" ;;
         tls_fingerprint) [[ $value =~ ^([0-9A-Fa-f]{64}|([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2})$ ]] || echo "must be a sha256 of 64 hex digits, with or without a colon between each pair" ;;
+        wifi_ssid)
+            if [ "${#value}" -gt 32 ] || [[ $value == *[[:cntrl:]\"\\]* ]]; then
+                echo "must be 1 to 32 bytes with no control character, no \" and no \\: rename the network if it holds one"
+            fi
+            ;;
+        wifi_key) [[ $value =~ ^[[:print:]]{8,63}$ || $value =~ ^[0-9A-Fa-f]{64}$ ]] || echo "must be 8 to 63 printable ASCII characters, or the 64 hex digits of its PSK" ;;
+        wifi_country) [[ $value =~ ^[A-Za-z]{2}$ ]] || echo "must be your country's two-letter code, such as FR" ;;
         ssh_key) [[ $value =~ $ssh_re ]] || echo "must be one ssh-ed25519, ecdsa-sha2-nistp256, ecdsa-sha2-nistp384, ecdsa-sha2-nistp521 or ssh-rsa public key, then optionally a comment of letters, digits or @ . _ - characters" ;;
     esac
 }
 
 # Reads a settings file (the block's lines) into S_WALLET S_MODE S_POOL S_NAME S_DONATE S_LIGHT
-# S_MDNS S_SSH_KEY S_TLS_FINGERPRINT. Each line is matched as text and its value checked for its key's form; nothing
-# is run or expanded. An empty value leaves the key's default. On the first bad line, a key given
-# twice or a missing wallet or mode: one error line, exit 1.
+# S_MDNS S_SSH_KEY S_TLS_FINGERPRINT S_WIFI_SSID S_WIFI_KEY S_WIFI_COUNTRY (upper case). Each line is
+# matched as text and its value checked for its key's form; nothing is run or expanded. An empty
+# value leaves the key's default. On the first bad line, a key given twice, a Wi-Fi key without its
+# pair or a missing wallet or mode: one error line, exit 1. With <mode> wifi it reads only the
+# wifi_* lines and needs no wallet or mode: the Wi-Fi step must not stop on the others.
 function read_settings() {
-    local line key value rule n=0 seen=" "
+    local line key value rule n=0 seen=" " only="${2:-}" pair=""
     local key_re='^[[:space:]]*([A-Za-z0-9_]+)[[:space:]]*=(.*)$'
     S_WALLET="" S_MODE="" S_POOL="" S_NAME="" S_DONATE="" S_LIGHT="no" S_MDNS="off" S_SSH_KEY="" S_TLS_FINGERPRINT=""
+    S_WIFI_SSID="" S_WIFI_KEY="" S_WIFI_COUNTRY=""
     while IFS= read -r line || [ -n "$line" ]; do
         n=$((n + 1))
         line=${line%$'\r'}
         [[ $line =~ ^[[:space:]]*(#|$) ]] && continue
+        [ "$only" != wifi ] || [[ $line =~ ^[[:space:]]*wifi_[A-Za-z0-9_]*[[:space:]]*= ]] || continue
         if ! [[ $line =~ $key_re ]]; then
             error "Line $n of the settings is not key = value."
             return 1
         fi
         key=${BASH_REMATCH[1]}
         value=${BASH_REMATCH[2]}
-        case " wallet mode pool name donate light mdns ssh_key tls_fingerprint " in
+        case " wallet mode pool name donate light mdns ssh_key tls_fingerprint wifi_ssid wifi_key wifi_country " in
             *" $key "*) ;;
             *)
-                setting_error "$key" "is not one this script knows: wallet, mode, pool, name, donate, light, mdns, ssh_key, tls_fingerprint"
+                setting_error "$key" "is not one this script knows: wallet, mode, pool, name, donate, light, mdns, ssh_key, tls_fingerprint, wifi_ssid, wifi_key, wifi_country"
                 return 1
                 ;;
         esac
@@ -182,8 +198,8 @@ function read_settings() {
         value=${value%"${value##*[![:space:]]}"}
         if [[ $value =~ ^\"([^\"]*)\"$ || $value =~ ^\'([^\']*)\'$ ]]; then
             value=${BASH_REMATCH[1]}
-        elif [[ $value != [\"\']* ]]; then
-            # An unquoted value ends before a ` #` comment.
+        elif [[ $value != [\"\']* && $key != wifi_* ]]; then
+            # An unquoted value ends before a ` #` comment; a Wi-Fi name or key may hold one.
             value=${value%%[[:space:]]#*}
             value=${value%"${value##*[![:space:]]}"}
         fi
@@ -203,8 +219,22 @@ function read_settings() {
             mdns) S_MDNS=$value ;;
             ssh_key) S_SSH_KEY=$value ;;
             tls_fingerprint) S_TLS_FINGERPRINT=$value ;;
+            wifi_ssid) S_WIFI_SSID=$value ;;
+            wifi_key) S_WIFI_KEY=$value ;;
+            wifi_country) S_WIFI_COUNTRY=${value^^} ;;
         esac
     done <"$1"
+    if [ -z "$S_WIFI_SSID" ]; then
+        [ -z "$S_WIFI_COUNTRY" ] || pair=wifi_country
+        [ -z "$S_WIFI_KEY" ] || pair=wifi_key
+    elif [ -z "$S_WIFI_COUNTRY" ]; then
+        pair=wifi_country
+    fi
+    if [ -n "$pair" ]; then
+        error "Settings 'wifi_ssid' and '$pair' go together. $SETTINGS_REMEDY"
+        return 1
+    fi
+    [ "$only" != wifi ] || return 0
     [ -n "$S_WALLET" ] || { setting_error wallet "is missing"; return 1; }
     [ -n "$S_MODE" ] || { setting_error mode "is missing"; return 1; }
     return 0
@@ -292,6 +322,106 @@ function put_file() {
     fi
     rm -f -- "$tmp"
     return 1
+}
+
+# Prints <value> single-quoted for bash, each ' written as '\''.
+function shell_quoted() {
+    local q="'\\''"
+    printf "'%s'" "${1//\'/$q}"
+}
+
+# Prints the dietpi-wifi.txt DietPi reads with bash: one WPA-PSK network in slot 0, from S_WIFI_*.
+# DietPi empties every slot before it reads the file, so the others need no line.
+function wifi_db_text() {
+    printf '%s\n' "# Written by Automation_Custom_Script.sh from its settings."
+    printf 'aWIFI_SSID[0]=%s\n' "$(shell_quoted "$S_WIFI_SSID")"
+    printf 'aWIFI_KEY[0]=%s\n' "$(shell_quoted "$S_WIFI_KEY")"
+    printf '%s\n' "aWIFI_KEYMGR[0]='WPA-PSK'"
+}
+
+# Prints dietpi.txt <file> with Wi-Fi on for S_WIFI_COUNTRY, every other line as it is. Exit 1,
+# printing nothing, unless each key is there exactly once at the start of a line, as DietPi reads it.
+function dietpi_wifi_text() {
+    local line on=0 country=0
+    local -a lines=()
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            AUTO_SETUP_NET_WIFI_ENABLED=*) on=$((on + 1)) line="AUTO_SETUP_NET_WIFI_ENABLED=1" ;;
+            AUTO_SETUP_NET_WIFI_COUNTRY_CODE=*) country=$((country + 1)) line="AUTO_SETUP_NET_WIFI_COUNTRY_CODE=$S_WIFI_COUNTRY" ;;
+        esac
+        lines+=("$line")
+    done <"$1" || return 1
+    [ "$on" -eq 1 ] && [ "$country" -eq 1 ] || return 1
+    printf '%s\n' "${lines[@]}"
+}
+
+# Prints the line with its value gone when it is a wifi_key line, else as it is.
+function key_line_emptied() {
+    if [[ $1 =~ ^[[:space:]]*wifi_key[[:space:]]*= ]]; then
+        printf '%s\n' "wifi_key ="
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+# Prints the file with every wifi_key line of its settings block written as `wifi_key =`.
+function key_emptied() {
+    local line inside=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$inside" -eq 0 ]; then
+            [ "$line" != "$SETTINGS_START" ] || inside=1
+            printf '%s\n' "$line"
+        elif [ "$line" = "$SETTINGS_END" ]; then
+            inside=2
+            printf '%s\n' "$line"
+        elif [ "$inside" -eq 1 ]; then
+            key_line_emptied "$line"
+        else
+            printf '%s\n' "$line"
+        fi
+    done <"$1"
+}
+
+# The Wi-Fi step, run by Automation_Custom_PreScript.sh before DietPi's network: from the Wi-Fi
+# settings it writes dietpi-wifi.txt, turns Wi-Fi on in dietpi.txt (Ethernet stays the fallback)
+# and records the country; DietPi brings the network up after it. Whatever happens, the key leaves
+# this file's settings. Exit 1 after one error line; DietPi's first boot goes on either way.
+function wifi_step() {
+    local self="${BASH_SOURCE[0]}" code=1 dietpi step=""
+    # The board has no network yet: the settings can only be fixed where the card was written.
+    local SETTINGS_REMEDY="Fix it in the settings at the top of Automation_Custom_Script.sh on your computer and flash the card again."
+    local copy_again="Copy the files from dietpi-first-boot.zip to the card again."
+    umask 077
+    if ! read_settings <(settings_region "$self") wifi; then
+        :
+    elif [ -z "$S_WIFI_SSID" ]; then
+        code=0
+    elif [ -z "$S_WIFI_KEY" ]; then
+        error "Settings 'wifi_ssid' and 'wifi_key' go together. $SETTINGS_REMEDY"
+    elif ! dietpi=$(dietpi_wifi_text "$BOOT_DIR/dietpi.txt" && echo .); then
+        error "Failed to set up Wi-Fi: $BOOT_DIR/dietpi.txt needs exactly one AUTO_SETUP_NET_WIFI_ENABLED= line and one AUTO_SETUP_NET_WIFI_COUNTRY_CODE= line at the start of a line. Copy dietpi.txt from dietpi-first-boot.zip to the card again."
+    else
+        if ! wifi_db_text | put_file "$BOOT_DIR/dietpi-wifi.txt" 0600; then
+            step="writing $BOOT_DIR/dietpi-wifi.txt"
+        elif ! printf '%s' "${dietpi%.}" | put_file "$BOOT_DIR/dietpi.txt"; then
+            rm -f -- "$BOOT_DIR/dietpi-wifi.txt"
+            step="writing $BOOT_DIR/dietpi.txt"
+        elif ! mkdir -p "$STATE_DIR" || ! chmod 0700 "$STATE_DIR" ||
+            ! printf 'country=%s\n' "$S_WIFI_COUNTRY" | put_file "$STATE_DIR/wifi" 0600; then
+            step="writing the record $STATE_DIR/wifi"
+        fi
+        if [ -n "$step" ]; then
+            error "Failed to set up Wi-Fi: $step failed. $copy_again"
+        else
+            info "Wi-Fi set for the network $S_WIFI_SSID, country $S_WIFI_COUNTRY: DietPi brings it up next."
+            code=0
+        fi
+    fi
+    if ! key_emptied "$self" | put_file "$self"; then
+        error "Failed to remove wifi_key from $self: delete its value there on your computer before you use the card again."
+        code=1
+    fi
+    return "$code"
 }
 
 # Prints the board's SoC profile from SOCS; exit 1 when no device-tree compatible string is one.
@@ -584,6 +714,14 @@ function release_ok() {
 }
 
 # The part DietPi runs: copies and installs the setup, then returns. Nothing here needs the network.
+# Prints the settings lines from stdin with the wifi_key value gone: the setup never needs the key.
+function settings_keyless() {
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        key_line_emptied "$line"
+    done
+}
+
 function handoff() {
     local self="${BASH_SOURCE[0]}" step="" settings
     if [ "$(id -u)" != 0 ]; then
@@ -594,8 +732,10 @@ function handoff() {
     umask 077
     if ! mkdir -p "$STATE_DIR" || ! chmod 0700 "$STATE_DIR"; then
         step="the state folder"
-    elif ! settings=$(settings_region "$self") || ! printf '%s\n' "$settings" | put_file "$STATE_DIR/settings" 0600; then
+    elif ! settings=$(settings_region "$self") || ! printf '%s\n' "$settings" | settings_keyless | put_file "$STATE_DIR/settings" 0600; then
         step="the settings copy"
+    elif ! key_emptied "$self" | put_file "$self"; then
+        step="the removal of wifi_key from $self"
     elif ! without_settings "$self" | put_file "$SETUP_BIN" 0755; then
         step="the setup script"
     elif ! unit_text | put_file "$SETUP_UNIT" 0644; then
@@ -765,8 +905,9 @@ function main() {
     case "${1:-}" in
         "") handoff ;;
         setup) setup ;;
+        wifi) wifi_step ;;
         *)
-            echo "Usage: $0 [setup]" >&2
+            echo "Usage: $0 [setup|wifi]" >&2
             return 2
             ;;
     esac

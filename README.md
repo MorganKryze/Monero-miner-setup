@@ -208,6 +208,9 @@ The settings are `key = value` lines, read as data: nothing in them is run or ex
 | `mdns = off` | `off` | `on` installs `avahi-daemon` to announce `<host name>.local` |
 | `ssh_key = ssh-ed25519 AAAA... you@laptop` | none: SSH off | one `ssh-ed25519`, `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521` or `ssh-rsa` public key, then an optional comment |
 | `tls_fingerprint =` | MoneroOcean's built-in pin on a MoneroOcean host over TLS; no pin on your own pool | your TLS pool's certificate sha256, 64 hex digits, with or without a colon between each pair. Needs a TLS pool: `stratum+ssl://` or a MoneroOcean host with no port |
+| `wifi_ssid =` | none: no Wi-Fi, the cable only | the Wi-Fi network's name, 1 to 32 bytes with no control character, no `"` and no `\`. Needs `Automation_Custom_PreScript.sh` on the card, `wifi_key` and `wifi_country` |
+| `wifi_key =` | none | the network's WPA-PSK key, 8 to 63 printable ASCII characters, or the 64 hex digits of its PSK; it's read whole after `=`, so put comments on their own line. Needs `Automation_Custom_PreScript.sh` on the card |
+| `wifi_country = FR` | none | your country's two-letter code, such as `FR`, any case. Needs `Automation_Custom_PreScript.sh` on the card |
 
 **What happens at first boot.** DietPi runs its first run, then our script once, as root. The script copies your settings to a root-only file, installs `xmrig-first-boot.service` and starts it. That service runs the setup at each boot until it has finished once. A board that lost power during the setup picks it up at the next boot; network waits retry every 10 seconds within the boot. A power cut in the first seconds, before the service is installed, needs a reflash: DietPi never runs the script again.
 
