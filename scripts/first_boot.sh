@@ -737,14 +737,17 @@ function handoff() {
         error "The first-boot setup must run as root."
         return 1
     fi
+    # The key leaves the card first: no step that fails after it can leave the key behind.
+    if ! key_emptied "$self" | put_file "$self"; then
+        error "Failed to install the first-boot setup: the removal of wifi_key from $self."
+        return 1
+    fi
     release_ok || return 1
     umask 077
     if ! mkdir -p "$STATE_DIR" || ! chmod 0700 "$STATE_DIR"; then
         step="the state folder"
     elif ! settings=$(settings_region "$self") || ! printf '%s\n' "$settings" | settings_keyless | put_file "$STATE_DIR/settings" 0600; then
         step="the settings copy"
-    elif ! key_emptied "$self" | put_file "$self"; then
-        step="the removal of wifi_key from $self"
     elif ! without_settings "$self" | put_file "$SETUP_BIN" 0755; then
         step="the setup script"
     elif ! unit_text | put_file "$SETUP_UNIT" 0644; then

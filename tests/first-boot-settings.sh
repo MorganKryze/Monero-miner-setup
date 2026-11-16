@@ -318,12 +318,18 @@ cmp -s "$w/settings.before" "$h/state/settings" || fail "the code copy's handoff
 cmp -s "$w/code.before" "$h/sbin/xmrig-first-boot" || fail "the code copy's handoff changed the code copy"
 [ -e "$w/systemctl.log" ] && fail "systemctl ran from the code copy's handoff"
 
-# The repository's copy, run by hand on any host, installs nothing.
-h1="$w/h1"; mkdir -p "$h1/sbin" "$h1/unit"; rm -f "$w/systemctl.log"
+# The repository's copy, run by hand on any host, installs nothing; a Wi-Fi key typed into it
+# still leaves it first.
+h1="$w/h1"; mkdir -p "$h1/sbin" "$h1/unit" "$w/h1-card"; rm -f "$w/systemctl.log"
+{ sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$script"
+  printf '%s\n' "wallet = $W" 'mode = max' 'wifi_ssid = Home' 'wifi_key = made-up-key-5' 'wifi_country = FR'
+  sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$script"
+} > "$w/h1-card/Automation_Custom_Script.sh"
 same "handoff without a release" "[  ERROR  ] This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository.
-exit 1" "$(run "$script" "$h1" handoff)"
+exit 1" "$(run "$w/h1-card/Automation_Custom_Script.sh" "$h1" handoff)"
 same "handoff without a release: nothing written" "" "$(find "$h1" -mindepth 1 ! -type d; ls -d "$h1/state" 2>/dev/null)"
 [ -e "$w/systemctl.log" ] && fail "systemctl ran from a handoff without a release"
+grep -F made-up-key-5 "$w/h1-card/Automation_Custom_Script.sh" >/dev/null && fail "handoff without a release: the card's script still holds a Wi-Fi key"
 
 : > "$w/not-root"
 same "handoff not as root" "[  ERROR  ] The first-boot setup must run as root.
@@ -338,6 +344,16 @@ exit 1" "$(run "$h/boot/Automation_Custom_Script.sh" "$h3" handoff)"
 h4="$w/h4"; mkdir -p "$h4/sbin" "$h4/unit" "$h4/state/settings/x"
 same "handoff settings copy fails" "[  ERROR  ] Failed to install the first-boot setup: the settings copy.
 exit 1" "$(run "$h/boot/Automation_Custom_Script.sh" "$h4" handoff)"
+# A failed step leaves no Wi-Fi key behind: the key leaves the card's script first.
+# mkdir's own line, which differs between hosts, comes before the error.
+h8="$w/h8"; mkdir -p "$h8/sbin" "$h8/unit" "$h8/boot"; : > "$h8/state"
+{ sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$h/boot/Automation_Custom_Script.sh"
+  printf '%s\n' "wallet = $W" 'mode = max' 'wifi_ssid = Home' 'wifi_key = made-up-key-6' 'wifi_country = FR'
+  sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$h/boot/Automation_Custom_Script.sh"
+} > "$h8/boot/Automation_Custom_Script.sh"
+same "handoff state folder fails" "[  ERROR  ] Failed to install the first-boot setup: the state folder.
+exit 1" "$(run "$h8/boot/Automation_Custom_Script.sh" "$h8" handoff | tail -n 2)"
+grep -F made-up-key-6 "$h8/boot/Automation_Custom_Script.sh" >/dev/null && fail "handoff state folder fails: the card's script still holds a Wi-Fi key"
 h5="$w/h5"; mkdir -p "$h5/sbin" "$h5/unit"; : > "$w/systemctl-fails"
 same "handoff systemctl fails" "[  ERROR  ] Failed to install the first-boot setup: systemctl daemon-reload.
 exit 1" "$(run "$h/boot/Automation_Custom_Script.sh" "$h5" handoff)"
