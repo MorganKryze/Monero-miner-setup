@@ -126,6 +126,24 @@ for cmd in "up -d" pull; do
 done
 grep -qF 'compose_args+=("-f" "$REPO_DIR/docker/compose.vpn.yml")' "$D" ||
     fail "$D: no longer adds compose.vpn.yml to the stack, which the README's VPN forms name"
+# The TLS move has its own upgrade section, with the path make update leaves silent; the older
+# section keeps its heading, which the CHANGELOG and the troubleshooting entries link.
+UPGRADE='## Upgrading from 0.1.x or 0.2.0-rc.x'
+section=$(awk -v h="$UPGRADE" '$0 == h { on = 1; next } on && /^## / { exit } on' "$README")
+for want in "mines on MoneroOcean without TLS. To switch to TLS" "\`make update\` doesn't run the installer" \
+    "\`POOL_URL\` that's a MoneroOcean host with no port" "On x86, nothing else changes"; do
+    case $section in
+        *"$want"*) ;;
+        *) fail "$README: '$UPGRADE' does not hold '$want'" ;;
+    esac
+done
+grep -qxF '## Upgrading an install made before 0.1.0' "$README" ||
+    fail "$README: no 'Upgrading an install made before 0.1.0' heading, which CHANGELOG.md links"
+unreleased=$(awk '/^## \[Unreleased\]/ { on = 1; next } on && /^## / { exit } on' CHANGELOG.md)
+case $unreleased in
+    *"blocks ports 20001 to 28192"*"stratum+tcp://gulf.moneroocean.stream"*) ;;
+    *) fail "CHANGELOG.md: [Unreleased] does not say a network blocking 20001 to 28192 stops mining, and the stratum+tcp:// way out" ;;
+esac
 if grep -nF 'the default connection has no TLS' "$README"; then
     fail "$README: still says the default connection has no TLS"
 fi
