@@ -2,8 +2,8 @@
 # docs/boards.md's "Dedicated board (--mode)" section names what the host tuning installs and how to
 # undo it: the unit, boot script and values file of scripts/setup_service_tuning.sh (read from its
 # constants, so a renamed file fails here), the /run record, configs/board-mode, the huge page count,
-# make service-disable, the chain that drops the mode and the cost inputs of make status. It never
-# promises an overclock.
+# make service-disable, the chain that drops the mode and the whole make status line with its cost
+# inputs. It never promises an overclock.
 # Fixture-free: reads the repository's files. Run from the repository root.
 set -u
 
@@ -37,6 +37,9 @@ grep -qF -- "$chain" <<<"$section" || fail "docs-host-tuning: the section does n
 if grep -qF -- "the installer run again without" <<<"$section"; then
     fail "docs-host-tuning: the section says a re-run of the installer alone drops the mode"
 fi
+# The cost inputs ride on make status: pin the whole fenced line, so the command cannot drift.
+readout="make status WALL_WATTS=9.5 KWH_PRICE=0.25"
+grep -qxF -- "$readout" <<<"$section" || fail "docs-host-tuning: the section does not show the line: $readout"
 grep -qF -- "When the installer writes a new service config" <<<"$section" || fail "docs-host-tuning: the section does not say the installer writes configs/board-mode only with a new service config"
 for word in overclock config.txt; do
     if grep -qiF -- "$word" <<<"$section"; then fail "docs-host-tuning: the section names $word"; fi
