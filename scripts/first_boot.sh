@@ -816,6 +816,22 @@ function fetch_with_retry() {
     done
 }
 
+# Exit 1 with one error line when the settings ask for Wi-Fi and the Wi-Fi step left no record of
+# setting it up. With the record, a board without a wireless interface only gets a warning.
+function wifi_check() {
+    local dir
+    [ -n "$S_WIFI_SSID" ] || return 0
+    if [ ! -e "$STATE_DIR/wifi" ]; then
+        error "Wi-Fi was asked for (wifi_ssid) but the Wi-Fi step never set it up: copy all three files of dietpi-first-boot.zip onto the card, Automation_Custom_PreScript.sh included, and flash again; /var/lib/dietpi/logs/dietpi-firstboot.log has the step's own line."
+        return 1
+    fi
+    for dir in "$NET_DIR"/*; do
+        [ -e "$dir/wireless" ] || [ -e "$dir/phy80211" ] && return 0
+    done
+    warning "This board has no Wi-Fi interface: it uses Ethernet, and wifi_ssid is not used."
+    return 0
+}
+
 # Exit 1 with one error line when the board is under RandomX's fast-mode floor and the settings
 # did not choose light mode. A memory size it cannot read is left to the installer.
 function memory_floor_ok() {
@@ -885,6 +901,7 @@ function setup() {
     settings=$?
     ssh_policy || { setup_failed; return 1; }
     [ "$settings" -eq 0 ] || { setup_failed; return 1; }
+    wifi_check || { setup_failed; return 1; }
     memory_floor_ok || { setup_failed; return 1; }
     host=$(board_name) || { setup_failed; return 1; }
     set_hostname "$host" || { setup_failed; return 1; }

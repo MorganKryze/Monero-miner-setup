@@ -4,7 +4,8 @@
 # unless its sha256 is the one the script carries, and runs it with --prebuilt. The setup is
 # recorded done only once the installer exits 0 and xmrig.service is enabled and running; every
 # refusal leaves it undone, exits 1 and lights the error LED, and a done board only sets the
-# heartbeat. SSH is turned off first, before any check that can refuse but the one for a copy without
+# heartbeat. Wi-Fi asked for in the settings but never set up stops the setup; a board without
+# Wi-Fi only warns. SSH is turned off first, before any check that can refuse but the one for a copy without
 # a release, and once more after the apt wait; SSH left on or the host name not set stops the setup before the installer. A clone a
 # power cut left at the wrong commit is removed before the next run.
 # DietPi's minimal image has no git, make or bc: the setup installs the missing ones through apt
@@ -269,6 +270,42 @@ printf 'MemTotal:        2014000 kB\n' > "$w/light/meminfo"
 same "memory under the floor, light" "$ssh_line
 $done_line rpi5-3fa2.
 exit 0" "$(run light)"
+
+# ---- Wi-Fi ----
+wifi_set=("wifi_ssid = shelf-net" "wifi_key = not-a-real-key-1" "wifi_country = FR")
+board wifinorec "${wifi_set[@]}"
+same "Wi-Fi asked, step never ran" "$ssh_line
+[  ERROR  ] Wi-Fi was asked for (wifi_ssid) but the Wi-Fi step never set it up: copy all three files of dietpi-first-boot.zip onto the card, Automation_Custom_PreScript.sh included, and flash again; /var/lib/dietpi/logs/dietpi-firstboot.log has the step's own line.
+exit 1" "$(run wifinorec)"
+same "Wi-Fi never set up: calls" "$ssh_run" "$(calls)"
+same "Wi-Fi never set up: error LED" "none 255" "$(led wifinorec)"
+no_done wifinorec
+board wifiok "${wifi_set[@]}"; printf 'country=FR\n' > "$w/wifiok/state/wifi"; mkdir -p "$w/wifiok/net/wlan0/wireless"
+same "Wi-Fi set up, wireless board" "$ssh_line
+$done_line rpi5-3fa2.
+exit 0" "$(run wifiok)"
+same "Wi-Fi set up: calls" "$ssh_off
+$ssh_run
+$(ok_calls wifiok)" "$(calls)"
+board wifiphy "${wifi_set[@]}"; printf 'country=FR\n' > "$w/wifiphy/state/wifi"; mkdir -p "$w/wifiphy/net/wlan0/phy80211"
+same "Wi-Fi set up, phy80211 board" "$ssh_line
+$done_line rpi5-3fa2.
+exit 0" "$(run wifiphy)"
+board wifiwired "${wifi_set[@]}"; printf 'country=FR\n' > "$w/wifiwired/state/wifi"
+same "Wi-Fi set up, wired-only board" "$ssh_line
+[ WARNING ] This board has no Wi-Fi interface: it uses Ethernet, and wifi_ssid is not used.
+$done_line rpi5-3fa2.
+exit 0" "$(run wifiwired)"
+same "wired-only: calls" "$ssh_off
+$ssh_run
+$(ok_calls wifiwired)" "$(calls)"
+board wifinone
+same "no wifi_ssid" "$ssh_line
+$done_line rpi5-3fa2.
+exit 0" "$(run wifinone)"
+same "no wifi_ssid: calls" "$ssh_off
+$ssh_run
+$(ok_calls wifinone)" "$(calls)"
 
 # ---- the board ----
 board pi4; printf 'raspberrypi,4-model-b\0brcm,bcm2711\0' > "$w/pi4/compatible"
