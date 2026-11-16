@@ -64,5 +64,11 @@ for text in dietpi-first-boot.zip SHA256SUMS "sha256sum -c SHA256SUMS" "gh attes
     says "$text" || fail "readme-first-boot: the section does not name $text"
 done
 
+# The Wi-Fi step: the pre-script, the file it writes and the dietpi.txt line it turns on.
+for text in Automation_Custom_PreScript.sh dietpi-wifi.txt AUTO_SETUP_NET_WIFI_ENABLED=1; do
+    says "$text" || fail "readme-first-boot: the section does not name $text"
+done
+says "Wi-Fi isn't set up" && fail "readme-first-boot: the section still says Wi-Fi isn't set up"
+
 [ "$failed" -eq 0 ] && echo "PASS readme-first-boot"
 exit "$failed"
