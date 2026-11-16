@@ -78,7 +78,8 @@ for given in pool.example.com:3333 stratum+tcp://gulf.moneroocean.stream gulf.mo
 done
 
 # --tls-fingerprint takes 64 hex digits or openssl's colon form, written lower case without colons.
-on parsed -w "$wallet" --tls-fingerprint 23:9D:AA:DD:5C:7D:0A:C0:97:37:6C:78:71:F7:87:73:88:26:EE:F1:C0:24:72:9E:FF:87:0E:47:3B:97:08:55
+colon=23:9D:AA:DD:5C:7D:0A:C0:97:37:6C:78:71:F7:87:73:88:26:EE:F1:C0:24:72:9E:FF:87:0E:47:3B:97:08:55
+on parsed -w "$wallet" --tls-fingerprint "$colon"
 want "colon form" fingerprint "$pin" "$out"
 on parsed -w "$wallet" --tls-fingerprint "$(printf %s "$mine" | tr a-f A-F)"
 want "upper case" fingerprint "$mine" "$out"
@@ -88,7 +89,8 @@ want "no flag" fingerprint none "$out"
 TLS_FINGERPRINT=$mine on parsed -w "$wallet"
 want "fingerprint from the environment" fingerprint none "$out"
 fline="[ERROR] --tls-fingerprint must be a sha256 of 64 hex digits, with or without a colon between each pair."
-for bad in "${mine:1}" "${mine}0" "g${mine:1}" "${pin:0:2}:${pin:2}" '"},"url":"evil' "$mine;id" ''; do
+for bad in "${mine:1}" "${mine}0" "g${mine:1}" "${pin:0:2}:${pin:2}" '"},"url":"evil' "$mine;id" \
+  "${colon}:00" "${colon}x" "x${colon}" "0${colon}" ''; do
   on parse_arguments -w "$wallet" --tls-fingerprint "$bad"
   want "fingerprint $bad" exit 1 "$code"
   want "fingerprint $bad" output "$fline" "$out"
