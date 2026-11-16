@@ -196,6 +196,8 @@ ok_calls() { # fixture: the calls of a clean run, installer arguments included
     "installer -w $W --mode eco --prebuilt --autostart -y --name ${2:-rpi5-3fa2}${3:+ $3}" \
     "systemctl is-enabled --quiet xmrig.service" "systemctl is-active --quiet xmrig.service"
 }
+# A sha256 constant: nothing is fetched.
+FP=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ssh_line="[  INFO   ] No ssh_key in the settings: the SSH server is disabled and masked."
 done_line="[ SUCCESS ] First-boot setup done: rpi5-3fa2 mines as worker"
 
@@ -316,14 +318,14 @@ exit 1" "$(run noservice)"
 same "no service: error LED" "none 255" "$(led noservice)"
 no_done noservice
 
-board ok "pool = pool.example.org:10128" "donate = 1" "name = shelf-2"
+board ok "pool = pool.example.org:10128" "donate = 1" "name = shelf-2" "tls_fingerprint = $FP"
 out=$(run ok)
 same "success" "$ssh_line
 [ SUCCESS ] First-boot setup done: rpi5-3fa2 mines as worker shelf-2.
 exit 0" "$out"
 same "success calls" "$ssh_off
 $ssh_run
-$(ok_calls ok shelf-2 "-p pool.example.org:10128 --donate 1")" "$(calls)"
+$(ok_calls ok shelf-2 "-p pool.example.org:10128 --donate 1 --tls-fingerprint $FP")" "$(calls)"
 [ -e "$w/ok/state/done" ] || fail "success: no done"
 [ -e "$w/ok/state/installing" ] && fail "success: installing left"
 [ -e "$w/installing-seen" ] || fail "success: no installing while the installer runs"

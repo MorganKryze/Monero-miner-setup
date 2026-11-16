@@ -89,7 +89,7 @@ meminfo 8000000
 while IFS='|' read -r name pct cpu nproc own count port how; do
   cgroup v2 "$cpu" ""
   FIX_OWN=$own FIX_NPROC=$nproc run "$name" MAX_THREADS_PERCENT="$pct" FIX_OWN="$own" FIX_NPROC="$nproc"
-  want "$name" threads "[$count,\"gulf.moneroocean.stream:$port\"]" "$(threads)"
+  want "$name" threads "[$count,\"stratum+ssl://gulf.moneroocean.stream:$((port + 10000))\"]" "$(threads)"
   says "$name" "[  INFO   ] Mining with $count threads: $pct% of $how, rounded up, at most xmrig's own count of $own."
 done <<'TABLE'
 quota 2, 75%|75|200000 100000|8|8|2|10016|its CPU quota of 2.00 CPUs
@@ -107,24 +107,24 @@ TABLE
 # A leading zero is a whole number in base ten, not an octal one.
 cgroup v2 "200000 100000" ""
 FIX_OWN=8 run leading-zero MAX_THREADS_PERCENT=075 FIX_OWN=8
-want leading-zero threads '[2,"gulf.moneroocean.stream:10016"]' "$(threads)"
+want leading-zero threads '[2,"stratum+ssl://gulf.moneroocean.stream:20016"]' "$(threads)"
 says leading-zero "[  INFO   ] Mining with 2 threads: 75% of its CPU quota of 2.00 CPUs, rounded up, at most xmrig's own count of 8."
 # cgroup v1, and v1 without a quota.
 cgroup v1 "300000 100000" ""
 FIX_OWN=8 run v1 MAX_THREADS_PERCENT=50 FIX_OWN=8
-want v1 threads '[2,"gulf.moneroocean.stream:10016"]' "$(threads)"
+want v1 threads '[2,"stratum+ssl://gulf.moneroocean.stream:20016"]' "$(threads)"
 cgroup v1 "-1 100000" ""
 FIX_OWN=8 run v1-none MAX_THREADS_PERCENT=50 FIX_NPROC=6 FIX_OWN=8
-want v1-none threads '[3,"gulf.moneroocean.stream:10032"]' "$(threads)"
+want v1-none threads '[3,"stratum+ssl://gulf.moneroocean.stream:20032"]' "$(threads)"
 # A forced count is used as is, and xmrig is not started for its own count.
 cgroup v2 "200000 100000" ""
 run forced FORCE_THREAD_COUNT=5 FIX_OWN=2
-want forced threads '[5,"gulf.moneroocean.stream:10064"]' "$(threads)"
+want forced threads '[5,"stratum+ssl://gulf.moneroocean.stream:20064"]' "$(threads)"
 says forced "[  INFO   ] Mining with 5 threads, forced by FORCE_THREAD_COUNT."
 [ ! -e "$w/probe.log" ] || fail "forced: xmrig was started for its own count"
 # xmrig's own count unreadable: the uncapped count, one warning.
 run no-count MAX_THREADS_PERCENT=75
-want no-count threads '[2,"gulf.moneroocean.stream:10016"]' "$(threads)"
+want no-count threads '[2,"stratum+ssl://gulf.moneroocean.stream:20016"]' "$(threads)"
 says no-count "[ WARNING ] Could not read xmrig's own thread count: mining with 2 threads, 75% of its CPU quota of 2.00 CPUs, rounded up, without that cap."
 
 # Memory: limit (v2 or v1), available kB, free huge pages: the mode, and the warning under 2560 MiB.

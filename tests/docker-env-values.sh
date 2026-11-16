@@ -66,17 +66,19 @@ refused() { # name, error line, args...
 run defaults
 want defaults exit 0 "$code"
 want defaults .env "$(printf '%s\n' "WALLET_ADDRESS=\"$wallet\"" 'WORKER_NAME="docker_miner"' 'POOL_URL="gulf.moneroocean.stream"' \
-  'DONATE_LEVEL="0"' 'MAX_THREADS_PERCENT="75"' 'FORCE_THREAD_COUNT=""' 'CPU_COUNT="2.0"' 'MEMORY_LIMIT="3g"' \
+  'TLS_FINGERPRINT=""' 'DONATE_LEVEL="0"' 'MAX_THREADS_PERCENT="75"' 'FORCE_THREAD_COUNT=""' 'CPU_COUNT="2.0"' 'MEMORY_LIMIT="3g"' \
   'PAUSE_ON_BATTERY="false"' 'PAUSE_ON_ACTIVE="false"' 'XMRIG_IMAGE="ghcr.io/morgankryze/monero-miner-setup:latest"')" "$(body "$env")"
 want defaults stderr "" "$err"
 
 # Values at the edges of their rules, written as passed.
 run edges -w "$wallet.Rig42" --worker-name 'rig@home:1+a.b-c_d' --pool stratum+ssl://pool.example.com:443 --donate 5 \
+  --tls-fingerprint 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
   --threads 100 --force-threads 1024 --cpus 1.5 --memory 2560m --pause-battery --pause-active \
   --image ghcr.io/x/y:v1@sha256:0123
 want edges exit 0 "$code"
 want edges .env "$(printf '%s\n' "WALLET_ADDRESS=\"$wallet.Rig42\"" 'WORKER_NAME="rig@home:1+a.b-c_d"' \
-  'POOL_URL="stratum+ssl://pool.example.com:443"' 'DONATE_LEVEL="5"' 'MAX_THREADS_PERCENT="100"' 'FORCE_THREAD_COUNT="1024"' \
+  'POOL_URL="stratum+ssl://pool.example.com:443"' \
+  'TLS_FINGERPRINT="00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"' 'DONATE_LEVEL="5"' 'MAX_THREADS_PERCENT="100"' 'FORCE_THREAD_COUNT="1024"' \
   'CPU_COUNT="1.5"' 'MEMORY_LIMIT="2560m"' 'PAUSE_ON_BATTERY="true"' 'PAUSE_ON_ACTIVE="true"' 'XMRIG_IMAGE="ghcr.io/x/y:v1@sha256:0123"')" "$(body "$env")"
 want edges stderr "" "$err"
 # --threads alone: a percentage, no forced count.
@@ -101,6 +103,13 @@ for bad in 'a b' 'x","url":"evil' 'a#b' 'a$b' 'rigé' "$(printf 'a%.0s' {1..65})
 done
 for bad in 'a;b' 'pool:0' 'pool:65536' 'http://pool' '-pool' 'x";touch${IFS}/tmp/pwned;#e;s#x#'; do
   refused "pool $bad" "--pool must be a host name or IPv4 address, optionally after stratum+tcp:// or stratum+ssl:// and before a :port from 1 to 65535." --pool "$bad"
+done
+fp=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+for bad in "${fp:1}" "${fp}0" "g${fp:1}" '"},"url":"evil' "$fp;id"; do
+  refused "fingerprint $bad" "--tls-fingerprint must be a sha256 of 64 hex digits, with or without a colon between each pair." --tls-fingerprint "$bad"
+done
+for pool in pool.example.com:3333 stratum+tcp://gulf.moneroocean.stream gulf.moneroocean.stream:10128; do
+  refused "fingerprint without tls $pool" "--tls-fingerprint needs a TLS pool: give it after stratum+ssl://, or a MoneroOcean host with no port." --pool "$pool" --tls-fingerprint "$fp"
 done
 for bad in 6 -1 x 1.0; do refused "donate $bad" "--donate must be a whole number from 0 to 5." --donate "$bad"; done
 for bad in 0 101 x 75%; do refused "threads $bad" "--threads must be a whole number from 1 to 100." --threads "$bad"; done
@@ -149,6 +158,8 @@ VPN_USER=user VPN_PASS=p run nordvpn --vpn nordvpn --vpn-location Switzerland
 want nordvpn .env.vpn "$(printf '%s\n' 'VPN_SERVICE_PROVIDER="nordvpn"' 'VPN_TYPE="openvpn"' 'OPENVPN_USER="user"' \
   'OPENVPN_PASSWORD="p"' 'SERVER_COUNTRIES="Switzerland"' 'TZ="UTC"' 'LOG_LEVEL="info"')" "$(body "$vpn")"
 want nordvpn stderr "[ WARNING ] NordVPN's terms may prohibit crypto-mining on your plan. Verify before running long." "$err"
+# Compose hands the miner the pin the .env holds, empty when it holds none.
+want compose TLS_FINGERPRINT "      - TLS_FINGERPRINT=\${TLS_FINGERPRINT:-}" "$(grep -F 'TLS_FINGERPRINT=' "$root/docker/compose.yml")"
 # Nothing above ran in the repository itself.
 changed=$(find "$root/docker" "$root/scripts" -newer "$w/stamp" 2>&1)
 [ -z "$changed" ] || fail "real tree: changed in the repository: $(printf '%s' "$changed" | tr '\n' ' ')"

@@ -7,8 +7,9 @@
 wallet =
 # max mines on every CPU the board profile allows; eco leaves headroom and runs cooler.
 mode = eco
-# The pool to mine on (default: the installer's, gulf.moneroocean.stream).
-# pool = gulf.moneroocean.stream:10128
+# The pool to mine on (default: gulf.moneroocean.stream over TLS, its certificate pinned).
+# stratum+tcp://gulf.moneroocean.stream mines without TLS.
+# pool = gulf.moneroocean.stream
 # The worker name the pool shows (default: the board's host name, such as rpi5-3fa2).
 # name = rpi5-3fa2
 # Donation level in percent, 0 to 5 (default: the installer's, 0).
@@ -19,6 +20,8 @@ mode = eco
 # mdns = off
 # A public key allowed to log in as root over SSH.
 # ssh_key = ssh-ed25519 AAAA... you@laptop
+# Your TLS pool's certificate sha256, 64 hex digits, colons allowed (default: MoneroOcean's pin).
+# tls_fingerprint =
 END_OF_MINER_SETTINGS
 
 # DietPi runs this file once, as root, near the end of its first run. It only hands off: it copies
@@ -140,18 +143,19 @@ function setting_rule() {
         donate) [[ $value =~ ^[0-5]$ ]] || echo "must be a whole number from 0 to 5" ;;
         light) [[ $value =~ ^(yes|no)$ ]] || echo "must be yes or no" ;;
         mdns) [[ $value =~ ^(on|off)$ ]] || echo "must be on or off" ;;
+        tls_fingerprint) [[ $value =~ ^([0-9A-Fa-f]{64}|([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2})$ ]] || echo "must be a sha256 of 64 hex digits, with or without a colon between each pair" ;;
         ssh_key) [[ $value =~ $ssh_re ]] || echo "must be one ssh-ed25519, ecdsa-sha2-nistp256, ecdsa-sha2-nistp384, ecdsa-sha2-nistp521 or ssh-rsa public key, then optionally a comment of letters, digits or @ . _ - characters" ;;
     esac
 }
 
 # Reads a settings file (the block's lines) into S_WALLET S_MODE S_POOL S_NAME S_DONATE S_LIGHT
-# S_MDNS S_SSH_KEY. Each line is matched as text and its value checked for its key's form; nothing
+# S_MDNS S_SSH_KEY S_TLS_FINGERPRINT. Each line is matched as text and its value checked for its key's form; nothing
 # is run or expanded. An empty value leaves the key's default. On the first bad line, a key given
 # twice or a missing wallet or mode: one error line, exit 1.
 function read_settings() {
     local line key value rule n=0 seen=" "
     local key_re='^[[:space:]]*([A-Za-z0-9_]+)[[:space:]]*=(.*)$'
-    S_WALLET="" S_MODE="" S_POOL="" S_NAME="" S_DONATE="" S_LIGHT="no" S_MDNS="off" S_SSH_KEY=""
+    S_WALLET="" S_MODE="" S_POOL="" S_NAME="" S_DONATE="" S_LIGHT="no" S_MDNS="off" S_SSH_KEY="" S_TLS_FINGERPRINT=""
     while IFS= read -r line || [ -n "$line" ]; do
         n=$((n + 1))
         line=${line%$'\r'}
@@ -162,10 +166,10 @@ function read_settings() {
         fi
         key=${BASH_REMATCH[1]}
         value=${BASH_REMATCH[2]}
-        case " wallet mode pool name donate light mdns ssh_key " in
+        case " wallet mode pool name donate light mdns ssh_key tls_fingerprint " in
             *" $key "*) ;;
             *)
-                setting_error "$key" "is not one this script knows: wallet, mode, pool, name, donate, light, mdns, ssh_key"
+                setting_error "$key" "is not one this script knows: wallet, mode, pool, name, donate, light, mdns, ssh_key, tls_fingerprint"
                 return 1
                 ;;
         esac
@@ -198,6 +202,7 @@ function read_settings() {
             light) S_LIGHT=$value ;;
             mdns) S_MDNS=$value ;;
             ssh_key) S_SSH_KEY=$value ;;
+            tls_fingerprint) S_TLS_FINGERPRINT=$value ;;
         esac
     done <"$1"
     [ -n "$S_WALLET" ] || { setting_error wallet "is missing"; return 1; }
@@ -704,6 +709,7 @@ function run_installer() {
     local -a args=(-w "$S_WALLET" --mode "$S_MODE" --prebuilt --autostart -y --name "$1")
     [ -z "$S_POOL" ] || args+=(-p "$S_POOL")
     [ -z "$S_DONATE" ] || args+=(--donate "$S_DONATE")
+    [ -z "$S_TLS_FINGERPRINT" ] || args+=(--tls-fingerprint "$S_TLS_FINGERPRINT")
     : >"$STATE_DIR/installing" || return 1
     (umask 022 && bash "$STATE_DIR/install.sh" "${args[@]}") || return 1
     rm -f -- "$STATE_DIR/installing"

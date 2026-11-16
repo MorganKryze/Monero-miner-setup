@@ -47,7 +47,10 @@ done <<'HELP'
   --worker-name NAME           Worker name, 1-64 letters, digits or . _ - @ : +
                                (default: docker_miner)
   --pool URL                   Pool host[:port], optionally after stratum+tcp:// or
-                               stratum+ssl:// (default: gulf.moneroocean.stream)
+                               stratum+ssl:// (default: gulf.moneroocean.stream, over TLS
+                               with its certificate pinned; stratum+tcp:// for no TLS)
+  --tls-fingerprint HEX        Pin the pool's certificate: its sha256, 64 hex digits or 32 colon pairs
+                               (needs TLS)
   --donate N                   Donation level 0-5 (default: 0)
   --threads N                  Threads as a percentage 1-100 of the container's CPU quota,
                                at most xmrig's own count (default: 75)

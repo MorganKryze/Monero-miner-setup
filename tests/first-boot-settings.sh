@@ -49,7 +49,7 @@ ROOT_SSH_DIR="$FX/ssh" CLONE_DIR="$FX/clone"
 function show() {
     read_settings "$1" || return 1
     printf '%s\n' "wallet=$S_WALLET" "mode=$S_MODE" "pool=$S_POOL" "name=$S_NAME" "donate=$S_DONATE" \
-        "light=$S_LIGHT" "mdns=$S_MDNS" "ssh_key=$S_SSH_KEY"
+        "light=$S_LIGHT" "mdns=$S_MDNS" "ssh_key=$S_SSH_KEY" "tls_fingerprint=$S_TLS_FINGERPRINT"
 }
 # shellcheck source=/dev/null
 source "$EXTRA"
@@ -67,6 +67,9 @@ run() {
 script="$root/scripts/first_boot.sh"
 [ -f "$script" ] || { echo "FAIL no scripts/first_boot.sh"; exit 1; }
 remedy="Fix it in the settings at the top of Automation_Custom_Script.sh and flash the card again, or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot."
+# A sha256 in both of the forms openssl and xmrig print, a constant: nothing is fetched.
+FP=0123456789abcdefABCDEF0123456789abcdef0123456789abcdef0123456789
+FP_COLON=01:23:45:67:89:AB:CD:EF:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef
 W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A
 
 # ---- the parser ----
@@ -74,7 +77,7 @@ mkdir -p "$w/p"
 settings() { printf "$2" > "$w/p/$1"; } # name, printf format (\r, \t and \n spelled out)
 check() { same "$1" "$2" "$(run "$script" "$w/p" show "$w/p/$3")"; }
 
-settings every "# a comment\n\n   # an indented comment\nwallet = $W\nmode=max\npool = 'pool.example.org:10128'\nname = \"rpi5-3fa2\"  \ndonate = 1 # a tail\nlight=yes\nmdns =   on   \nssh_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+7v/x0= me@host\"\n"
+settings every "# a comment\n\n   # an indented comment\nwallet = $W\nmode=max\npool = 'pool.example.org:10128'\nname = \"rpi5-3fa2\"  \ndonate = 1 # a tail\nlight=yes\nmdns =   on   \nssh_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+7v/x0= me@host\"\ntls_fingerprint = $FP\n"
 check "every form" "wallet=$W
 mode=max
 pool=pool.example.org:10128
@@ -83,6 +86,7 @@ donate=1
 light=yes
 mdns=on
 ssh_key=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+7v/x0= me@host
+tls_fingerprint=$FP
 exit 0" every
 settings crlf "wallet = $W\r\nmode = eco\r\n# c\r\n\r\n"
 check "CRLF and defaults" "wallet=$W
@@ -93,6 +97,7 @@ donate=
 light=no
 mdns=off
 ssh_key=
+tls_fingerprint=
 exit 0" crlf
 settings empty-optional "wallet = $W\nmode = eco\npool =\nname = \"\"\n"
 check "empty optional values" "wallet=$W
@@ -103,9 +108,21 @@ donate=
 light=no
 mdns=off
 ssh_key=
+tls_fingerprint=
 exit 0" empty-optional
+settings colon-fp "wallet = $W\nmode = eco\ntls_fingerprint = $FP_COLON\n"
+check "fingerprint with colons" "wallet=$W
+mode=eco
+pool=
+name=
+donate=
+light=no
+mdns=off
+ssh_key=
+tls_fingerprint=$FP_COLON
+exit 0" colon-fp
 settings unknown "wallet = $W\nwalet = $W\nmode = eco\n"
-check "unknown key" "[  ERROR  ] Setting 'walet' is not one this script knows: wallet, mode, pool, name, donate, light, mdns, ssh_key. $remedy
+check "unknown key" "[  ERROR  ] Setting 'walet' is not one this script knows: wallet, mode, pool, name, donate, light, mdns, ssh_key, tls_fingerprint. $remedy
 exit 1" unknown
 settings repeated "wallet = $W\nmode = eco\nmode = max\n"
 check "repeated key" "[  ERROR  ] Setting 'mode' is given twice. $remedy
@@ -151,6 +168,16 @@ form name "\$(touch $w/pwned1)" "must be 1 to 64 letters, digits or . _ - @ : + 
 form pool "\`touch $w/pwned2\`" "must be 1 to 255 letters, digits or . + : / _ - characters"
 form wallet "$W; touch $w/pwned3" "must be 1 to 128 base58 characters"
 form ssh_key "\"ssh-ed25519 AAAA \$(touch $w/pwned4)\"" "must be one ssh-ed25519, ecdsa-sha2-nistp256, ecdsa-sha2-nistp384, ecdsa-sha2-nistp521 or ssh-rsa public key, then optionally a comment of letters, digits or @ . _ - characters"
+form tls_fingerprint "${FP%?}" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
+form tls_fingerprint "${FP%?}g" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
+form tls_fingerprint "${FP_COLON%?}" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
+form tls_fingerprint "${FP}0" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
+form tls_fingerprint "${FP};x" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
+form tls_fingerprint "x${FP}" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
+form tls_fingerprint "${FP_COLON}:0" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
+form tls_fingerprint "0${FP_COLON}" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
+form tls_fingerprint "\$(touch $w/pwned6)" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
+form tls_fingerprint "\`touch $w/pwned7\`" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
 form wallet END_OF_MINER_SETTINGS "must be 1 to 128 base58 characters"
 settings hostile-key "wallet = $W\n\$(touch $w/pwned5) = 1\n"
 check "hostile key" "[  ERROR  ] Line 2 of the settings is not key = value.

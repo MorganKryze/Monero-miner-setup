@@ -25,6 +25,9 @@ RX_FLOOR_MIB=2560
 PROFILE_PATH="scripts/board_profiles.conf"
 DEFAULT_DONATE_LEVEL=0
 DEFAULT_POOL_URL="gulf.moneroocean.stream"
+# MoneroOcean's self-signed certificate (CN=mining.proxy, valid to 2117), the same on every server its
+# names reach. XMRig compares its sha256 as 64 hex digits; a new certificate needs a new release.
+MONEROOCEAN_FINGERPRINT="239daadd5c7d0ac097376c7871f787738826eef1c024729eff870e473b970855"
 DEFAULT_PASS="x"
 DEFAULT_PAUSE_ON_ACTIVE=false
 DEFAULT_PAUSE_ON_BATTERY=false
@@ -214,7 +217,9 @@ function usage() {
     echo "  -t, --threads PERCENT Share of the CPUs to mine on (1-100, default: $DEFAULT_MAX_THREADS; on arm64, the biggest first)"
     echo "  --mode max|eco        CPUs from the board profile (Pi 5, RK3588): max hashrate or eco; not with -t"
     echo "  --donate PERCENT      Donation level (0-5, default: $DEFAULT_DONATE_LEVEL)"
-    echo "  -p, --pool URL        Mining pool URL (default: $DEFAULT_POOL_URL)"
+    echo "  -p, --pool URL        Mining pool URL (default: $DEFAULT_POOL_URL, over TLS with its certificate pinned;"
+    echo "                        stratum+tcp:// mines without TLS, stratum+ssl:// with a port for your own TLS pool)"
+    echo "  --tls-fingerprint HEX Pin the pool's certificate: its sha256, 64 hex digits or 32 colon pairs (needs TLS)"
     echo "  --name STRING         Display name for the mining worker (default: random adjective_noun_NNN)"
     echo "  --pause-active        Pause mining when computer is in active use (default: off)"
     echo "  --pause-battery       Pause mining when computer is on battery (default: off)"
@@ -311,6 +316,46 @@ function is_pool() {
     esac
     [[ $hostport =~ $re ]] || return 1
     [ -z "${BASH_REMATCH[3]}" ] || { [ "$((10#${BASH_REMATCH[3]}))" -ge 1 ] && [ "$((10#${BASH_REMATCH[3]}))" -le 65535 ]; }
+}
+
+# A certificate's sha256 as 64 hex digits, or as the 32 colon-separated pairs openssl prints.
+function is_fingerprint() {
+    local LC_ALL=C
+    [[ $1 =~ ^[0-9A-Fa-f]{64}$ || $1 =~ ^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){31}$ ]]
+}
+
+# A pool URL whose host is moneroocean.stream or a name under it, never a lookalike holding it.
+function is_moneroocean() {
+    # Host names ignore case: the pattern spells each letter both ways (bash 3.2 has no ${x,,}).
+    local host=${1#stratum+???://} name='[Mm][Oo][Nn][Ee][Rr][Oo][Oo][Cc][Ee][Aa][Nn].[Ss][Tt][Rr][Ee][Aa][Mm]'
+    host=${host%%:*}
+    # shellcheck disable=SC2254 # the name is a pattern on purpose
+    case $host in $name | *.$name) return 0 ;; esac
+    return 1
+}
+
+# What the miner gets for the pool $1 and the computed plain port $2: a MoneroOcean URL with no
+# port gets the computed one, over TLS (20000 + the same power of two) unless it asks for
+# stratum+tcp://; any other URL is written as given. Sets POOL_WRITTEN, POOL_TLS and POOL_PIN
+# (MoneroOcean's fingerprint on its own TLS hosts, TLS_FINGERPRINT when given, else empty).
+function pool_settings() {
+    local hostport=${1#stratum+???://}
+    POOL_WRITTEN=$1
+    if is_moneroocean "$1" && [[ $hostport != *:* ]]; then
+        case $1 in
+            stratum+tcp://*) POOL_WRITTEN="$1:$2" ;;
+            *) POOL_WRITTEN="stratum+ssl://$hostport:$(($2 + 10000))" ;;
+        esac
+    fi
+    POOL_TLS=false POOL_PIN=$TLS_FINGERPRINT
+    [[ $POOL_WRITTEN != stratum+ssl://* ]] || POOL_TLS=true
+    if [ "$POOL_TLS" = true ] && [ -z "$POOL_PIN" ] && is_moneroocean "$1"; then
+        POOL_PIN=$MONEROOCEAN_FINGERPRINT
+    fi
+    if [ -n "$POOL_PIN" ] && [ "$POOL_TLS" != true ]; then
+        error "--tls-fingerprint needs a TLS pool: give it after stratum+ssl://, or a MoneroOcean host with no port."
+        return 1
+    fi
 }
 
 
@@ -475,6 +520,7 @@ function parse_arguments() {
     BOARD_PROFILE=""
     DONATE_LEVEL=$DEFAULT_DONATE_LEVEL
     POOL_URL=$DEFAULT_POOL_URL
+    TLS_FINGERPRINT=""
     DISPLAY_NAME=$DEFAULT_PASS
     PAUSE_ON_ACTIVE=$DEFAULT_PAUSE_ON_ACTIVE
     PAUSE_ON_BATTERY=$DEFAULT_PAUSE_ON_BATTERY
@@ -525,6 +571,14 @@ function parse_arguments() {
                 error "--pool must be a host name or IPv4 address, optionally after stratum+tcp:// or stratum+ssl:// and before a :port from 1 to 65535."
                 exit 1
             fi
+            shift 2
+            ;;
+        --tls-fingerprint)
+            if ! is_fingerprint "${2:-}"; then
+                error "--tls-fingerprint must be a sha256 of 64 hex digits, with or without a colon between each pair."
+                exit 1
+            fi
+            TLS_FINGERPRINT=$(printf '%s\n' "${2//:/}" | awk '{ print tolower($0) }')
             shift 2
             ;;
         --pass | --name) # Accept both for backward compatibility
@@ -591,7 +645,9 @@ function parse_arguments() {
     fi
     export MODE
     export DONATE_LEVEL
+    pool_settings "$POOL_URL" 10001 || exit 1
     export POOL_URL
+    export TLS_FINGERPRINT
     export PASS=$DISPLAY_NAME
     export PAUSE_ON_ACTIVE
     export PAUSE_ON_BATTERY
@@ -1313,7 +1369,8 @@ function configs_exist() {
 # write leaves no partial file that a later run would keep.
 function write_miner_config() {
     XMRIG_HINT=$MAX_THREADS XMRIG_DONATE=$DONATE_LEVEL XMRIG_LOG=$3 XMRIG_URL=$4 XMRIG_USER=$WALLET \
-        XMRIG_PASS=$5 XMRIG_BATTERY=$PAUSE_ON_BATTERY XMRIG_ACTIVE=$PAUSE_ON_ACTIVE XMRIG_CPUS=$CPU_LIST XMRIG_LIGHT=$RX_LIGHT awk '
+        XMRIG_PASS=$5 XMRIG_BATTERY=$PAUSE_ON_BATTERY XMRIG_ACTIVE=$PAUSE_ON_ACTIVE XMRIG_CPUS=$CPU_LIST XMRIG_LIGHT=$RX_LIGHT \
+        XMRIG_TLS=$POOL_TLS XMRIG_PIN=$POOL_PIN awk '
         function str(v,   out, i, c) {
             out = ""
             for (i = 1; i <= length(v); i++) {
@@ -1348,6 +1405,8 @@ function write_miner_config() {
         /^[ \t]*"donate-level": [0-9]*,$/ { put("donate-level", ENVIRON["XMRIG_DONATE"]); next }
         /^[ \t]*"log-file": null,$/ { put("log-file", str(ENVIRON["XMRIG_LOG"])); next }
         /^[ \t]*"url": "[^"]*",$/ { put("url", str(ENVIRON["XMRIG_URL"])); next }
+        /^[ \t]*"tls": (true|false),$/ { put("tls", ENVIRON["XMRIG_TLS"] == "true" ? "true" : "false"); next }
+        /^[ \t]*"tls-fingerprint": (null|"[0-9a-f]*"),$/ { put("tls-fingerprint", ENVIRON["XMRIG_PIN"] == "" ? "null" : str(ENVIRON["XMRIG_PIN"])); next }
         /^[ \t]*"user": "[^"]*",$/ { put("user", str(ENVIRON["XMRIG_USER"])); next }
         /^[ \t]*"pass": "[^"]*",$/ { put("pass", str(ENVIRON["XMRIG_PASS"])); next }
         /^[ \t]*"pause-on-battery": [a-z]*,?$/ { put("pause-on-battery", ENVIRON["XMRIG_BATTERY"]); next }
@@ -1362,7 +1421,7 @@ function generate_config_files() {
     local target_dir="$BASE_DIR/$REPO_NAME"
     local source_config_dir="$target_dir/templates"
     local dest_config_dir="$target_dir/configs"
-    local name kept service_kept="" listed every="" unlisted=false missing=()
+    local name kept kept_url kept_pass host flags service_kept="" listed every="" unlisted=false missing=()
 
     info "Generating miner configuration files..."
 
@@ -1400,6 +1459,25 @@ function generate_config_files() {
         [ "$name" != config_background.json ] || service_kept=$kept
         if [ -n "$kept" ]; then
             info "Keeping $kept. To regenerate it, run 'make clean-configs', then the installer again."
+            kept_url=$(awk -F'"' '/^[ \t]*"url": "/ { print $4; exit }' "$kept")
+            if is_moneroocean "$kept_url" && [[ $kept_url != stratum+ssl://* ]]; then
+                # Regenerating draws a new worker name unless --name gives one: the line names the
+                # kept pool host and worker name ("x" has no flag, the installer would replace it).
+                # Both come from a file and become a command the user copies: they pass the checks
+                # --pool and --name do, or the line names the default pool and asks for the name.
+                host=$DEFAULT_POOL_URL
+                if is_pool "$kept_url"; then host=${kept_url#*://} host=${host%%:*}; fi
+                flags="'--pool $host'"
+                kept_pass=$(awk -F'"' '/^[ \t]*"pass": "/ { print $4; exit }' "$kept")
+                if [ -z "$kept_pass" ] || [ "$kept_pass" = "$DEFAULT_PASS" ]; then
+                    :
+                elif is_worker_name "$kept_pass"; then
+                    flags="'--pool $host --name $kept_pass'"
+                else
+                    flags="$flags, your worker name in --name"
+                fi
+                warning "$kept mines on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with $flags and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'."
+            fi
             # The "rx" list sits on a line of its own, whether this installer wrote it or the miner
             # saved it. The miner saves one naming every CPU; a list this installer wrote for a
             # share below 100 names fewer. A config with no list runs on every CPU too.
@@ -1420,13 +1498,7 @@ function generate_config_files() {
     mkdir -p "$target_dir/logs"
 
     if [ ${#missing[@]} -gt 0 ]; then
-        # Define full pool URL with port if needed
-        local full_pool_url="$POOL_URL"
-        # The computed port is a plain TCP one: only a bare or stratum+tcp:// URL gets it.
-        if [[ "$POOL_URL" == *"moneroocean"* ]] && [[ "${POOL_URL#stratum+tcp://}" != *":"* ]]; then
-            full_pool_url="${POOL_URL}:${PORT}"
-            info "Using MoneroOcean with optimized port: $full_pool_url"
-        fi
+        pool_settings "$POOL_URL" "$PORT" || return 1
 
         function generate_random_worker_name() {
             local adjectives=("swift" "rapid" "blazing" "cosmic" "digital" "quantum" "stellar" "epic" "crypto" "atomic" "shadow" "hyper" "mega" "ultra" "power" "turbo")
@@ -1448,6 +1520,18 @@ function generate_config_files() {
             worker_name=$(generate_random_worker_name)
             info "Generated random worker name: $worker_name"
         fi
+        # The worker name is known here, so the clear text line can name the flags that bring the
+        # same worker back over TLS.
+        if [ -n "$POOL_PIN" ]; then
+            info "Using pool $POOL_WRITTEN over TLS, certificate pinned."
+        elif [ "$POOL_TLS" = true ]; then
+            info "Using pool $POOL_WRITTEN over TLS, certificate not pinned."
+        elif is_moneroocean "$POOL_WRITTEN"; then
+            host=${POOL_WRITTEN#*://}
+            warning "Using pool $POOL_WRITTEN on MoneroOcean without TLS. To switch to TLS, run 'make clean-configs', the installer again with '--pool ${host%%:*} --name $worker_name' and the other flags you gave it (such as -t, --donate, --pause-active or --pause-battery), then 'make service-setup' and 'make restart'."
+        else
+            info "Using pool $POOL_WRITTEN without TLS."
+        fi
 
         # The service setup tunes the host for the mode the service config was written for: a kept
         # one, under configs/ or at the clone root, keeps the board-mode it came with. A new one
@@ -1455,7 +1539,7 @@ function generate_config_files() {
         [ -n "$service_kept" ] || rm -f -- "$dest_config_dir/board-mode"
         # Each missing file from its template, with the same settings
         for name in "${missing[@]}"; do
-            if ! write_miner_config "$source_config_dir/$name.template" "$dest_config_dir/$name" "$log_file" "$full_pool_url" "$worker_name"; then
+            if ! write_miner_config "$source_config_dir/$name.template" "$dest_config_dir/$name" "$log_file" "$POOL_WRITTEN" "$worker_name"; then
                 error "Failed to write $dest_config_dir/$name."
                 return 1
             fi
