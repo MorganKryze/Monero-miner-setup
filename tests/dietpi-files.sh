@@ -1,11 +1,10 @@
 #!/bin/bash
 # The DietPi files a release ships. templates/dietpi.txt is DietPi's own file at the pinned
 # version with only the named keys changed: put back, the file hashes to that version's. The zip
-# holds exactly Automation_Custom_Script.sh and dietpi.txt, dated after DietPi's own 2021-01-01
-# 00:02 so its import takes them; the script is scripts/first_boot.sh with only the release tag
-# and the installer's sha256 filled in. A bad tag, a tag other than the installer's version, a
-# missing placeholder or a source that is a link
-# builds nothing.
+# holds exactly the two scripts, dietpi.txt and DietPi's licence, dated after DietPi's own
+# 2021-01-01 00:02 so its import takes them; the script is scripts/first_boot.sh with only the
+# release tag and the installer's sha256 filled in. A bad tag, a tag other than the installer's
+# version, a missing placeholder or a source that is a link builds nothing.
 # Run from the repository root. Prints FAIL lines, exits 1 on any miss.
 rc=0
 root=$PWD
@@ -46,11 +45,13 @@ tag=v$(sed -n 's/^VERSION="\(.*\)"$/\1/p' scripts/install.sh)
 mkdir -p "$w/out" "$w/x"
 bundle "$tag" "$w/out" || fail "bundle: exit non-zero for $tag"
 z=$w/out/dietpi-first-boot.zip
-[ "$(unzip -Z1 "$z" 2>/dev/null | LC_ALL=C sort)" = "$(printf '%s\n' Automation_Custom_Script.sh LICENSE-dietpi.txt dietpi.txt)" ] \
-  || fail "zip: not exactly Automation_Custom_Script.sh, LICENSE-dietpi.txt and dietpi.txt"
+[ "$(unzip -Z1 "$z" 2>/dev/null | LC_ALL=C sort)" = "$(printf '%s\n' Automation_Custom_PreScript.sh Automation_Custom_Script.sh LICENSE-dietpi.txt dietpi.txt)" ] \
+  || fail "zip: not exactly Automation_Custom_PreScript.sh, Automation_Custom_Script.sh, LICENSE-dietpi.txt and dietpi.txt"
 while read -r t; do
   [[ $t =~ ^[0-9]{8}\.[0-9]{6}$ ]] && [ "${t/./}" -gt 20210101000200 ] || fail "zip: a file dated $t, not after 2021-01-01 00:02"
 done < <(zipinfo -T "$z" 2>/dev/null | awk '/^-/ { print $(NF - 1) }')
+# Every file carries the commit's time, so a rebuild is the same zip.
+[ "$(zipinfo -T "$z" 2>/dev/null | awk '/^-/ { print $(NF - 1) }' | sort -u | wc -l | tr -d " ")" = 1 ] || fail "zip: the files do not share one date"
 (cd "$w/x" && unzip -q "$z") || fail "zip: does not extract"
 cmp -s "$w/x/dietpi.txt" "$d" || fail "zip: dietpi.txt is not templates/dietpi.txt"
 # DietPi's licence ships with its file: the GPL-2.0 text of DietPi v10.8, unchanged.
@@ -62,6 +63,10 @@ want=$(sed -e 's/^RELEASE_TAG=""$/RELEASE_TAG="'"$tag"'"/' -e "s/^INSTALLER_SHA2
 grep -qx "RELEASE_TAG=\"$tag\"" "$w/x/Automation_Custom_Script.sh" || fail "zip: no release tag line"
 grep -qx "INSTALLER_SHA256=\"$sum\"" "$w/x/Automation_Custom_Script.sh" || fail "zip: no installer sum line"
 [ -x "$w/x/Automation_Custom_Script.sh" ] || fail "zip: the script is not executable"
+# The pre-script only starts the script's Wi-Fi step: the file from the repository, unchanged.
+cmp -s "$w/x/Automation_Custom_PreScript.sh" scripts/first_boot_prescript.sh || fail "zip: Automation_Custom_PreScript.sh is not scripts/first_boot_prescript.sh"
+[ -x "$w/x/Automation_Custom_PreScript.sh" ] || fail "zip: the pre-script is not executable"
+[ "$(grep -v -e "^#" -e "^$" scripts/first_boot_prescript.sh)" = "exec /bin/bash /boot/Automation_Custom_Script.sh wifi" ] || fail "pre-script: does more than start the Wi-Fi step"
 cp "$z" "$w/first.zip"
 bundle "$tag" "$w/out" && cmp -s "$z" "$w/first.zip" || fail "zip: a second build differs"
 for t in 'v9.8.7' "$tag-x" 'v1.2' 'v1.2.3; rm -rf /' 'main' 'v1.2.3/x' ''; do

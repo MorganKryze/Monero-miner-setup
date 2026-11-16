@@ -182,16 +182,16 @@ make status WALL_WATTS=9.5 KWH_PRICE=0.25
 
 ### DietPi first boot
 
-Use this for a Raspberry Pi 5 or an RK3588 board with no screen and no keyboard: you flash DietPi, drop two files on the card, plug in Ethernet and power, and the board sets itself up and mines under its own name.
+Use this for a Raspberry Pi 5 or an RK3588 board with no screen and no keyboard: you flash DietPi, drop three files on the card, plug in Ethernet or set Wi-Fi, power, and the board sets itself up and mines under its own name.
 
-Each release ships `dietpi-first-boot.zip` with two files to copy, `dietpi.txt` and `Automation_Custom_Script.sh`, and `LICENSE-dietpi.txt`, the GPL-2.0 text that comes with DietPi's `dietpi.txt`.
+Each release ships `dietpi-first-boot.zip` with three files to copy, `dietpi.txt`, `Automation_Custom_Script.sh` and `Automation_Custom_PreScript.sh`, and `LICENSE-dietpi.txt`, the GPL-2.0 text that comes with DietPi's `dietpi.txt`.
 
 1. Flash the official DietPi Trixie image for your board on an SD card.
-2. Copy both files from the zip onto the card, replacing DietPi's `dietpi.txt`:
-   - Raspberry Pi 5: the boot partition, the FAT one your PC opens. The files stay there.
+2. Copy the three files from the zip onto the card, replacing DietPi's `dietpi.txt`:
+   - Raspberry Pi 5: the boot partition, the FAT one your PC opens. DietPi moves the files off the FAT at first boot.
    - Orange Pi 5 Plus and 5 Max: the small FAT partition named `DIETPISETUP`. DietPi imports the files at first boot, then deletes that partition.
 3. Open `Automation_Custom_Script.sh` and edit the settings at its top, between `: <<'END_OF_MINER_SETTINGS'` and `END_OF_MINER_SETTINGS`. Set `wallet` at least.
-4. Plug in Ethernet (Wi-Fi isn't set up), then power.
+4. Plug in Ethernet, or set Wi-Fi in the settings, then power.
 
 Edit with an editor that keeps Unix (LF) line ends, such as VS Code or Notepad++. A value's trailing CR is dropped, but a script saved with CRLF line ends won't run.
 
@@ -208,6 +208,11 @@ The settings are `key = value` lines, read as data: nothing in them is run or ex
 | `mdns = off` | `off` | `on` installs `avahi-daemon` to announce `<host name>.local` |
 | `ssh_key = ssh-ed25519 AAAA... you@laptop` | none: SSH off | one `ssh-ed25519`, `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521` or `ssh-rsa` public key, then an optional comment |
 | `tls_fingerprint =` | MoneroOcean's built-in pin on a MoneroOcean host over TLS; no pin on your own pool | your TLS pool's certificate sha256, 64 hex digits, with or without a colon between each pair. Needs a TLS pool: `stratum+ssl://` or a MoneroOcean host with no port |
+| `wifi_ssid =` | none: no Wi-Fi, the cable only | the Wi-Fi network's name, 1 to 32 bytes with no control character, no `"` and no `\`. Needs `Automation_Custom_PreScript.sh` on the card, `wifi_key` and `wifi_country` |
+| `wifi_key =` | none | the network's WPA-PSK key, 8 to 63 printable ASCII characters, or the 64 hex digits of its PSK; it's read as it stands after `=`, so put comments on their own line. Needs `Automation_Custom_PreScript.sh` on the card |
+| `wifi_country = FR` | none | your country's two-letter code, such as `FR`, any case. Needs `Automation_Custom_PreScript.sh` on the card |
+
+**Wi-Fi.** Set `wifi_ssid`, `wifi_key` and `wifi_country` for one WPA-PSK network, such as `wifi_ssid = YOUR_WIFI_NAME` and `wifi_key = YOUR_WIFI_KEY`. A Wi-Fi name or key is read as it stands after `=`, a `#` or a quote included, so put comments on their own line. Quote a key only to keep a space at its start or end, or when it starts and ends with the same quote, and then with the kind of quote it doesn't hold (`wifi_key = ' YOUR WIFI KEY '`); for a key holding both kinds, give its 64-hex PSK instead. Before DietPi's network, `Automation_Custom_PreScript.sh` writes `dietpi-wifi.txt` and sets `AUTO_SETUP_NET_WIFI_ENABLED=1` and your country in `dietpi.txt`: DietPi tries Wi-Fi first, then the cable when Wi-Fi fails. A board with no Wi-Fi interface uses its cable, with one journal line saying so. With a wrong name or key and no cable, DietPi's first run can't finish and the LED stays the board's own: fix the settings on your PC and flash again. Afterwards the key lives in DietPi's `/var/lib/dietpi/dietpi-wifi.db` and `/etc/wpa_supplicant/wpa_supplicant.conf`, root-only, as the derived PSK; the setup removes it from `/boot/Automation_Custom_Script.sh` and from its own copy of the settings. The card's deleted FAT blocks may keep it until overwritten.
 
 **What happens at first boot.** DietPi runs its first run, then our script once, as root. The script copies your settings to a root-only file, installs `xmrig-first-boot.service` and starts it. That service runs the setup at each boot until it has finished once. A board that lost power during the setup picks it up at the next boot; network waits retry every 10 seconds within the boot. A power cut in the first seconds, before the service is installed, needs a reflash: DietPi never runs the script again.
 
@@ -217,13 +222,14 @@ The settings are `key = value` lines, read as data: nothing in them is run or ex
 | --- | --- |
 | blinks, half a second on, half off | setting up, or waiting for the network |
 | heartbeat | set up. It doesn't say the miner is mining now: `make status` or the pool's panel do |
-| steady on | the setup stopped. `journalctl -u xmrig-first-boot.service` has the line that says why. Follow that line's remedy: for a setting, fix it and flash again, or fix `/var/lib/xmrig-first-boot/settings` over SSH and reboot |
+| steady on | the setup stopped, for a bad setting or Wi-Fi asked for but never set up. `journalctl -u xmrig-first-boot.service` has the line that says why. Follow that line's remedy: for a setting, fix it and flash again, or fix `/var/lib/xmrig-first-boot/settings` over SSH and reboot |
 
 A reboot gives the LED back to the board's own trigger until the setup unit sets it again, early in the boot.
 
 **What the setup changes on the host:**
 
 - `/usr/local/sbin/xmrig-first-boot` (0755, the script without your settings), `/etc/systemd/system/xmrig-first-boot.service` (0644) and the folder `/var/lib/xmrig-first-boot` (0700: your `settings` at 0600, the fetched `install.sh`, and the records `installing`, `done` and `mdns-installed`).
+- With `wifi_ssid`, before DietPi's network: `dietpi-wifi.txt` (0600) on the boot partition, `AUTO_SETUP_NET_WIFI_ENABLED=1` and `AUTO_SETUP_NET_WIFI_COUNTRY_CODE` in `dietpi.txt`, the record `/var/lib/xmrig-first-boot/wifi` (0600, the country only), and the `wifi_key` value emptied in `Automation_Custom_Script.sh`.
 - The host name: `<model>-<last 4 hex digits of the first wired MAC>`, such as `rpi5-3fa2`, `opi5plus-3fa2` or `opi5max-3fa2`, in `/etc/hostname`, with one `127.0.1.1 <name>` line in `/etc/hosts` in place of any other `127.0.1.1` line. It's also the worker name unless you set `name`.
 - SSH. With no `ssh_key`, every SSH unit (`dropbear` or `ssh`) is disabled, stopped and masked, so SSH is off. With one, it's added once to `/root/.ssh/authorized_keys` and password logins are turned off (a drop-in for OpenSSH, `-s -g` for Dropbear), so only key logins work, as `root`. A key the setup can't add turns SSH off. Until DietPi's first run and then the setup act, the image's own SSH server takes `root` with DietPi's default password: keep the board on a network you trust for its first minutes.
 - `git`, `make` and `bc`, the ones DietPi's minimal image lacks: the installer needs them. They're Debian's, installed through apt without recommended packages.
@@ -566,7 +572,7 @@ On Linux, these steps go through `sudo` (`make deps-debian`, `scripts/setup_serv
 - `rm -f` of `/etc/systemd/system/xmrig.service` and `/etc/logrotate.d/xmrig`, on `make service-disable`
 - with `--mode` on a board with a profile: `install` of `/etc/xmrig-host-tuning.conf`, `/usr/local/sbin/xmrig-host-tuning` and `/etc/systemd/system/xmrig-host-tuning.service`, root-owned, from private temp files, and removed again, with the folder `/run/xmrig-host-tuning`, by a setup without a mode or by `make service-disable`
 - on a board set up from the DietPi files, on `make service-disable`: `test` of the setup's record that it installed `avahi-daemon`, then `apt-get remove` of it when it did; removal of `/etc/systemd/system/xmrig-first-boot.service`, `/usr/local/sbin/xmrig-first-boot` and the folder `/var/lib/xmrig-first-boot`
-- on a DietPi card set up from the release's `dietpi-first-boot.zip`, the first-boot setup runs as root, from DietPi's own custom-script hook: the SSH settings, the host name and its `/etc/hosts` line, root's `authorized_keys`, the board LED, its unit and state folder, `git`, `make` and `bc` when they're missing, `avahi-daemon` with `mdns = yes`, then the installer above with `--prebuilt` (the full list is in the DietPi section)
+- on a DietPi card set up from the release's `dietpi-first-boot.zip`, the first-boot setup runs as root, from DietPi's own custom-script hooks: with `wifi_ssid`, the Wi-Fi step's `dietpi-wifi.txt`, `dietpi.txt` lines, `/var/lib/xmrig-first-boot/wifi` record and emptied `wifi_key`; the SSH settings, the host name and its `/etc/hosts` line, root's `authorized_keys`, the board LED, its unit and state folder, `git`, `make` and `bc` when they're missing, `avahi-daemon` with `mdns = yes`, then the installer above with `--prebuilt` (the full list is in the DietPi section)
 - `systemctl daemon-reload`, `enable`, `start`, `try-restart`, `stop`, `status`, `disable`, `reset-failed` and `clean`
 
 `--prebuilt` runs the installer itself as root: `apt-get update` and `apt-get install` of `libuv1t64 libssl3t64 libhwloc15`, the download into a root-only folder in the clone, and the rename onto `<clone>/xmrig` and `xmrig.release`.

@@ -21,7 +21,7 @@ trap 'rm -rf -- "$w"' EXIT
 w=$(cd "$w" && pwd -P)
 mkdir -p "$w/tools" "$w/stubs"
 # touch is there for the hostile values: a value that ran would leave a file.
-for t in chmod mkdir mktemp mv rm cat touch; do
+for t in chmod mkdir mktemp mv rm cat cp touch; do
   p=$(command -v "$t") || { echo "FAIL no $t on this host"; exit 1; }
   ln -s "$p" "$w/tools/$t"
 done
@@ -49,18 +49,20 @@ ROOT_SSH_DIR="$FX/ssh" CLONE_DIR="$FX/clone"
 function show() {
     read_settings "$1" || return 1
     printf '%s\n' "wallet=$S_WALLET" "mode=$S_MODE" "pool=$S_POOL" "name=$S_NAME" "donate=$S_DONATE" \
-        "light=$S_LIGHT" "mdns=$S_MDNS" "ssh_key=$S_SSH_KEY" "tls_fingerprint=$S_TLS_FINGERPRINT"
+        "light=$S_LIGHT" "mdns=$S_MDNS" "ssh_key=$S_SSH_KEY" "tls_fingerprint=$S_TLS_FINGERPRINT" \
+        "wifi_ssid=$S_WIFI_SSID" "wifi_key=$S_WIFI_KEY" "wifi_country=$S_WIFI_COUNTRY"
 }
 # shellcheck source=/dev/null
 source "$EXTRA"
 "$@"
 EOF
 : > "$w/extra.sh"
-# run <script> <fixture> <function> <args...>: prints stdout and stderr, then the exit code. The
-# output goes through a file, not a pipe: a blink loop left running must not hold the check up.
+# run <script> <fixture> <function> <args...>: prints stdout and stderr, then the exit code, in the
+# locale RUN_LANG names when set. The output goes through a file, not a pipe: a blink loop left
+# running must not hold the check up.
 run() {
   local script=$1 fx=$2 code; shift 2
-  env -i PATH="$w/stubs:$w/tools" SCRIPT="$script" FX="$fx" EXTRA="$w/extra.sh" "$BASH" --norc --noprofile "$w/drive.sh" "$@" > "$w/run.out" 2>&1
+  env -i ${RUN_LANG:+"LANG=$RUN_LANG"} PATH="$w/stubs:$w/tools" SCRIPT="$script" FX="$fx" EXTRA="$w/extra.sh" "$BASH" --norc --noprofile "$w/drive.sh" "$@" > "$w/run.out" 2>&1
   code=$?
   cat "$w/run.out"; echo "exit $code"
 }
@@ -77,7 +79,7 @@ mkdir -p "$w/p"
 settings() { printf "$2" > "$w/p/$1"; } # name, printf format (\r, \t and \n spelled out)
 check() { same "$1" "$2" "$(run "$script" "$w/p" show "$w/p/$3")"; }
 
-settings every "# a comment\n\n   # an indented comment\nwallet = $W\nmode=max\npool = 'pool.example.org:10128'\nname = \"rpi5-3fa2\"  \ndonate = 1 # a tail\nlight=yes\nmdns =   on   \nssh_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+7v/x0= me@host\"\ntls_fingerprint = $FP\n"
+settings every "# a comment\n\n   # an indented comment\nwallet = $W\nmode=max\npool = 'pool.example.org:10128'\nname = \"rpi5-3fa2\"  \ndonate = 1 # a tail\nlight=yes\nmdns =   on   \nssh_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+7v/x0= me@host\"\ntls_fingerprint = $FP\nwifi_ssid = 'Home net'\nwifi_key = pa ss #word\nwifi_country = fr\n"
 check "every form" "wallet=$W
 mode=max
 pool=pool.example.org:10128
@@ -87,7 +89,16 @@ light=yes
 mdns=on
 ssh_key=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+7v/x0= me@host
 tls_fingerprint=$FP
+wifi_ssid=Home net
+wifi_key=pa ss #word
+wifi_country=FR
 exit 0" every
+# A Wi-Fi key is read as it stands, a quote in it kept; quotes of the kind it doesn't hold keep a
+# space at either end, as the README says.
+settings wifi-quotes "wallet = $W\nmode = eco\nwifi_ssid = Home\nwifi_key = ab\"cd'1234\nwifi_country = FR\n"
+check "wifi key holding quotes, unquoted" "$(printf '%s\n' "wallet=$W" mode=eco pool= name= donate= light=no mdns=off ssh_key= tls_fingerprint= wifi_ssid=Home "wifi_key=ab\"cd'1234" wifi_country=FR 'exit 0')" wifi-quotes
+settings wifi-spaces "wallet = $W\nmode = eco\nwifi_ssid = Home\nwifi_key = ' ab\"cd1234 '\nwifi_country = FR\n"
+check "wifi key with end spaces, quoted" "$(printf '%s\n' "wallet=$W" mode=eco pool= name= donate= light=no mdns=off ssh_key= tls_fingerprint= wifi_ssid=Home "wifi_key= ab\"cd1234 " wifi_country=FR 'exit 0')" wifi-spaces
 settings crlf "wallet = $W\r\nmode = eco\r\n# c\r\n\r\n"
 check "CRLF and defaults" "wallet=$W
 mode=eco
@@ -98,6 +109,9 @@ light=no
 mdns=off
 ssh_key=
 tls_fingerprint=
+wifi_ssid=
+wifi_key=
+wifi_country=
 exit 0" crlf
 settings empty-optional "wallet = $W\nmode = eco\npool =\nname = \"\"\n"
 check "empty optional values" "wallet=$W
@@ -109,6 +123,9 @@ light=no
 mdns=off
 ssh_key=
 tls_fingerprint=
+wifi_ssid=
+wifi_key=
+wifi_country=
 exit 0" empty-optional
 settings colon-fp "wallet = $W\nmode = eco\ntls_fingerprint = $FP_COLON\n"
 check "fingerprint with colons" "wallet=$W
@@ -120,9 +137,12 @@ light=no
 mdns=off
 ssh_key=
 tls_fingerprint=$FP_COLON
+wifi_ssid=
+wifi_key=
+wifi_country=
 exit 0" colon-fp
 settings unknown "wallet = $W\nwalet = $W\nmode = eco\n"
-check "unknown key" "[  ERROR  ] Setting 'walet' is not one this script knows: wallet, mode, pool, name, donate, light, mdns, ssh_key, tls_fingerprint. $remedy
+check "unknown key" "[  ERROR  ] Setting 'walet' is not one this script knows: wallet, mode, pool, name, donate, light, mdns, ssh_key, tls_fingerprint, wifi_ssid, wifi_key, wifi_country. $remedy
 exit 1" unknown
 settings repeated "wallet = $W\nmode = eco\nmode = max\n"
 check "repeated key" "[  ERROR  ] Setting 'mode' is given twice. $remedy
@@ -178,6 +198,30 @@ form tls_fingerprint "${FP_COLON}:0" "must be a sha256 of 64 hex digits, with or
 form tls_fingerprint "0${FP_COLON}" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
 form tls_fingerprint "\$(touch $w/pwned6)" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
 form tls_fingerprint "\`touch $w/pwned7\`" "must be a sha256 of 64 hex digits, with or without a colon between each pair"
+form wifi_ssid 'a"b' 'must be 1 to 32 bytes with no control character, no " and no \: rename the network if it holds one'
+form wifi_key short 'must be 8 to 63 printable ASCII characters, or the 64 hex digits of its PSK'
+form wifi_country F 'must be your country'"'"'s two-letter code, such as FR'
+settings key-alone "wallet = $W\nmode = eco\nwifi_key = not-a-real-key-42\n"
+check "wifi_key without wifi_ssid" "[  ERROR  ] Settings 'wifi_ssid' and 'wifi_key' go together. $remedy
+exit 1" key-alone
+settings no-country "wallet = $W\nmode = eco\nwifi_ssid = Home\n"
+check "wifi_ssid without wifi_country" "[  ERROR  ] Settings 'wifi_ssid' and 'wifi_country' go together. $remedy
+exit 1" no-country
+# The handoff's copy keeps wifi_ssid and wifi_country with an empty wifi_key: the setup takes it.
+settings key-emptied "wallet = $W\nmode = eco\nwifi_ssid = Home\nwifi_key =\nwifi_country = FR\n"
+check "wifi_ssid with its key emptied" "wallet=$W
+mode=eco
+pool=
+name=
+donate=
+light=no
+mdns=off
+ssh_key=
+tls_fingerprint=
+wifi_ssid=Home
+wifi_key=
+wifi_country=FR
+exit 0" key-emptied
 form wallet END_OF_MINER_SETTINGS "must be 1 to 128 base58 characters"
 settings hostile-key "wallet = $W\n\$(touch $w/pwned5) = 1\n"
 check "hostile key" "[  ERROR  ] Line 2 of the settings is not key = value.
@@ -200,8 +244,8 @@ same "unterminated block" 'exit 1' "$(run "$script" "$w/blk" settings_region "$w
 # The shipped block holds every key, commented with its default, and only wallet and mode live.
 same "shipped block" "wallet =
 mode = eco" "$(run "$script" "$w/blk" settings_region "$script" | grep -v '^#' | grep -v '^exit 0$' | grep -v '^$')"
-for k in pool name donate light mdns ssh_key; do
-  run "$script" "$w/blk" settings_region "$script" | grep "^# $k = " >/dev/null || fail "shipped block: no commented $k"
+for k in pool name donate light mdns ssh_key wifi_ssid wifi_key wifi_country; do
+  run "$script" "$w/blk" settings_region "$script" | grep -E "^# $k =( |$)" >/dev/null || fail "shipped block: no commented $k"
 done
 bash --norc --noprofile -n "$script" || fail "the script does not parse"
 grep -qx 'RELEASE_TAG=""' "$script" || fail 'no RELEASE_TAG="" line'
@@ -222,7 +266,7 @@ started="[  INFO   ] The first-boot setup is installed and starts now: the statu
 h="$w/h"; mkdir -p "$h/sbin" "$h/unit" "$h/boot"
 # The release build fills its tag and the installer's sha256.
 { sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$script"
-  printf '%s\n' "wallet = $W" 'mode = max' '# pool = x'
+  printf '%s\n' "wallet = $W" 'mode = max' '# pool = x' 'wifi_ssid = Home' '  wifi_key = not-a-real-key-42' '# wifi_key = old-made-up-key-7' 'wifi_country = FR'
   sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$script" |
     sed 's/^RELEASE_TAG=""$/RELEASE_TAG="v9.9.9"/; s/^INSTALLER_SHA256=""$/INSTALLER_SHA256="'"$(printf '%064d' 0)"'"/'
 } > "$h/boot/Automation_Custom_Script.sh"
@@ -233,7 +277,16 @@ same "state folder mode" "700 $me" "$(mode_of "$h/state")"
 same "settings copy mode" "600 $me" "$(mode_of "$h/state/settings")"
 same "settings copy" "wallet = $W
 mode = max
-# pool = x" "$(cat "$h/state/settings")"
+# pool = x
+wifi_ssid = Home
+wifi_key =
+# wifi_key =
+wifi_country = FR" "$(cat "$h/state/settings")"
+for k in not-a-real-key-42 old-made-up-key-7; do
+  grep -F "$k" "$h/boot/Automation_Custom_Script.sh" >/dev/null && fail "the card's script still holds the Wi-Fi key $k"
+  grep -F "$k" "$h/state/settings" >/dev/null && fail "the settings copy holds the Wi-Fi key $k"
+done
+same "the card's script with its key emptied" "wifi_key =" "$(grep -x '[[:space:]]*wifi_key[[:space:]]*=.*' "$h/boot/Automation_Custom_Script.sh")"
 same "code copy mode" "755 $me" "$(mode_of "$h/sbin/xmrig-first-boot")"
 same "code copy without the settings block" "$(sed "/^: <<'END_OF_MINER_SETTINGS'$/,/^END_OF_MINER_SETTINGS$/d" "$h/boot/Automation_Custom_Script.sh")" "$(cat "$h/sbin/xmrig-first-boot")"
 grep -q "$W" "$h/sbin/xmrig-first-boot" && fail "the code copy holds the wallet"
@@ -265,12 +318,18 @@ cmp -s "$w/settings.before" "$h/state/settings" || fail "the code copy's handoff
 cmp -s "$w/code.before" "$h/sbin/xmrig-first-boot" || fail "the code copy's handoff changed the code copy"
 [ -e "$w/systemctl.log" ] && fail "systemctl ran from the code copy's handoff"
 
-# The repository's copy, run by hand on any host, installs nothing.
-h1="$w/h1"; mkdir -p "$h1/sbin" "$h1/unit"; rm -f "$w/systemctl.log"
+# The repository's copy, run by hand on any host, installs nothing; a Wi-Fi key typed into it
+# still leaves it first.
+h1="$w/h1"; mkdir -p "$h1/sbin" "$h1/unit" "$w/h1-card"; rm -f "$w/systemctl.log"
+{ sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$script"
+  printf '%s\n' "wallet = $W" 'mode = max' 'wifi_ssid = Home' 'wifi_key = made-up-key-5' 'wifi_country = FR'
+  sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$script"
+} > "$w/h1-card/Automation_Custom_Script.sh"
 same "handoff without a release" "[  ERROR  ] This script carries no release: take Automation_Custom_Script.sh from a release's dietpi-first-boot.zip, not from the repository.
-exit 1" "$(run "$script" "$h1" handoff)"
+exit 1" "$(run "$w/h1-card/Automation_Custom_Script.sh" "$h1" handoff)"
 same "handoff without a release: nothing written" "" "$(find "$h1" -mindepth 1 ! -type d; ls -d "$h1/state" 2>/dev/null)"
 [ -e "$w/systemctl.log" ] && fail "systemctl ran from a handoff without a release"
+grep -F made-up-key-5 "$w/h1-card/Automation_Custom_Script.sh" >/dev/null && fail "handoff without a release: the card's script still holds a Wi-Fi key"
 
 : > "$w/not-root"
 same "handoff not as root" "[  ERROR  ] The first-boot setup must run as root.
@@ -285,10 +344,60 @@ exit 1" "$(run "$h/boot/Automation_Custom_Script.sh" "$h3" handoff)"
 h4="$w/h4"; mkdir -p "$h4/sbin" "$h4/unit" "$h4/state/settings/x"
 same "handoff settings copy fails" "[  ERROR  ] Failed to install the first-boot setup: the settings copy.
 exit 1" "$(run "$h/boot/Automation_Custom_Script.sh" "$h4" handoff)"
+# A failed step leaves no Wi-Fi key behind: the key leaves the card's script first.
+# mkdir's own line, which differs between hosts, comes before the error.
+h8="$w/h8"; mkdir -p "$h8/sbin" "$h8/unit" "$h8/boot"; : > "$h8/state"
+{ sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$h/boot/Automation_Custom_Script.sh"
+  printf '%s\n' "wallet = $W" 'mode = max' 'wifi_ssid = Home' 'wifi_key = made-up-key-6' 'wifi_country = FR'
+  sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$h/boot/Automation_Custom_Script.sh"
+} > "$h8/boot/Automation_Custom_Script.sh"
+same "handoff state folder fails" "[  ERROR  ] Failed to install the first-boot setup: the state folder.
+exit 1" "$(run "$h8/boot/Automation_Custom_Script.sh" "$h8" handoff | tail -n 2)"
+grep -F made-up-key-6 "$h8/boot/Automation_Custom_Script.sh" >/dev/null && fail "handoff state folder fails: the card's script still holds a Wi-Fi key"
 h5="$w/h5"; mkdir -p "$h5/sbin" "$h5/unit"; : > "$w/systemctl-fails"
 same "handoff systemctl fails" "[  ERROR  ] Failed to install the first-boot setup: systemctl daemon-reload.
 exit 1" "$(run "$h/boot/Automation_Custom_Script.sh" "$h5" handoff)"
 rm -f "$w/systemctl-fails"
+# DietPi runs the handoff in C.UTF-8, where a wifi_key line set apart by a Unicode space (U+3000)
+# reads as a key: neither the card's script nor the settings copy keeps it.
+u3000=$'\xe3\x80\x80'
+h6="$w/h6"; mkdir -p "$h6/sbin" "$h6/unit" "$h6/boot"; rm -f "$w/systemctl.log"
+{ sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$h/boot/Automation_Custom_Script.sh"
+  printf '%s\n' "wallet = $W" 'mode = max' 'wifi_ssid = Home' "${u3000}wifi_key = not-a-real-key-42" \
+    "#${u3000}wifi_key = old-made-up-key-7" 'wifi_country = FR'
+  sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$h/boot/Automation_Custom_Script.sh"
+} > "$h6/boot/Automation_Custom_Script.sh"
+same "handoff with Unicode spaces, UTF-8 locale" "$started
+exit 0" "$(RUN_LANG=C.UTF-8 run "$h6/boot/Automation_Custom_Script.sh" "$h6" handoff)"
+same "settings copy with Unicode spaces" "wallet = $W
+mode = max
+wifi_ssid = Home
+wifi_key =
+# wifi_key =
+wifi_country = FR" "$(cat "$h6/state/settings")"
+for k in not-a-real-key-42 old-made-up-key-7; do
+  grep -F "$k" "$h6/boot/Automation_Custom_Script.sh" >/dev/null && fail "Unicode spaces: the card's script still holds the Wi-Fi key $k"
+  grep -F "$k" "$h6/state/settings" >/dev/null && fail "Unicode spaces: the settings copy holds the Wi-Fi key $k"
+done
+# A key typed under another wifi_ name leaves the card's script and the settings copy too.
+h7="$w/h7"; mkdir -p "$h7/sbin" "$h7/unit" "$h7/boot"; rm -f "$w/systemctl.log"
+{ sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$h/boot/Automation_Custom_Script.sh"
+  printf '%s\n' "wallet = $W" 'mode = max' 'wifi_ssid = Home' 'wifi_password = made-up-pass-3' \
+    'WiFi_Psk = made-up-psk-4' 'wifi_country = FR'
+  sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$h/boot/Automation_Custom_Script.sh"
+} > "$h7/boot/Automation_Custom_Script.sh"
+same "handoff with keys under other names" "$started
+exit 0" "$(run "$h7/boot/Automation_Custom_Script.sh" "$h7" handoff)"
+same "settings copy with keys under other names" "wallet = $W
+mode = max
+wifi_ssid = Home
+wifi_password =
+wifi_psk =
+wifi_country = FR" "$(cat "$h7/state/settings")"
+for k in made-up-pass-3 made-up-psk-4; do
+  grep -F "$k" "$h7/boot/Automation_Custom_Script.sh" >/dev/null && fail "other names: the card's script still holds a Wi-Fi key"
+  grep -F "$k" "$h7/state/settings" >/dev/null && fail "other names: the settings copy holds a Wi-Fi key"
+done
 
 # ---- the LED ----
 led() { # fixture, compatible, LED name or -

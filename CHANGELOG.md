@@ -15,6 +15,7 @@ Every release of Monero-miner-setup, newest first. The format follows
 ### Added
 
 - `--tls-fingerprint` for both installers, `TLS_FINGERPRINT` in `docker/.env` and `tls_fingerprint` in the DietPi settings: pin your TLS pool's certificate sha256, 64 hex digits or colon-separated pairs.
+- Wi-Fi for the DietPi first boot: `wifi_ssid`, `wifi_key` and `wifi_country` in the settings, with `Automation_Custom_PreScript.sh`, the zip's third file, on the card. DietPi tries the WPA-PSK network first and the cable when Wi-Fi fails. The setup removes the key from the card's script and its own copy; DietPi keeps it, root-only, as the derived PSK. Settings that ask for Wi-Fi without the pre-script on the card stop the setup with one journal line and a steady LED.
 
 ### Security
 
