@@ -355,21 +355,25 @@ function dietpi_wifi_text() {
     printf '%s\n' "${lines[@]}"
 }
 
-# Prints the line with its value gone when it is a wifi_key line, else as it is. A key typed on a
-# line left commented, or with its name in capitals, is a key all the same: it leaves the card too.
-# read_settings runs in the board's locale, where [[:space:]] also takes Unicode spaces (U+3000 in
-# C.UTF-8), so any byte but a letter, a digit, _ or = may stand around the name here.
-# Exit 1, printing no error, when the write fails.
+# Prints the line with its value gone when it sets a wifi_* name other than wifi_ssid and
+# wifi_country, its name kept in lower case, else as it is. A key typed under another name
+# (wifi_password), on a line left commented, or with its name in capitals, is a key all the same:
+# it leaves the card too. read_settings runs in the board's locale, where [[:space:]] also takes
+# Unicode spaces (U+3000 in C.UTF-8), so any byte but a letter, a digit, _ or = may stand around
+# the name here. Exit 1, printing no error, when the write fails.
 function key_line_emptied() {
-    local LC_ALL=C out="$1"
-    if [[ ${1,,} =~ ^([^[:alnum:]_=]*)wifi_key[^[:alnum:]_=]*= ]]; then
-        out="wifi_key ="
-        [[ ${BASH_REMATCH[1]} != *#* ]] || out="# wifi_key ="
+    local LC_ALL=C out="$1" name
+    if [[ ${1,,} =~ ^([^[:alnum:]_=]*)(wifi_[a-z0-9_]*)[^[:alnum:]_=]*= ]]; then
+        name=${BASH_REMATCH[2]}
+        if [ "$name" != wifi_ssid ] && [ "$name" != wifi_country ]; then
+            out="$name ="
+            [[ ${BASH_REMATCH[1]} != *#* ]] || out="# $name ="
+        fi
     fi
     printf '%s\n' "$out" 2>/dev/null
 }
 
-# Prints the file with every wifi_key line of its settings block emptied by key_line_emptied.
+# Prints the file with every Wi-Fi key line of its settings block emptied by key_line_emptied.
 # systemd ignores SIGPIPE: it stops at the first failed write instead of one error per line.
 function key_emptied() {
     local line inside=0
@@ -719,7 +723,7 @@ function release_ok() {
 }
 
 # The part DietPi runs: copies and installs the setup, then returns. Nothing here needs the network.
-# Prints the settings lines from stdin with the wifi_key value gone: the setup never needs the key.
+# Prints the settings lines from stdin with every Wi-Fi key value gone: the setup never needs one.
 function settings_keyless() {
     local line
     while IFS= read -r line || [ -n "$line" ]; do

@@ -3,7 +3,8 @@
 # network step. From the wifi_ssid, wifi_key and wifi_country settings it writes dietpi-wifi.txt
 # (0600, each value single-quoted so bash reading it gets the value and runs nothing), turns Wi-Fi
 # on in dietpi.txt with exactly two lines changed, records the country in a 0600 file of a 0700
-# folder, and empties every wifi_key line of the script's settings whatever happened. It reads only
+# folder, and empties every wifi_key line of the script's settings whatever happened, and every
+# other wifi_* line but wifi_ssid and wifi_country: a key typed under another name leaves too. It reads only
 # the Wi-Fi keys, refuses a value of the wrong form or a key without its pair with one line, and
 # never prints the key.
 # Every function runs under env -i on fixtures from a scratch folder, with a stub id; PATH holds
@@ -53,8 +54,9 @@ W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBE
 KEY='not-a-real-key-42'
 
 # fixture <name> <settings lines...>: boot/ with the template's dietpi.txt and a copy of the script
-# whose settings block holds the lines; expected.sh is that copy with each wifi_key line emptied,
-# a commented one, one in another case or one set apart by a Unicode space included.
+# whose settings block holds the lines; expected.sh is that copy with each wifi_* line but
+# wifi_ssid and wifi_country emptied, a commented one, one in another case or one set apart by a
+# Unicode space included, its name kept in lower case.
 fixture() {
   local LC_ALL=C fx="$w/$1" line; shift
   rm -rf -- "$fx"; mkdir -p "$fx/boot"
@@ -66,8 +68,9 @@ fixture() {
   { sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$script"
     printf '%s\n' '# the owner'"'"'s settings'
     for line in "$@"; do
-      if [[ ${line,,} =~ ^([^[:alnum:]_=]*)wifi_key[^[:alnum:]_=]*= ]]; then
-        if [[ ${BASH_REMATCH[1]} == *#* ]]; then echo '# wifi_key ='; else echo 'wifi_key ='; fi
+      if [[ ${line,,} =~ ^([^[:alnum:]_=]*)(wifi_[a-z0-9_]*)[^[:alnum:]_=]*= ]] &&
+        [[ ${BASH_REMATCH[2]} != wifi_ssid && ${BASH_REMATCH[2]} != wifi_country ]]; then
+        if [[ ${BASH_REMATCH[1]} == *#* ]]; then echo "# ${BASH_REMATCH[2]} ="; else echo "${BASH_REMATCH[2]} ="; fi
       else printf '%s\n' "$line"; fi
     done
     sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$script"
@@ -225,6 +228,17 @@ fixture wide-commented 'wifi_ssid = Home' "#${u3000}wifi_key = $KEY" 'wifi_count
 same "key commented with a Unicode space, UTF-8 locale" "[  ERROR  ] Settings 'wifi_ssid' and 'wifi_key' go together. $remedy
 exit 1" "$(RUN_LANG=C.UTF-8 step wide-commented)"
 untouched wide-commented
+# A key typed under another wifi_ name is refused and leaves the card all the same.
+fixture password 'wifi_ssid = Home' 'wifi_password = made-up-pass-3' 'wifi_country = FR'
+same "key named wifi_password" "[  ERROR  ] Setting 'wifi_password' is not one this script knows: wallet, mode, pool, name, donate, light, mdns, ssh_key, tls_fingerprint, wifi_ssid, wifi_key, wifi_country. $remedy
+exit 1" "$(step password made-up-pass-3)"
+untouched password
+grep -x 'wifi_password =' "$w/password/boot/Automation_Custom_Script.sh" >/dev/null || fail "key named wifi_password: its line is not emptied"
+fixture psk 'wifi_ssid = Home' 'WiFi_Psk = made-up-psk-4' 'wifi_country = FR'
+same "key named WiFi_Psk" "[  ERROR  ] Settings 'wifi_ssid' and 'wifi_key' go together. $remedy
+exit 1" "$(step psk made-up-psk-4)"
+untouched psk
+grep -x 'wifi_psk =' "$w/psk/boot/Automation_Custom_Script.sh" >/dev/null || fail "key named WiFi_Psk: its line is not emptied"
 # A name that only holds wifi_key, or goes on past it, is not the key's line.
 fixture key-in-name 'wifi_ssid = my_wifi_key=net' "wifi_key = $KEY" 'wifi_country = FR'
 same "network named after the key" "[  INFO   ] $(set_line my_wifi_key=net FR)

@@ -363,6 +363,25 @@ for k in not-a-real-key-42 old-made-up-key-7; do
   grep -F "$k" "$h6/boot/Automation_Custom_Script.sh" >/dev/null && fail "Unicode spaces: the card's script still holds the Wi-Fi key $k"
   grep -F "$k" "$h6/state/settings" >/dev/null && fail "Unicode spaces: the settings copy holds the Wi-Fi key $k"
 done
+# A key typed under another wifi_ name leaves the card's script and the settings copy too.
+h7="$w/h7"; mkdir -p "$h7/sbin" "$h7/unit" "$h7/boot"; rm -f "$w/systemctl.log"
+{ sed -n '1,/^: <<.END_OF_MINER_SETTINGS.$/p' "$h/boot/Automation_Custom_Script.sh"
+  printf '%s\n' "wallet = $W" 'mode = max' 'wifi_ssid = Home' 'wifi_password = made-up-pass-3' \
+    'WiFi_Psk = made-up-psk-4' 'wifi_country = FR'
+  sed -n '/^END_OF_MINER_SETTINGS$/,$p' "$h/boot/Automation_Custom_Script.sh"
+} > "$h7/boot/Automation_Custom_Script.sh"
+same "handoff with keys under other names" "$started
+exit 0" "$(run "$h7/boot/Automation_Custom_Script.sh" "$h7" handoff)"
+same "settings copy with keys under other names" "wallet = $W
+mode = max
+wifi_ssid = Home
+wifi_password =
+wifi_psk =
+wifi_country = FR" "$(cat "$h7/state/settings")"
+for k in made-up-pass-3 made-up-psk-4; do
+  grep -F "$k" "$h7/boot/Automation_Custom_Script.sh" >/dev/null && fail "other names: the card's script still holds a Wi-Fi key"
+  grep -F "$k" "$h7/state/settings" >/dev/null && fail "other names: the settings copy holds a Wi-Fi key"
+done
 
 # ---- the LED ----
 led() { # fixture, compatible, LED name or -
