@@ -68,6 +68,11 @@ done
 for text in Automation_Custom_PreScript.sh dietpi-wifi.txt AUTO_SETUP_NET_WIFI_ENABLED=1; do
     says "$text" || fail "readme-first-boot: the section does not name $text"
 done
+# A Wi-Fi key is read as it stands: quoting one that holds a quote keeps the outer quotes, so the
+# README asks for quotes only to keep a space at either end, with the kind the key doesn't hold.
+says 'quote a key holding a space, `#` or a quote' && fail "readme-first-boot: the section still says to quote a key holding a quote"
+says "read as it stands" || fail "readme-first-boot: the section does not say a Wi-Fi key is read as it stands"
+says "the kind of quote it doesn't hold" || fail "readme-first-boot: the section does not say which quote to wrap a Wi-Fi key in"
 says "Wi-Fi isn't set up" && fail "readme-first-boot: the section still says Wi-Fi isn't set up"
 
 [ "$failed" -eq 0 ] && echo "PASS readme-first-boot"

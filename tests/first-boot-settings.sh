@@ -93,6 +93,12 @@ wifi_ssid=Home net
 wifi_key=pa ss #word
 wifi_country=FR
 exit 0" every
+# A Wi-Fi key is read as it stands, a quote in it kept; quotes of the kind it doesn't hold keep a
+# space at either end, as the README says.
+settings wifi-quotes "wallet = $W\nmode = eco\nwifi_ssid = Home\nwifi_key = ab\"cd'1234\nwifi_country = FR\n"
+check "wifi key holding quotes, unquoted" "$(printf '%s\n' "wallet=$W" mode=eco pool= name= donate= light=no mdns=off ssh_key= tls_fingerprint= wifi_ssid=Home "wifi_key=ab\"cd'1234" wifi_country=FR 'exit 0')" wifi-quotes
+settings wifi-spaces "wallet = $W\nmode = eco\nwifi_ssid = Home\nwifi_key = ' ab\"cd1234 '\nwifi_country = FR\n"
+check "wifi key with end spaces, quoted" "$(printf '%s\n' "wallet=$W" mode=eco pool= name= donate= light=no mdns=off ssh_key= tls_fingerprint= wifi_ssid=Home "wifi_key= ab\"cd1234 " wifi_country=FR 'exit 0')" wifi-spaces
 settings crlf "wallet = $W\r\nmode = eco\r\n# c\r\n\r\n"
 check "CRLF and defaults" "wallet=$W
 mode=eco
