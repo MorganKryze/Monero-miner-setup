@@ -275,14 +275,14 @@ exit 0" "$(run light)"
 wifi_set=("wifi_ssid = shelf-net" "wifi_key = not-a-real-key-1" "wifi_country = FR")
 board wifinorec "${wifi_set[@]}"
 same "Wi-Fi asked, step never ran" "$ssh_line
-[  ERROR  ] Wi-Fi was asked for (wifi_ssid) but the Wi-Fi step never set it up: copy all three files of dietpi-first-boot.zip onto the card, Automation_Custom_PreScript.sh included, and flash again; /var/lib/dietpi/logs/dietpi-firstboot.log has the step's own line.
+[  ERROR  ] Wi-Fi was asked for (wifi_ssid) but the Wi-Fi step never set it up: flash the card again, then copy all three files of dietpi-first-boot.zip onto it, Automation_Custom_PreScript.sh included; /var/lib/dietpi/logs/dietpi-firstboot.log has the step's own line.
 exit 1" "$(run wifinorec)"
 same "Wi-Fi never set up: calls" "$ssh_run" "$(calls)"
 same "Wi-Fi never set up: error LED" "none 255" "$(led wifinorec)"
 no_done wifinorec
 board wifinorecwl "${wifi_set[@]}"; mkdir -p "$w/wifinorecwl/net/wlan0/wireless"
 same "Wi-Fi asked, step never ran, wireless board" "$ssh_line
-[  ERROR  ] Wi-Fi was asked for (wifi_ssid) but the Wi-Fi step never set it up: copy all three files of dietpi-first-boot.zip onto the card, Automation_Custom_PreScript.sh included, and flash again; /var/lib/dietpi/logs/dietpi-firstboot.log has the step's own line.
+[  ERROR  ] Wi-Fi was asked for (wifi_ssid) but the Wi-Fi step never set it up: flash the card again, then copy all three files of dietpi-first-boot.zip onto it, Automation_Custom_PreScript.sh included; /var/lib/dietpi/logs/dietpi-firstboot.log has the step's own line.
 exit 1" "$(run wifinorecwl)"
 same "Wi-Fi never set up, wireless board: calls" "$ssh_run" "$(calls)"
 same "Wi-Fi never set up, wireless board: error LED" "none 255" "$(led wifinorecwl)"

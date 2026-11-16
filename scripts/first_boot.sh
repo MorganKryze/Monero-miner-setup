@@ -822,7 +822,7 @@ function wifi_check() {
     local dir
     [ -n "$S_WIFI_SSID" ] || return 0
     if [ ! -e "$STATE_DIR/wifi" ]; then
-        error "Wi-Fi was asked for (wifi_ssid) but the Wi-Fi step never set it up: copy all three files of dietpi-first-boot.zip onto the card, Automation_Custom_PreScript.sh included, and flash again; /var/lib/dietpi/logs/dietpi-firstboot.log has the step's own line."
+        error "Wi-Fi was asked for (wifi_ssid) but the Wi-Fi step never set it up: flash the card again, then copy all three files of dietpi-first-boot.zip onto it, Automation_Custom_PreScript.sh included; /var/lib/dietpi/logs/dietpi-firstboot.log has the step's own line."
         return 1
     fi
     for dir in "$NET_DIR"/*; do
