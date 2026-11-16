@@ -114,6 +114,18 @@ case $(grep -F -- "$ENTRY" "$README") in
     *"(macOS: \`logs/$out_log\` in the clone)"*) ;;
     *) fail "$README: the certificate entry does not send macOS users to logs/$out_log, where launchd writes XMRig's output" ;;
 esac
+# A VPN install runs the stack from both compose files (scripts/docker_setup.sh): a remedy that
+# recreates the miner from compose.yml alone takes it out of the tunnel, so each one gives both forms.
+for cmd in "up -d" pull; do
+    while IFS= read -r line; do
+        case $line in
+            *"\`docker compose -f compose.yml -f compose.vpn.yml $cmd\`"*) ;;
+            *) fail "$README: gives 'docker compose $cmd' without the VPN form: ${line:0:80}" ;;
+        esac
+    done < <(grep -F -- "\`docker compose $cmd\`" "$README")
+done
+grep -qF 'compose_args+=("-f" "$REPO_DIR/docker/compose.vpn.yml")' "$D" ||
+    fail "$D: no longer adds compose.vpn.yml to the stack, which the README's VPN forms name"
 if grep -nF 'the default connection has no TLS' "$README"; then
     fail "$README: still says the default connection has no TLS"
 fi

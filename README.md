@@ -439,7 +439,7 @@ For the native install, run from the repo root. Targets work on both Linux (syst
 
 Neither `make service-disable` nor `make wipe` removes the `xmrig` account. Remove it with `sudo userdel xmrig`.
 
-Docker equivalents, from `docker/`: `docker compose up -d`, `down`, `logs -f`, `restart`, `ps`. `docker compose down -v` also removes the config volume.
+Docker equivalents, from `docker/`: `docker compose up -d`, `down`, `logs -f`, `restart`, `ps`. `docker compose down -v` also removes the config volume. With the VPN sidecar, put `-f compose.yml -f compose.vpn.yml` before each, as in `docker compose -f compose.yml -f compose.vpn.yml up -d`: without it, the miner is recreated outside the tunnel.
 
 One-off benchmark from a Docker install, run from `docker/` (builds the image if needed, no wallet required):
 
@@ -469,7 +469,7 @@ An update keeps your wallet, pool and worker settings. A few steps are yours.
 - The config moved from `docker/docker-configs` to the `xmrig-configs` volume, and the log from `docker/logs` to the container's output. Delete both folders; use `sudo` if Docker created them as root.
 - An old `docker/.env.vpn` keeps a `FIREWALL=on` line. Gluetun never read it, so it changes nothing; delete it if you like.
 - The MoneroOcean calibration is redone at every container start, as before.
-- A `POOL_URL` that's a MoneroOcean host with no port (the default) moves to TLS at the container's next start on the new image: port 20000 + n instead of 10000 + n, MoneroOcean's certificate pinned. A network that blocks those ports stops mining; set `POOL_URL=stratum+tcp://gulf.moneroocean.stream` in `docker/.env` and run `docker compose up -d` to mine in clear text again.
+- A `POOL_URL` that's a MoneroOcean host with no port (the default) moves to TLS at the container's next start on the new image: port 20000 + n instead of 10000 + n, MoneroOcean's certificate pinned. A network that blocks those ports stops mining; set `POOL_URL=stratum+tcp://gulf.moneroocean.stream` in `docker/.env` and run `docker compose up -d` from `docker/` (`docker compose -f compose.yml -f compose.vpn.yml up -d` if you use the VPN) to mine in clear text again.
 
 On x86, nothing else changes: only the first pool's URL, `tls` and `tls-fingerprint` differ. Threads, MSR, huge pages and the service stay as they were.
 
@@ -631,8 +631,8 @@ The container runs as uid 999, `xmrig`. The compose file and the minimal run abo
 
 **Mining stopped and the log says `Failed to verify server certificate fingerprint`.** The pool's certificate isn't the pinned one. The miner logs that line with the pool URL, then the fingerprint it was given and the one configured, in `make status` and `/var/log/xmrig/<account>/xmrig.log` (macOS: `logs/xmrig_stdout.log` in the clone) or, for Docker, `docker compose logs xmrig` from `docker/`. It gets no new jobs and MoneroOcean's panel shows the worker offline, but the Docker healthcheck stays healthy: the process is alive and reconnecting. Either MoneroOcean changed its certificate, or someone on the network path is answering in its place. Never pin the fingerprint the miner reports as given: that's the one a man in the middle would show you. Pick one fix:
 
-- Update to a release that carries the new pin. Native: `make update`, then `make clean-configs`, the installer again with your wallet and flags, `make service-setup` and `make restart`. Docker, from `docker/`: `docker compose pull` and `docker compose up -d`.
-- Pin a fingerprint you checked yourself from a second network (a phone hotspot, say): `openssl s_client -connect gulf.moneroocean.stream:20128 -servername gulf.moneroocean.stream </dev/null | openssl x509 -noout -fingerprint -sha256`. Native: `make clean-configs`, the installer again with `--tls-fingerprint <that value>` and your flags, then `make service-setup` and `make restart`. Docker: set `TLS_FINGERPRINT=<that value>` in `docker/.env`, then `docker compose up -d` from `docker/`.
+- Update to a release that carries the new pin. Native: `make update`, then `make clean-configs`, the installer again with your wallet and flags, `make service-setup` and `make restart`. Docker, from `docker/`: `docker compose pull` and `docker compose up -d`, or with the VPN `docker compose -f compose.yml -f compose.vpn.yml pull` and `docker compose -f compose.yml -f compose.vpn.yml up -d`.
+- Pin a fingerprint you checked yourself from a second network (a phone hotspot, say): `openssl s_client -connect gulf.moneroocean.stream:20128 -servername gulf.moneroocean.stream </dev/null | openssl x509 -noout -fingerprint -sha256`. Native: `make clean-configs`, the installer again with `--tls-fingerprint <that value>` and your flags, then `make service-setup` and `make restart`. Docker: set `TLS_FINGERPRINT=<that value>` in `docker/.env`, then `docker compose up -d` from `docker/` (`docker compose -f compose.yml -f compose.vpn.yml up -d` if you use the VPN).
 - Mine without TLS, if you accept that anyone on the path can read and change the pool's traffic: the same steps with `--pool stratum+tcp://gulf.moneroocean.stream` (Docker: `POOL_URL=stratum+tcp://gulf.moneroocean.stream`).
 
 ## Development
