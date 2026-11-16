@@ -193,12 +193,13 @@ untouched none
 # ---- dietpi.txt it cannot edit ----
 dietpi_error="[  ERROR  ] Failed to set up Wi-Fi: $w/%s/boot/dietpi.txt needs exactly one AUTO_SETUP_NET_WIFI_ENABLED= line and one AUTO_SETUP_NET_WIFI_COUNTRY_CODE= line at the start of a line. Copy dietpi.txt from dietpi-first-boot.zip to the card again.
 exit 1"
-for case in no-enable twice indented; do
+for case in no-enable country-twice enable-twice indented; do
   fixture "$case" 'wifi_ssid = Home' "wifi_key = $KEY" 'wifi_country = FR'
   f="$w/$case/boot/dietpi.txt"
   case $case in
     no-enable) grep -v '^AUTO_SETUP_NET_WIFI_ENABLED=' "$root/templates/dietpi.txt" > "$f" ;;
-    twice) printf 'AUTO_SETUP_NET_WIFI_COUNTRY_CODE=GB\n' >> "$f" ;;
+    country-twice) printf 'AUTO_SETUP_NET_WIFI_COUNTRY_CODE=GB\n' >> "$f" ;;
+    enable-twice) printf 'AUTO_SETUP_NET_WIFI_ENABLED=0\n' >> "$f" ;;
     indented) sed 's/^AUTO_SETUP_NET_WIFI_ENABLED=/  &/' "$root/templates/dietpi.txt" > "$f" ;;
   esac
   cp "$f" "$w/$case/dietpi.before"
