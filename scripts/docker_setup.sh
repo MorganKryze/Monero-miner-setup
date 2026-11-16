@@ -102,7 +102,7 @@ Mining:
   --pool URL                   Pool host[:port], optionally after stratum+tcp:// or
                                stratum+ssl:// (default: ${DEFAULT_POOL_URL}, over TLS
                                with its certificate pinned; stratum+tcp:// for no TLS)
-  --tls-fingerprint HEX        Pin the pool's certificate: its sha256, 64 hex digits
+  --tls-fingerprint HEX        Pin the pool's certificate: its sha256, 64 hex digits or 32 colon pairs
                                (needs TLS)
   --donate N                   Donation level 0-5 (default: ${DEFAULT_DONATE_LEVEL})
   --threads N                  Threads as a percentage 1-100 of the container's CPU quota,

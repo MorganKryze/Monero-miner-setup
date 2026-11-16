@@ -219,7 +219,7 @@ function usage() {
     echo "  --donate PERCENT      Donation level (0-5, default: $DEFAULT_DONATE_LEVEL)"
     echo "  -p, --pool URL        Mining pool URL (default: $DEFAULT_POOL_URL, over TLS with its certificate pinned;"
     echo "                        stratum+tcp:// mines without TLS, stratum+ssl:// with a port for your own TLS pool)"
-    echo "  --tls-fingerprint HEX Pin the pool's certificate: its sha256, 64 hex digits (needs TLS)"
+    echo "  --tls-fingerprint HEX Pin the pool's certificate: its sha256, 64 hex digits or 32 colon pairs (needs TLS)"
     echo "  --name STRING         Display name for the mining worker (default: random adjective_noun_NNN)"
     echo "  --pause-active        Pause mining when computer is in active use (default: off)"
     echo "  --pause-battery       Pause mining when computer is on battery (default: off)"
