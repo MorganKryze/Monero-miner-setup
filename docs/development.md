@@ -20,7 +20,8 @@ Pull requests welcome. Fork, branch, run `make check`, open a PR.
 
 | Check | What it holds |
 | --- | --- |
-| `tests/docs-pages.sh` | every relative link and anchor of `README.md`, `CHANGELOG.md` and `docs/*.md` lands; each page starts with a `# ` title; no em dash and no stock phrase in the prose |
+| `tests/docs-pages.sh` | every relative link and anchor of `README.md`, `CHANGELOG.md` and `docs/*.md` lands; each page starts with a `# ` title; no em dash and no stock phrase in the prose; the README's banner, pitch, risk warning and list, the measured and dated figures, and the first-boot stops as `scripts/first_boot.sh` words them stay; this page names every docs check |
+| `tests/docs-pages-fixtures.sh` | `tests/docs-pages.sh` fails on a copy of the tree with one change planted in it |
 | `tests/docs-commands.sh` | every install command of the docs is in the guarded form: the installer fetched into a variable, stopped on an empty download |
 | `tests/docs-defaults.sh` | the defaults the docs list are the ones the installers use |
 | `tests/docs-root.sh` | [What runs as root](security.md#what-runs-as-root) names every command the Makefile and the scripts run through `sudo` |

@@ -5,7 +5,9 @@
 # "# " title line, and its prose, and README.md's, holds no em dash and none of the stock phrases
 # the project avoids. The nine pages under docs/ exist; README.md links each of them and the
 # docs/README.md index, which links each exactly once; README.md stays at 170 lines or fewer; and
-# docs/earnings.md gives the live-values command as one whole line.
+# docs/earnings.md gives the live-values command as one whole line. The lines the docs must keep
+# hold as fixed strings, docs/development.md names every tests/docs-*.sh, and the first-boot stops
+# the docs quote match scripts/first_boot.sh's own strings.
 # Reads the repository root, or the directory given as $1.
 set -u
 
@@ -112,6 +114,65 @@ fi
 LIVE="curl -fsSL https://api.moneroocean.stream/network/stats | jq '.\"18081\" | {difficulty, reward_xmr: (.value / 1e12)}'"
 if [ -f docs/earnings.md ]; then
     grep -qxF -- "$LIVE" docs/earnings.md || fail "docs/earnings.md: the live-values command is not one whole line"
+fi
+
+# The lines the docs must keep, as fixed strings: the README's banner, pitch, risk warning and
+# "What you get" list, the no-VPN sentence, the measured cooling figures and the dated earnings
+# figures. Rewording one means rewording it here too.
+function keeps() {
+    local page=$1 text=$2
+    [ -f "$page" ] || return 0
+    grep -qF -- "$text" "$page" || fail "$page: no longer says '$text'"
+}
+keeps README.md '![Monero Miner Setup banner](assets/banner.png)'
+keeps README.md 'Turn a Raspberry Pi, a spare PC or any Docker host into a quiet Monero miner: one command, TLS to the pool.'
+keeps README.md '> **⚠️ Before you run this.** Mining consumes power, heats hardware, and can violate your cloud provider'"'"'s ToS. Expect antivirus tools to flag XMRig. This project is not endorsed by Monero or MoneroOcean. You run it at your own risk.'
+for text in '## What you get' '- **TLS to the pool.**' '- **An eco mode for boards.**' '- **A prebuilt arm64 binary.**' \
+    '- **A card that mines on first boot.**' '- **Docker, with an optional VPN.**'; do
+    keeps README.md "$text"
+done
+keeps docs/security.md 'No VPN ships for the native install or the boards'
+for text in '391 to 398 H/s' '402 H/s' '372 H/s' '73-74 °C'; do
+    keeps docs/boards.md "$text"
+done
+for text in '858 690 000 000' '0.0015 XMR' '0.72 EUR' '479 EUR'; do
+    keeps docs/earnings.md "$text"
+done
+for text in '0.0015 XMR' '0.72 EUR' '479 EUR/XMR'; do
+    keeps README.md "$text"
+done
+
+# docs/development.md names every tests/docs-*.sh.
+[ -f docs/development.md ] || fail "docs/development.md: missing"
+for t in tests/docs-*.sh; do
+    [ -f "$t" ] || continue
+    [ -f docs/development.md ] || continue
+    grep -qF -- "\`$t\`" docs/development.md || fail "docs/development.md: does not name $t"
+done
+
+# The first-boot stops the docs quote are scripts/first_boot.sh's own strings: the settings remedy
+# on both pages (its first letter in either case, its closing full stop optional), the Wi-Fi stop
+# line on troubleshooting.md. Code spans are read as plain text.
+FIRST_BOOT=scripts/first_boot.sh
+if [ -f "$FIRST_BOOT" ]; then
+    remedy=$(sed -n 's/^SETTINGS_REMEDY="\(.*\)"$/\1/p' "$FIRST_BOOT")
+    wifi=$(sed -n 's/^ *error "\(Wi-Fi was asked for (wifi_ssid)[^"]*\)"$/\1/p' "$FIRST_BOOT")
+    [ -n "$remedy" ] || fail "$FIRST_BOOT: no SETTINGS_REMEDY"
+    [ -n "$wifi" ] || fail "$FIRST_BOOT: no Wi-Fi stop line"
+    remedy=${remedy%.}
+    lower=$(tr '[:upper:]' '[:lower:]' <<<"${remedy:0:1}")${remedy:1}
+    for page in docs/troubleshooting.md docs/boards.md; do
+        [ -f "$page" ] && [ -n "$remedy" ] || continue
+        text=$(tr -d '`' <"$page")
+        grep -qF -- "$remedy" <<<"$text" || grep -qF -- "$lower" <<<"$text" ||
+            fail "$page: does not quote the settings remedy of $FIRST_BOOT"
+    done
+    if [ -f docs/troubleshooting.md ] && [ -n "$wifi" ]; then
+        grep -qF -- "$wifi" <<<"$(tr -d '`' <docs/troubleshooting.md)" ||
+            fail "docs/troubleshooting.md: does not quote the Wi-Fi stop line of $FIRST_BOOT"
+    fi
+else
+    fail "$FIRST_BOOT: missing"
 fi
 
 [ "$failed" -eq 0 ] || exit 1
