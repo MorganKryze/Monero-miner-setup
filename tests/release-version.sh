@@ -1,6 +1,6 @@
 #!/bin/bash
 # The version both installers print is the latest release in CHANGELOG.md, whose heading, link and
-# README pins follow Keep a Changelog: a release whose scripts and notes disagree fails here
+# docs/docker.md pins follow Keep a Changelog: a release whose scripts and notes disagree fails here
 # before its tag is pushed.
 set -u
 
@@ -41,10 +41,10 @@ else
     else
         released=${BASH_REMATCH[1]}
         [ "$released" = "$native" ] || fail "CHANGELOG.md's latest release is $released, the scripts say ${native:-nothing}"
-        grep -qxF "git clone --branch v$released --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git" README.md ||
-            fail "README.md: the pin to $released does not clone tag v$released"
-        grep -qxF "./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:$released -w YOUR_MONERO_WALLET --autostart" README.md ||
-            fail "README.md: the pin to $released does not pass the image :$released"
+        grep -qxF "git clone --branch v$released --recurse-submodules https://github.com/MorganKryze/Monero-miner-setup.git" docs/docker.md ||
+            fail "docs/docker.md: the pin to $released does not clone tag v$released"
+        grep -qxF "./scripts/install.sh --docker --image ghcr.io/morgankryze/monero-miner-setup:$released -w YOUR_MONERO_WALLET --autostart" docs/docker.md ||
+            fail "docs/docker.md: the pin to $released does not pass the image :$released"
         grep -qxF "[$released]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v$released" CHANGELOG.md ||
             fail "CHANGELOG.md: no link line for [$released] to its v$released tag"
     fi
