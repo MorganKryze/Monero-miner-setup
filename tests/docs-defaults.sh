@@ -79,6 +79,11 @@ grep -qxF '  --security-opt no-new-privileges:true \' <<<"$all" ||
     fail "the docs: the minimal docker run does not set no-new-privileges"
 grep -qxF '      - no-new-privileges:true' docker/compose.yml ||
     fail "docker/compose.yml: no no-new-privileges, which the docs claim"
+# The one-off Docker benchmark runs the same 1-minute bench as make benchmark.
+grep -qxF 'docker compose run --rm --entrypoint /app/xmrig xmrig --bench=1M' <<<"$all" ||
+    fail "the docs: no one-off Docker benchmark line running --bench=1M"
+grep -qxF '	@./xmrig --bench=1M' Makefile ||
+    fail "Makefile: make benchmark no longer runs --bench=1M, which the Docker benchmark line matches"
 if grep -n '/app/logs' <<<"$all"; then
     fail "the docs: names /app/logs, where the image writes no log"
 fi
