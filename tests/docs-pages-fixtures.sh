@@ -74,6 +74,10 @@ echo >> "$w/repo/README.md"
 expect "a 171-line readme" 1 'FAIL README\.md: 171 lines, more than 170'
 
 fresh
+grep -vF '(docs/README.md)' "$w/repo/README.md" > "$w/r" && mv "$w/r" "$w/repo/README.md"
+expect "the index dropped from the readme" 1 'FAIL README\.md: no link to docs/README\.md'
+
+fresh
 grep -vF '(docs/earnings.md)' "$w/repo/README.md" > "$w/r" && mv "$w/r" "$w/repo/README.md"
 expect "a page dropped from the readme" 1 'FAIL README\.md: no link to docs/earnings\.md'
 
