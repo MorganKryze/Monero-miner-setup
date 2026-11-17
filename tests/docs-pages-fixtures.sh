@@ -66,9 +66,12 @@ fresh
 printf '\n%s\n' 'A seamless setup.' >> "$w/repo/README.md"
 expect "a stock phrase" 1 "FAIL README\\.md: the stock phrase 'seamless' in the prose"
 
+# 170 lines is the limit: one more line fails.
 fresh
-for i in $(seq 171); do echo; done >> "$w/repo/README.md"
-expect "a long readme" 1 'FAIL README\.md: [0-9]+ lines, more than 170'
+while [ "$(($(wc -l <"$w/repo/README.md")))" -lt 170 ]; do echo >> "$w/repo/README.md"; done
+expect "a 170-line readme" 0 'PASS docs-pages \([0-9]+ links in [0-9]+ files\)'
+echo >> "$w/repo/README.md"
+expect "a 171-line readme" 1 'FAIL README\.md: 171 lines, more than 170'
 
 fresh
 grep -vF '(docs/earnings.md)' "$w/repo/README.md" > "$w/r" && mv "$w/r" "$w/repo/README.md"
