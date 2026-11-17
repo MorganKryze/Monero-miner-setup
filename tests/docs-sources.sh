@@ -1,16 +1,16 @@
 #!/bin/bash
-# Nothing is fetched that the README does not name. The scripts fetch only from the sources listed
-# below, by curl, wget or git clone (a submodule comes from .gitmodules, an image from the compose
-# files, a base image and the frontend from the Dockerfile), and the README names each of them.
+# Nothing is fetched that docs/security.md does not name. The scripts fetch only from the sources
+# listed below, by curl, wget or git clone (a submodule comes from .gitmodules, an image from the
+# compose files, a base image and the frontend from the Dockerfile), and that page names each.
 # Versions are left out (the toolbox commit, image tags), so a Dependabot bump stays green; a new
-# source, in a script or in the README's absence, fails.
-# Reads the repository root, or the directory given as $1 (tests/readme-sources-fixtures.sh
+# source, in a script or in the page's absence, fails.
+# Reads the repository root, or the directory given as $1 (tests/docs-sources-fixtures.sh
 # points it at a copy with a change planted).
 set -u
 
-cd -- "${1:-.}" || { echo "FAIL readme-sources: no directory ${1:-.}"; exit 1; }
+cd -- "${1:-.}" || { echo "FAIL docs-sources: no directory ${1:-.}"; exit 1; }
 
-README=README.md
+PAGE=docs/security.md
 failed=0
 function fail() {
     echo "FAIL $*"
@@ -25,7 +25,7 @@ function constant() {
     printf '%s' "${line%\"}"
 }
 
-[ -f "$README" ] || { echo "FAIL readme-sources: no $README"; exit 1; }
+[ -f "$PAGE" ] || { echo "FAIL docs-sources: no $PAGE"; exit 1; }
 
 toolbox=$(constant scripts/install.sh TOOLBOX_URL)
 toolbox=${toolbox//\$\{TOOLBOX_COMMIT\}/<commit>}
@@ -69,7 +69,7 @@ for s in "${sources[@]}"; do
         fail "a source could not be read from the scripts"
         continue
     fi
-    grep -qF -- "$s" "$README" || fail "$README does not name $s, which the project fetches"
+    grep -qF -- "$s" "$PAGE" || fail "$PAGE does not name $s, which the project fetches"
 done
 
 # Every fetch line names one of the known sources; a printed hint, a comment or a check that curl
@@ -79,7 +79,7 @@ while IFS= read -r hit; do
     case $line in
         *'"$TOOLBOX_URL"'* | *'"$DOCKER_SCRIPT_URL"'* | *'"$REPO_URL"'* | *'"$RELEASE_URL/$tag/$file"'* | *'"$RELEASE_URL/$RELEASE_TAG/SHA256SUMS"'* | *'"$RAW_URL/$RELEASE_TAG/scripts/install.sh"'* | *'https://ifconfig.io'*) ;;
         *'command -v curl'*) ;;
-        *) fail "a fetch the README may not name: $hit" ;;
+        *) fail "a fetch the page may not name: $hit" ;;
     esac
 done < <(grep -nE 'curl |wget |git clone ' scripts/*.sh docker/*.sh Makefile |
     grep -vE '^[^:]+:[0-9]+:[[:space:]]*(#|echo |@echo |warning |info |error |hint |txt )')
@@ -87,4 +87,4 @@ done < <(grep -nE 'curl |wget |git clone ' scripts/*.sh docker/*.sh Makefile |
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
-echo "PASS readme-sources (${#sources[@]} sources)"
+echo "PASS docs-sources (${#sources[@]} sources)"

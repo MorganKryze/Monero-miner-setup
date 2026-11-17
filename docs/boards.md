@@ -57,10 +57,10 @@ A Wi-Fi name or key is read as it stands after `=`, a `#` or a quote included, s
 Before DietPi's network, `Automation_Custom_PreScript.sh` runs as root. It writes `dietpi-wifi.txt` and sets `AUTO_SETUP_NET_WIFI_ENABLED=1` and your country in `dietpi.txt`. DietPi tries Wi-Fi first, then the cable when Wi-Fi fails.
 
 - **A board with no Wi-Fi interface** uses its cable, with one journal line saying so.
-- **A wrong name or key with no cable** leaves DietPi's first run unfinished. The setup never runs and the LED stays the board's own. Fix the settings on your PC, flash the card again, copy the three files and power.
+- **A wrong name or key with no cable** leaves DietPi's first run unfinished. The setup never runs and the LED stays the board's own. Flash the card again, copy the three files onto it, then fix the settings and power.
 - **A router whose key changed** leaves the board off the network. Flash it again with the new key, or set it with `dietpi-config` from a screen or the cable.
 
-Afterwards the key lives in DietPi's `/var/lib/dietpi/dietpi-wifi.db` and `/etc/wpa_supplicant/wpa_supplicant.conf`, root-only, as the derived PSK. The setup removes it from `/boot/Automation_Custom_Script.sh` and from its own copy of the settings. The card's free space may still hold it until overwritten: the FAT's deleted blocks, and the blocks the root filesystem freed.
+Afterwards the key lives in DietPi's `/var/lib/dietpi/dietpi-wifi.db` and `/etc/wpa_supplicant/wpa_supplicant.conf`, root-only, as the derived PSK. The setup removes it from `/boot/Automation_Custom_Script.sh` and from its own copy of the settings. The card's free space may still hold it until overwritten: the FAT's deleted blocks, and the blocks the root filesystem freed. [Your Wi-Fi key](security.md#your-wi-fi-key) says where it sits at each step.
 
 ### What happens at first boot
 
@@ -79,7 +79,7 @@ The setup drives the board's status LED (Pi 5: `ACT`; 5 Plus: `green:indicator-2
 | --- | --- |
 | blinks, half a second on, half off | setting up, or waiting for the network |
 | heartbeat | set up. It doesn't say the miner is mining now: `make status` or the pool's panel do |
-| steady on | the setup stopped, for a bad setting or Wi-Fi asked for but never set up. `journalctl -u xmrig-first-boot.service` has the line that says why. Follow that line's remedy: for a setting, fix it and flash again, or fix `/var/lib/xmrig-first-boot/settings` over SSH and reboot |
+| steady on | the setup stopped, for a bad setting or Wi-Fi asked for but never set up. `journalctl -u xmrig-first-boot.service` has the line that says why. Follow that line's remedy: for a setting, flash the card again, copy the files from `dietpi-first-boot.zip` onto it, then fix it in the settings at the top of `Automation_Custom_Script.sh`; or edit `/var/lib/xmrig-first-boot/settings` as root on the board and reboot |
 
 A reboot gives the LED back to the board's own trigger until the setup unit sets it again, early in the boot.
 

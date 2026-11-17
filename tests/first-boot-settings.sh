@@ -68,7 +68,7 @@ run() {
 }
 script="$root/scripts/first_boot.sh"
 [ -f "$script" ] || { echo "FAIL no scripts/first_boot.sh"; exit 1; }
-remedy="Fix it in the settings at the top of Automation_Custom_Script.sh and flash the card again, or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot."
+remedy="Flash the card again, copy the files from dietpi-first-boot.zip onto it, then fix it in the settings at the top of Automation_Custom_Script.sh; or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot."
 # A sha256 in both of the forms openssl and xmrig print, a constant: nothing is fetched.
 FP=0123456789abcdefABCDEF0123456789abcdef0123456789abcdef0123456789
 FP_COLON=01:23:45:67:89:AB:CD:EF:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef

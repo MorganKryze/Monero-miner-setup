@@ -333,7 +333,7 @@ same "SSH still active: error LED" "none 255" "$(led sshon)"
 no_done sshon
 # A refused settings file still turns SSH off.
 board badset; printf 'wallet = %s\nmode = turbo\n' "$W" > "$w/badset/state/settings"
-same "bad settings: SSH off" "[  ERROR  ] Setting 'mode' must be max or eco. Fix it in the settings at the top of Automation_Custom_Script.sh and flash the card again, or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot.
+same "bad settings: SSH off" "[  ERROR  ] Setting 'mode' must be max or eco. Flash the card again, copy the files from dietpi-first-boot.zip onto it, then fix it in the settings at the top of Automation_Custom_Script.sh; or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot.
 $ssh_line
 exit 1" "$(run badset)"
 same "bad settings: calls" "$ssh_run" "$(calls)"

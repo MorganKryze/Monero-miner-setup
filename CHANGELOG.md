@@ -9,7 +9,7 @@ Every release of Monero-miner-setup, newest first. The format follows
 ### Changed
 
 - The native installer, the Docker container and the DietPi first boot mine on MoneroOcean over TLS by default: a MoneroOcean host with no port gets port 20000 + n (20001 to 28192) where it got 10000 + n. `stratum+tcp://gulf.moneroocean.stream` mines in clear text as before.
-- A Docker install whose `POOL_URL` is a MoneroOcean host with no port moves to TLS at its next start on the new image. Native kept configs stay in clear text until regenerated; the installer warns with the flags that bring TLS, `make update` doesn't. [Upgrading from 0.1.x or 0.2.0-rc.x](README.md#upgrading-from-01x-or-020-rcx) gives the steps.
+- A Docker install whose `POOL_URL` is a MoneroOcean host with no port moves to TLS at its next start on the new image. Native kept configs stay in clear text until regenerated; the installer warns with the flags that bring TLS, `make update` doesn't. [Upgrading from 0.1.x or 0.2.0-rc.x](docs/upgrading.md#upgrading-from-01x-or-020-rcx) gives the steps.
 - A network that blocks ports 20001 to 28192 stops mining on the new default. Open those ports, or mine in clear text with `stratum+tcp://gulf.moneroocean.stream` (`--pool`, or `POOL_URL` in `docker/.env`).
 
 ### Added
@@ -72,7 +72,7 @@ Every release of Monero-miner-setup, newest first. The format follows
 ## [0.1.0] - 2026-11-07
 
 The first tagged release. Installed before it? Read
-[Upgrading an install made before 0.1.0](README.md#upgrading-an-install-made-before-010) first:
+[Upgrading an install made before 0.1.0](docs/upgrading.md#upgrading-an-install-made-before-010) first:
 some steps are yours to run.
 
 ### Added
