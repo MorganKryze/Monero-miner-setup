@@ -260,7 +260,7 @@ done
 board small
 printf 'MemTotal:        2014000 kB\n' > "$w/small/meminfo"
 same "memory under the floor" "$ssh_line
-[  ERROR  ] This board has 1966 MiB of memory, under the 2560 MiB RandomX's fast mode needs. Add light = yes to the settings to mine in the slower light mode, and flash the card again.
+[  ERROR  ] This board has 1966 MiB of memory, under the 2560 MiB RandomX's fast mode needs. Flash the card again, copy the files from dietpi-first-boot.zip onto it, then add light = yes to the settings at the top of Automation_Custom_Script.sh to mine in the slower light mode.
 exit 1" "$(run small)"
 same "small: SSH off first" "$ssh_run" "$(calls)"
 same "small: error LED" "none 255" "$(led small)"
@@ -333,7 +333,7 @@ same "SSH still active: error LED" "none 255" "$(led sshon)"
 no_done sshon
 # A refused settings file still turns SSH off.
 board badset; printf 'wallet = %s\nmode = turbo\n' "$W" > "$w/badset/state/settings"
-same "bad settings: SSH off" "[  ERROR  ] Setting 'mode' must be max or eco. Fix it in the settings at the top of Automation_Custom_Script.sh and flash the card again, or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot.
+same "bad settings: SSH off" "[  ERROR  ] Setting 'mode' must be max or eco. Flash the card again, copy the files from dietpi-first-boot.zip onto it, then fix it in the settings at the top of Automation_Custom_Script.sh; or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot.
 $ssh_line
 exit 1" "$(run badset)"
 same "bad settings: calls" "$ssh_run" "$(calls)"

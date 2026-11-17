@@ -68,7 +68,7 @@ run() {
 }
 script="$root/scripts/first_boot.sh"
 [ -f "$script" ] || { echo "FAIL no scripts/first_boot.sh"; exit 1; }
-remedy="Fix it in the settings at the top of Automation_Custom_Script.sh and flash the card again, or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot."
+remedy="Flash the card again, copy the files from dietpi-first-boot.zip onto it, then fix it in the settings at the top of Automation_Custom_Script.sh; or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot."
 # A sha256 in both of the forms openssl and xmrig print, a constant: nothing is fetched.
 FP=0123456789abcdefABCDEF0123456789abcdef0123456789abcdef0123456789
 FP_COLON=01:23:45:67:89:AB:CD:EF:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef
@@ -94,7 +94,7 @@ wifi_key=pa ss #word
 wifi_country=FR
 exit 0" every
 # A Wi-Fi key is read as it stands, a quote in it kept; quotes of the kind it doesn't hold keep a
-# space at either end, as the README says.
+# space at either end.
 settings wifi-quotes "wallet = $W\nmode = eco\nwifi_ssid = Home\nwifi_key = ab\"cd'1234\nwifi_country = FR\n"
 check "wifi key holding quotes, unquoted" "$(printf '%s\n' "wallet=$W" mode=eco pool= name= donate= light=no mdns=off ssh_key= tls_fingerprint= wifi_ssid=Home "wifi_key=ab\"cd'1234" wifi_country=FR 'exit 0')" wifi-quotes
 settings wifi-spaces "wallet = $W\nmode = eco\nwifi_ssid = Home\nwifi_key = ' ab\"cd1234 '\nwifi_country = FR\n"

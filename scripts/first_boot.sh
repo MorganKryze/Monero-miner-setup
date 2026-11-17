@@ -61,7 +61,7 @@ RETRY_SECONDS=10
 RETRY_LOG_EVERY=30
 SETTINGS_START=": <<'END_OF_MINER_SETTINGS'"
 SETTINGS_END="END_OF_MINER_SETTINGS"
-SETTINGS_REMEDY="Fix it in the settings at the top of Automation_Custom_Script.sh and flash the card again, or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot."
+SETTINGS_REMEDY="Flash the card again, copy the files from dietpi-first-boot.zip onto it, then fix it in the settings at the top of Automation_Custom_Script.sh; or edit /var/lib/xmrig-first-boot/settings as root on the board and reboot."
 # The boards this setup knows: <SoC profile> <device-tree compatible> <short name> <status LED or ->.
 BOARDS="bcm2712 raspberrypi,5-model-b rpi5 ACT
 rk3588 xunlong,orangepi-5-plus opi5plus green:indicator-2
@@ -398,7 +398,7 @@ function key_emptied() {
 function wifi_step() {
     local self="${BASH_SOURCE[0]}" code=1 dietpi step=""
     # The board has no network yet: the settings can only be fixed where the card was written.
-    local SETTINGS_REMEDY="Fix it in the settings at the top of Automation_Custom_Script.sh on your computer and flash the card again."
+    local SETTINGS_REMEDY="Flash the card again, copy the files from dietpi-first-boot.zip onto it, then fix it in the settings at the top of Automation_Custom_Script.sh."
     local copy_again="Copy the files from dietpi-first-boot.zip to the card again."
     umask 077
     if ! read_settings <(settings_region "$self") wifi; then
@@ -848,7 +848,7 @@ function memory_floor_ok() {
         [ "$key" = MemTotal: ] || continue
         [[ $kb =~ ^[0-9]{1,12}$ ]] || return 0
         [ $((10#$kb / 1024)) -lt "$RX_FLOOR_MIB" ] || return 0
-        error "This board has $((10#$kb / 1024)) MiB of memory, under the $RX_FLOOR_MIB MiB RandomX's fast mode needs. Add light = yes to the settings to mine in the slower light mode, and flash the card again."
+        error "This board has $((10#$kb / 1024)) MiB of memory, under the $RX_FLOOR_MIB MiB RandomX's fast mode needs. Flash the card again, copy the files from dietpi-first-boot.zip onto it, then add light = yes to the settings at the top of Automation_Custom_Script.sh to mine in the slower light mode."
         return 1
     done <"$MEMINFO"
     return 0

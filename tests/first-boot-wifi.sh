@@ -48,7 +48,7 @@ script="$root/scripts/first_boot.sh"
 [ -f "$root/templates/dietpi.txt" ] || { echo "FAIL no templates/dietpi.txt"; exit 1; }
 mode_of() { stat -c '%a %u' "$1" 2>/dev/null || stat -f '%Lp %u' "$1"; }
 me=$(id -u)
-remedy="Fix it in the settings at the top of Automation_Custom_Script.sh on your computer and flash the card again."
+remedy="Flash the card again, copy the files from dietpi-first-boot.zip onto it, then fix it in the settings at the top of Automation_Custom_Script.sh."
 W=44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A
 # A made-up key, never a real network's.
 KEY='not-a-real-key-42'

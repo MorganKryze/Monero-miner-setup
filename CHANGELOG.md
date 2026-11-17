@@ -9,17 +9,22 @@ Every release of Monero-miner-setup, newest first. The format follows
 ### Changed
 
 - The native installer, the Docker container and the DietPi first boot mine on MoneroOcean over TLS by default: a MoneroOcean host with no port gets port 20000 + n (20001 to 28192) where it got 10000 + n. `stratum+tcp://gulf.moneroocean.stream` mines in clear text as before.
-- A Docker install whose `POOL_URL` is a MoneroOcean host with no port moves to TLS at its next start on the new image. Native kept configs stay in clear text until regenerated; the installer warns with the flags that bring TLS, `make update` doesn't. [Upgrading from 0.1.x or 0.2.0-rc.x](README.md#upgrading-from-01x-or-020-rcx) gives the steps.
+- A Docker install whose `POOL_URL` is a MoneroOcean host with no port moves to TLS at its next start on the new image. Native kept configs stay in clear text until regenerated; the installer warns with the flags that bring TLS, `make update` doesn't. [Upgrading from 0.1.x or 0.2.0-rc.x](docs/upgrading.md#upgrading-from-01x-or-020-rcx) gives the steps.
 - A network that blocks ports 20001 to 28192 stops mining on the new default. Open those ports, or mine in clear text with `stratum+tcp://gulf.moneroocean.stream` (`--pool`, or `POOL_URL` in `docker/.env`).
+- The README is a short tour: what you get, which install to pick and whether it pays. The full guide moved to nine pages under `docs/`, listed in [the docs index](docs/README.md), with a new page on earnings.
 
 ### Added
 
 - `--tls-fingerprint` for both installers, `TLS_FINGERPRINT` in `docker/.env` and `tls_fingerprint` in the DietPi settings: pin your TLS pool's certificate sha256, 64 hex digits or colon-separated pairs.
 - Wi-Fi for the DietPi first boot: `wifi_ssid`, `wifi_key` and `wifi_country` in the settings, with `Automation_Custom_PreScript.sh`, the zip's third file, on the card. DietPi tries the WPA-PSK network first and the cable when Wi-Fi fails. The setup removes the key from the card's script and its own copy; DietPi keeps it, root-only, as the derived PSK. Settings that ask for Wi-Fi without the pre-script on the card stop the setup with one journal line and a steady LED.
 
+### Fixed
+
+- The first-boot remedies for a bad setting and for too little memory now say to flash the card again, then copy the files from `dietpi-first-boot.zip`, then fix the settings. They said to fix the settings and then flash the card, which wiped the fix.
+
 ### Security
 
-- The default pool's certificate is pinned to MoneroOcean's. A certificate that doesn't match stops mining (`Failed to verify server certificate fingerprint`) instead of mining for whoever answered; the README's troubleshooting entry gives the fixes.
+- The default pool's certificate is pinned to MoneroOcean's. A certificate that doesn't match stops mining (`Failed to verify server certificate fingerprint`) instead of mining for whoever answered; [Troubleshooting](docs/troubleshooting.md) gives the fixes.
 
 ## [0.2.0-rc.2] - 2026-11-13
 
@@ -72,7 +77,7 @@ Every release of Monero-miner-setup, newest first. The format follows
 ## [0.1.0] - 2026-11-07
 
 The first tagged release. Installed before it? Read
-[Upgrading an install made before 0.1.0](README.md#upgrading-an-install-made-before-010) first:
+[Upgrading an install made before 0.1.0](docs/upgrading.md#upgrading-an-install-made-before-010) first:
 some steps are yours to run.
 
 ### Added

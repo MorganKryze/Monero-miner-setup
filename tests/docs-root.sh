@@ -1,24 +1,24 @@
 #!/bin/bash
-# The README's "What runs as root" names every command the Makefile and the scripts run through
-# sudo: the subcommand of systemctl and apt-get, the program otherwise, and the path that rm and
-# install write, each in backticks. A sudo -u runs as that account, not as root, and a printed hint
-# runs nothing. A new root step without its README line fails here.
-# Reads the repository root, or the directory given as $1 (tests/readme-root-fixtures.sh points it
+# The "What runs as root" section of docs/security.md names every command the Makefile and the
+# scripts run through sudo: the subcommand of systemctl and apt-get, the program otherwise, and the
+# path that rm and install write, each in backticks. A sudo -u runs as that account, not as root,
+# and a printed hint runs nothing. A new root step without its line there fails here.
+# Reads the repository root, or the directory given as $1 (tests/docs-root-fixtures.sh points it
 # at a copy with a change planted).
 set -u
 
-cd -- "${1:-.}" || { echo "FAIL readme-root: no directory ${1:-.}"; exit 1; }
+cd -- "${1:-.}" || { echo "FAIL docs-root: no directory ${1:-.}"; exit 1; }
 
-README=README.md
+PAGE=docs/security.md
 failed=0
 function fail() {
     echo "FAIL $*"
     failed=1
 }
 
-[ -f "$README" ] || { echo "FAIL readme-root: no $README"; exit 1; }
-section=$(sed -n '/^### What runs as root$/,/^##/p' "$README" | sed '1d;$d')
-[ -n "$section" ] || { echo "FAIL readme-root: $README has no What runs as root section"; exit 1; }
+[ -f "$PAGE" ] || { echo "FAIL docs-root: no $PAGE"; exit 1; }
+section=$(sed -n '/^## What runs as root$/,/^## /p' "$PAGE" | sed '1d;$d')
+[ -n "$section" ] || { echo "FAIL docs-root: $PAGE has no What runs as root section"; exit 1; }
 
 # True when the section holds $1 as a code span, or as the start of one.
 function named() {
@@ -53,7 +53,7 @@ function resolve() {
 
 case $section in
     *'The service runs the miner as root only with `--service-as-root`.'*) ;;
-    *) fail "$README: What runs as root does not say the service runs the miner as root only with --service-as-root" ;;
+    *) fail "$PAGE: What runs as root does not say the service runs the miner as root only with --service-as-root" ;;
 esac
 
 # Checks the command that follows one sudo: $1 is the file, $2 its file:line, $3 the command.
@@ -64,19 +64,19 @@ function check_command() {
     read -ra words <<< "$cmd"
     count=$((count + 1))
     case ${words[0]} in
-        systemctl) named "systemctl ${words[1]}" || named "${words[1]}" || fail "$README does not name systemctl ${words[1]}, which $at runs through sudo" ;;
-        apt-get) named "apt-get ${words[1]}" || fail "$README does not name apt-get ${words[1]}, which $at runs through sudo" ;;
+        systemctl) named "systemctl ${words[1]}" || named "${words[1]}" || fail "$PAGE does not name systemctl ${words[1]}, which $at runs through sudo" ;;
+        apt-get) named "apt-get ${words[1]}" || fail "$PAGE does not name apt-get ${words[1]}, which $at runs through sudo" ;;
         rm | install)
             named "${words[0]} ${words[1]}" || named "${words[0]}" ||
-                fail "$README does not name ${words[0]} ${words[1]}, which $at runs through sudo"
+                fail "$PAGE does not name ${words[0]} ${words[1]}, which $at runs through sudo"
             target=$(resolve "$file" "${words[${#words[@]} - 1]}")
             if [ -z "$target" ]; then
                 fail "the path $at writes through sudo could not be read"
             else
-                named "$target" || fail "$README does not name $target, which $at writes through sudo"
+                named "$target" || fail "$PAGE does not name $target, which $at writes through sudo"
             fi
             ;;
-        *) named "${words[0]}" || fail "$README does not name ${words[0]}, which $at runs through sudo" ;;
+        *) named "${words[0]}" || fail "$PAGE does not name ${words[0]}, which $at runs through sudo" ;;
     esac
 }
 
@@ -99,4 +99,4 @@ done < <(grep -nE '(^|[[:space:];&|(!@])sudo ' Makefile scripts/*.sh |
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
-echo "PASS readme-root ($count sudo commands)"
+echo "PASS docs-root ($count sudo commands)"
