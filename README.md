@@ -50,7 +50,7 @@ bash -c "${installer:?the download came back empty}" -- \
   -w YOUR_MONERO_WALLET
 ```
 
-Then `make status` in the clone shows it running. [Native install](docs/native-install.md) gives every flag, the service as root and the tuning.
+macOS starts the miner on its own. On Linux, run `make start` in the clone (`~/Monero-miner-setup`, or `/opt/Monero-miner-setup` as root), and `make status` shows it running. [Native install](docs/native-install.md) gives every flag, the service as root and the tuning.
 
 ### With Docker
 
