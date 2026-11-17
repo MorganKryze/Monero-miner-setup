@@ -6,6 +6,8 @@ Every release of Monero-miner-setup, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.2.0-rc.3] - 2026-11-17
+
 ### Changed
 
 - The native installer, the Docker container and the DietPi first boot mine on MoneroOcean over TLS by default: a MoneroOcean host with no port gets port 20000 + n (20001 to 28192) where it got 10000 + n. `stratum+tcp://gulf.moneroocean.stream` mines in clear text as before.
@@ -128,6 +130,7 @@ some steps are yours to run.
 - Dependabot auto-merges only GitHub Actions patch and minor bumps, once CI is green. XMRig, bash-toolbox, base image and Gluetun bumps wait for review.
 - The README's install commands use `curl -fsSL` and stop with an error when the download fails or comes back empty.
 
+[0.2.0-rc.3]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.2.0-rc.3
 [0.2.0-rc.2]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.2.0-rc.2
 [0.2.0-rc.1]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.2.0-rc.1
 [0.1.1]: https://github.com/MorganKryze/Monero-miner-setup/releases/tag/v0.1.1

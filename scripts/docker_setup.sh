@@ -5,7 +5,7 @@
 # the stack up.
 
 # ===== Constants =====
-VERSION="0.2.0-rc.2"
+VERSION="0.2.0-rc.3"
 REPO_URL="https://github.com/MorganKryze/Monero-miner-setup.git"
 REPO_NAME="Monero-miner-setup"
 PROJECT_URL="https://github.com/MorganKryze/Monero-miner-setup"
