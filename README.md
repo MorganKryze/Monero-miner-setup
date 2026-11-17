@@ -70,7 +70,7 @@ Rarely, and the hardware never does. Your coins a day are:
 XMR/day = H/s × 86 400 × block reward / network difficulty
 ```
 
-On 2026-11-16 two cooled Raspberry Pi 5 in `eco` mined 800 H/s together: about 0.0015 XMR a month, or 0.72 EUR at 479 EUR/XMR. At 0.20 EUR/kWh you break even at about 160 H/s per watt. A Pi 5 in `eco` gives about 57 H/s per watt, an estimate until its wall power is measured. So mining pays only with free power. A board bought to mine never pays itself back.
+On 2026-11-16 two cooled Raspberry Pi 5 in `eco` mined 800 H/s together: about 0.0015 XMR a month, or 0.72 EUR at 479 EUR/XMR. At 0.20 EUR/kWh you break even at about 160 H/s per watt. A Pi 5 in `eco` gives about 57 H/s per watt, an estimate until its wall power is measured. So mining pays only with free or cheap power. A board bought to mine never pays itself back.
 
 [Does it pay?](docs/earnings.md) redoes the sum step by step, with the command for today's numbers, the power cost, MoneroOcean's payouts and the bandwidth.
 

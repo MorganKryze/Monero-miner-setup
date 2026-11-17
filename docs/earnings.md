@@ -12,11 +12,11 @@ Your share of the coins a day is your hashrate over the network's, times the coi
 XMR/day = H/s × 86 400 × block reward / network difficulty
 ```
 
-86 400 is the seconds in a day. The network finds a block every 120 seconds on average, so its hashrate is the difficulty divided by 120. The pool's fee and the luck of each round shift the result a little; the formula gives the average.
+86 400 is the seconds in a day. The network finds a block every 120 seconds on average, so its hashrate is the difficulty divided by 120. MoneroOcean takes no fee on PPLNS today. The luck of each round shifts the result a little, and the formula gives the average.
 
 ## Today's numbers
 
-The difficulty and the block reward move every block. MoneroOcean's public API gives both, the reward already in XMR:
+The difficulty and the block reward move every block. MoneroOcean's public API gives both, the reward in piconero, which the command divides by 1e12 to get XMR:
 
 ```bash
 curl -fsSL https://api.moneroocean.stream/network/stats | jq '."18081" | {difficulty, reward_xmr: (.value / 1e12)}'
@@ -49,7 +49,7 @@ A watt drawn all month is 0.73 kWh (730 hours):
 electricity a month = watts × 0.73 kWh × price per kWh
 ```
 
-Measure the watts at the wall, with a plug-in meter. `make status` takes them as `WALL_WATTS` and gives you the cost per day (see [Dedicated board](boards.md#dedicated-board---mode)).
+Measure the watts at the wall, with a plug-in meter. Give them to `make status` with your price per kWh, as in `make status WALL_WATTS=9.5 KWH_PRICE=0.25`, and it prints the cost per day (see [Dedicated board](boards.md#dedicated-board---mode)).
 
 A Pi 5 in `eco` mines about 57 H/s per watt, so about 7 W at the wall for 400 H/s. That's an estimate until the wall power is measured: the board's own PMIC reading leaves out the power supply. Two boards at 7 W and 0.20 EUR/kWh cost 14 × 0.73 × 0.20 ≈ 2.04 EUR a month, nearly three times the 0.72 EUR they earn.
 
