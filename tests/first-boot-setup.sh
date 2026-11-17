@@ -260,7 +260,7 @@ done
 board small
 printf 'MemTotal:        2014000 kB\n' > "$w/small/meminfo"
 same "memory under the floor" "$ssh_line
-[  ERROR  ] This board has 1966 MiB of memory, under the 2560 MiB RandomX's fast mode needs. Add light = yes to the settings to mine in the slower light mode, and flash the card again.
+[  ERROR  ] This board has 1966 MiB of memory, under the 2560 MiB RandomX's fast mode needs. Flash the card again, copy the files from dietpi-first-boot.zip onto it, then add light = yes to the settings at the top of Automation_Custom_Script.sh to mine in the slower light mode.
 exit 1" "$(run small)"
 same "small: SSH off first" "$ssh_run" "$(calls)"
 same "small: error LED" "none 255" "$(led small)"
