@@ -2,7 +2,8 @@
 # The defaults the docs list are the ones the installers use. Reads README.md and docs/*.md as one
 # text: each flag line of the "Common flags" lists holds, once across them, in backticks, the value of the constant behind it (or "none" for an
 # empty one), and the minimal docker run uses the Docker defaults and the compose file's
-# no-new-privileges. A default changed in a script without its docs line fails here.
+# no-new-privileges, and each first-boot setting the docs give with a fixed-choice value uses one
+# scripts/first_boot.sh takes. A default changed in a script without its docs line fails here.
 set -u
 
 failed=0
@@ -178,6 +179,18 @@ esac
 if grep -nF 'the default connection has no TLS' <<<"$all"; then
     fail "the docs: still says the default connection has no TLS"
 fi
+# A first-boot setting with a fixed set of values (mode, light, mdns in scripts/first_boot.sh): each
+# `name = value` the docs give is one of them, since any other value stops the setup.
+F=scripts/first_boot.sh
+choices=$(grep -E '^[[:space:]]+[a-z_]+\) \[\[ \$value =~ \^\([a-z|]+\)\$ \]\]' "$F")
+[ -n "$choices" ] || fail "$F: no setting with a fixed set of values found"
+while IFS= read -r span; do
+    span=${span//\`/}
+    name=${span%% = *} value=${span#* = }
+    re=$(grep -E "^[[:space:]]+$name\) " <<<"$choices") || continue
+    re=${re#*=~ } re=${re%% \]\]*}
+    [[ $value =~ $re ]] || fail "the docs: give \`$span\`, which $F refuses ($re)"
+done < <(grep -oE '`[a-z_]+ = [^`]*`' <<<"$all")
 
 if [ "$failed" -ne 0 ]; then
     exit 1
