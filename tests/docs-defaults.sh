@@ -147,10 +147,11 @@ for want in "mines on MoneroOcean without TLS. To switch to TLS" "\`make update\
 done
 grep -qxF '## Upgrading an install made before 0.1.0' docs/upgrading.md ||
     fail "docs/upgrading.md: no 'Upgrading an install made before 0.1.0' heading, which CHANGELOG.md links"
-unreleased=$(awk '/^## \[Unreleased\]/ { on = 1; next } on && /^## / { exit } on' CHANGELOG.md)
+# The note sits in [Unreleased] until a release, then in the newest release section: read both.
+unreleased=$(awk '/^## \[Unreleased\]/ { on = 1; next } on && /^## \[[0-9]/ { n++; if (n > 1) exit } on' CHANGELOG.md)
 case $unreleased in
     *"blocks ports 20001 to 28192"*"stratum+tcp://gulf.moneroocean.stream"*) ;;
-    *) fail "CHANGELOG.md: [Unreleased] does not say a network blocking 20001 to 28192 stops mining, and the stratum+tcp:// way out" ;;
+    *) fail "CHANGELOG.md: neither [Unreleased] nor the newest release says a network blocking 20001 to 28192 stops mining, and the stratum+tcp:// way out" ;;
 esac
 # A MoneroOcean URL with no port gets the computed one on both paths, and the container gives other
 # portless hosts :3333; the docs that say "used as given" say so, and take openssl's colon form.
