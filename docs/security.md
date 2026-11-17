@@ -44,7 +44,7 @@ The installers fetch from the sources below and nothing else. All of it comes ov
 
 | What | From | When |
 | --- | --- | --- |
-| The installer | `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh` | the [install commands](../README.md#install) |
+| The installer | `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/install.sh` | the install commands of the [native install](native-install.md#install) and [Docker](docker.md#install-with-the-prebuilt-image) pages |
 | Its log helpers (bash-toolbox) | your clone's submodule, else `https://raw.githubusercontent.com/MorganKryze/bash-toolbox/<commit>/src/prefix.sh` at the commit `dependencies/bash-toolbox` pins | every native install (`--docker` hands off before it loads them) |
 | The Docker installer | your clone's copy, else `https://raw.githubusercontent.com/MorganKryze/Monero-miner-setup/main/scripts/docker_setup.sh` | `--docker` |
 | The repository | `https://github.com/MorganKryze/Monero-miner-setup.git`, its submodules at the commits it pins: `https://github.com/MoneroOcean/xmrig.git`, `https://github.com/MorganKryze/bash-toolbox.git` | when there's no clone yet |
